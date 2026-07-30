@@ -10,6 +10,8 @@ typed assets, scenes, shots, timeline ordering, and validation. Sprint 3 adds a
 Film Compiler that turns that model into a deterministic, portable Film Package.
 Atlas Runtime consumes that package as ordered, renderer-independent work; it
 tracks lifecycle and progress while leaving execution to application code.
+The generic Plugin Framework discovers and manages optional extensions without
+introducing renderer or product-shell dependencies.
 
 ## Requirements
 
@@ -37,6 +39,7 @@ black --check .
 | `src/cineos/core/` | Movie project, asset registry, timeline, and validation models |
 | `src/cineos/compiler/` | Deterministic Film Package compilation, serialization, hashing, and validation |
 | `src/cineos/atlas/` | Renderer contracts and renderer-independent package runtime orchestration |
+| `src/cineos/plugins/` | Generic plugin discovery, compatibility, dependencies, and lifecycle management |
 | `docs/` | Architecture and project planning |
 | `tests/` | Automated tests |
 | `scripts/` | Development and automation entry points |
@@ -109,6 +112,39 @@ assert job.progress == 1.0
 Use `prepare()` and `run()` separately to inspect or cancel a pending job before
 dispatch. Tasks follow the Film Package timeline rather than manifest insertion
 order.
+
+## Plugin Framework
+
+The renderer-independent plugin framework supports installed entry-point
+discovery (`cineos.plugins`) and explicit trusted plugin directories. Each
+plugin declares immutable metadata including its semantic version, required
+framework API version, and version-constrained plugin dependencies. The
+`PluginManager` validates compatibility and dependency order, then owns load,
+enable, disable, and unload lifecycle transitions.
+
+```python
+from cineos.plugins import Plugin, PluginManager, PluginMetadata
+
+class ProductionExtension(Plugin):
+    metadata = PluginMetadata(
+        name="production-extension",
+        version="1.0.0",
+        api_version="1.0.0",
+    )
+
+    def on_load(self, context):
+        self.project = context
+
+manager = PluginManager(context=project)
+manager.load(ProductionExtension())
+manager.disable("production-extension")
+manager.unload("production-extension")
+```
+
+Plugin lifecycle hooks receive only application-provided context. The
+framework does not import Atlas, select a renderer, or define rendering hooks;
+plugins can extend any CINEOS integration boundary. Disabling or unloading a
+plugin is rejected while enabled or loaded dependents still require it.
 
 ## Contributing
 
