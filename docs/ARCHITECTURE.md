@@ -29,6 +29,8 @@ implementations are introduced.
 - `nova/` is reserved for creative workflow coordination.
 - `src/cineos/compiler/` owns deterministic validation and transformation of
   core project descriptions into versioned Film Packages.
+- `src/cineos/plugins/` owns generic extension discovery, metadata,
+  compatibility, dependency resolution, and lifecycle coordination.
 - `studio/` is reserved for user-facing production tools and orchestration.
 - `renderer/` marks the rendering boundary. No renderer is implemented in this
   foundation.
@@ -102,6 +104,27 @@ makes local, remote, and future execution integrations replaceable. The
 existing renderer SDK remains an optional boundary; runtime modules do not
 depend on a concrete backend.
 
+## Plugin Framework
+
+`cineos.plugins` is a generic extension boundary rather than an Atlas or
+renderer extension system. Plugins provide immutable identity, semantic
+version, framework API compatibility, and dependency metadata. They may be
+discovered through the `cineos.plugins` packaging entry-point group or from an
+explicitly trusted directory; discovery is separate from lifecycle ownership.
+
+`PluginManager` validates a candidate before registration, loads groups in
+dependency order, and guarantees explicit load, enable, disable, and unload
+transitions. Dependencies must be present, version-compatible, and enabled.
+Dependents protect their dependencies from premature disable or unload, and
+bulk teardown proceeds in reverse dependency order. Lifecycle failures are
+reported as framework errors without assuming a renderer, GPU, model, Film
+Package consumer, or user interface.
+
+Application code decides what context a plugin receives and which interfaces
+it may extend. Core Project Model, Film Compiler, and Atlas Runtime do not
+import plugins or change their deterministic contracts when plugins are
+present. This preserves one-way dependencies and makes extensions optional.
+
 ## Data and interface evolution
 
 Persistent and exchanged data formats will be versioned. Readers should reject
@@ -113,5 +136,6 @@ stable.
 
 Packaging, quality tooling, the core project model, and deterministic Film
 Package compilation are established. Atlas Runtime now provides package task
-orchestration. Rendering, GPU integrations, and AI models remain deliberately
-outside the current foundation.
+orchestration. The Plugin Framework provides optional, renderer-independent
+extension lifecycle management. Rendering, GPU integrations, and AI models
+remain deliberately outside the current foundation.
