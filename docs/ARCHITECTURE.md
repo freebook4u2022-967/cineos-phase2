@@ -25,8 +25,8 @@ implementations are introduced.
   cross-subsystem interfaces. It must remain independent of product shells.
 - `atlas/` owns asset identity, metadata, and provenance concerns.
 - `nova/` is reserved for creative workflow coordination.
-- `compiler/` is reserved for deterministic validation and transformation of
-  project descriptions into runtime-ready representations.
+- `src/cineos/compiler/` owns deterministic validation and transformation of
+  project descriptions into portable Film Packages.
 - `studio/` is reserved for user-facing production tools and orchestration.
 - `renderer/` marks the rendering boundary. No renderer is implemented in this
   foundation.
@@ -54,8 +54,31 @@ unsupported versions with actionable errors; migrations must be explicit and
 tested. Public interfaces follow semantic versioning once they are declared
 stable.
 
+## Film Compiler
+
+The Film Compiler is a pure data boundary between project authoring and future
+consumers. It accepts a `MovieProject`-shaped mapping, dataclass, or object and
+emits a `FilmPackage` with these sections:
+
+- project metadata;
+- scene, shot, character, location, and asset manifests;
+- a timeline manifest;
+- a SHA-256 hash for each section and the complete unhashed package payload;
+- an explicit Film Package format version.
+
+Mapping keys are encoded in sorted order, JSON uses stable compact separators,
+and entity manifests are sorted by canonical JSON. Timeline array order remains
+significant because it describes playback order. Unsupported Python values and
+non-finite floating-point values are rejected rather than serialized
+ambiguously.
+
+Packages persist as UTF-8 JSON. Writes are atomic, and reads validate structure,
+version, and hashes before returning a package. This subsystem does not resolve
+assets, invoke creative models, or render frames; Atlas, NOVA, and rendering
+remain separate architectural boundaries.
+
 ## Current status
 
-Only packaging, quality tooling, documentation, and a minimal importable Python
-namespace are established. Runtime pipelines, renderer behavior, and AI models
-are deliberately outside the current foundation.
+The deterministic Film Compiler and its JSON package format are implemented.
+Runtime rendering, Atlas behavior, NOVA behavior, and AI models remain outside
+the current scope.

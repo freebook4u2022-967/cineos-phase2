@@ -4,8 +4,8 @@ CINEOS Phase 2 is the foundation for an open, modular cinematic production
 platform. This repository establishes the project structure, engineering
 standards, and architectural boundaries that future implementations will use.
 
-Phase 2 is intentionally foundation-first. It does **not** include a renderer
-or placeholder AI models.
+Phase 2 is intentionally foundation-first. Sprint 3 adds a deterministic Film
+Compiler, but does **not** include a renderer or placeholder AI models.
 
 ## Requirements
 
@@ -30,6 +30,7 @@ black --check .
 | Path | Purpose |
 | --- | --- |
 | `src/cineos/` | Shared Python package and public interfaces |
+| `src/cineos/compiler/` | Deterministic Film Package compiler and persistence |
 | `docs/` | Architecture and project planning |
 | `tests/` | Automated tests |
 | `scripts/` | Development and automation entry points |
@@ -43,6 +44,37 @@ black --check .
 
 See [the architecture](docs/ARCHITECTURE.md) for dependency principles and
 [the roadmap](docs/ROADMAP.md) for planned work.
+
+## Film Compiler
+
+The compiler accepts a `MovieProject`-like dataclass or object, or a mapping,
+with `metadata`, `scenes`, `shots`, `characters`, `locations`, `assets`, and
+`timeline` fields. It produces a versioned `FilmPackage` containing normalized
+manifests and SHA-256 content hashes. Compilation and compact JSON output are
+deterministic, including when entity manifest input order differs.
+
+```python
+from cineos.compiler import compile, load, save, verify
+
+project = {
+    "metadata": {"title": "Example", "fps": 24},
+    "scenes": [{"id": "scene-1"}],
+    "shots": [{"id": "shot-1", "scene_id": "scene-1"}],
+    "characters": [],
+    "locations": [],
+    "assets": [],
+    "timeline": [{"shot_id": "shot-1", "start_frame": 0}],
+}
+
+package = compile(project)
+assert verify(package)
+save(package, "example.film.json")
+restored = load("example.film.json")
+```
+
+`load` validates the format version, required manifest shapes, and every
+content hash. The compiler only constructs portable package data; it performs
+no rendering and has no Atlas or NOVA integration.
 
 ## Contributing
 
