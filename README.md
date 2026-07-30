@@ -8,6 +8,8 @@ Phase 2 is intentionally foundation-first. It does **not** include a renderer
 or placeholder AI models. The renderer-independent core project model provides
 typed assets, scenes, shots, timeline ordering, and validation. Sprint 3 adds a
 Film Compiler that turns that model into a deterministic, portable Film Package.
+Atlas Runtime consumes that package as ordered, renderer-independent work; it
+tracks lifecycle and progress while leaving execution to application code.
 
 ## Requirements
 
@@ -34,6 +36,7 @@ black --check .
 | `src/cineos/` | Shared Python package and public interfaces |
 | `src/cineos/core/` | Movie project, asset registry, timeline, and validation models |
 | `src/cineos/compiler/` | Deterministic Film Package compilation, serialization, hashing, and validation |
+| `src/cineos/atlas/` | Renderer contracts and renderer-independent package runtime orchestration |
 | `docs/` | Architecture and project planning |
 | `tests/` | Automated tests |
 | `scripts/` | Development and automation entry points |
@@ -87,6 +90,25 @@ restored = load("film-package.json")
 `save(package)` also returns canonical JSON without writing a file, and `load`
 accepts canonical JSON or a decoded mapping. Compilation only creates portable
 metadata: it does not render media or invoke Atlas or NOVA.
+
+## Atlas Runtime
+
+Atlas Runtime validates a `FilmPackage`, converts its timeline into ordered
+shot tasks, and tracks job state, progress, results, cancellation, and errors.
+Applications supply a task handler at the integration boundary. The runtime
+does not include a renderer, GPU integration, or AI model.
+
+```python
+from cineos.atlas import AtlasRuntime
+
+runtime = AtlasRuntime()
+job = runtime.execute(package, lambda task: dispatch_to_application(task))
+assert job.progress == 1.0
+```
+
+Use `prepare()` and `run()` separately to inspect or cancel a pending job before
+dispatch. Tasks follow the Film Package timeline rather than manifest insertion
+order.
 
 ## Contributing
 

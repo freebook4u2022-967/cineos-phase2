@@ -24,6 +24,8 @@ implementations are introduced.
 - `src/cineos/` contains the shared Python namespace, stable value types, and
   cross-subsystem interfaces. It must remain independent of product shells.
 - `atlas/` owns asset identity, metadata, and provenance concerns.
+- `src/cineos/atlas/` owns renderer contracts and the renderer-independent
+  runtime that schedules Film Package tasks.
 - `nova/` is reserved for creative workflow coordination.
 - `src/cineos/compiler/` owns deterministic validation and transformation of
   core project descriptions into versioned Film Packages.
@@ -86,6 +88,20 @@ The compiler has no Atlas or NOVA dependency. Future consumers may read the
 Film Package contract but must not introduce rendering behavior into compiler
 modules.
 
+## Atlas Runtime
+
+`cineos.atlas.runtime` is a one-way consumer of the versioned Film Package
+contract. It verifies every package before deriving immutable task views in the
+explicit timeline order. Runtime jobs expose pending, running, completed,
+failed, and cancelled states together with progress and per-shot results.
+
+Atlas Runtime dispatches tasks only through an application-supplied callable.
+It does not select or implement a renderer, allocate GPU resources, load an AI
+model, or interpret task results. This keeps orchestration deterministic and
+makes local, remote, and future execution integrations replaceable. The
+existing renderer SDK remains an optional boundary; runtime modules do not
+depend on a concrete backend.
+
 ## Data and interface evolution
 
 Persistent and exchanged data formats will be versioned. Readers should reject
@@ -96,5 +112,6 @@ stable.
 ## Current status
 
 Packaging, quality tooling, the core project model, and deterministic Film
-Package compilation are established. Rendering and AI models remain
-deliberately outside the current foundation.
+Package compilation are established. Atlas Runtime now provides package task
+orchestration. Rendering, GPU integrations, and AI models remain deliberately
+outside the current foundation.
