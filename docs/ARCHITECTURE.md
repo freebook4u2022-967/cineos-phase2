@@ -47,6 +47,26 @@ adapters, and benchmark code remains outside runtime dependencies.
 Dependencies between top-level subsystems require an explicit interface and an
 architecture review. Cycles between subsystems are prohibited.
 
+## Core project model
+
+`cineos.core` is the operating-system-level domain model and has no renderer or
+AI dependencies. `MovieProject` owns production settings and collections of
+typed assets and scenes. A `Scene` owns ordered `Shot` values; asset references
+are stored as stable IDs rather than object pointers so projects remain easy to
+serialize and validate.
+
+`AssetRegistry` allocates project-local IDs and separates characters,
+environments, and props. `Timeline` records the canonical scene order and each
+scene's shot order. It also checks that a scene's declared duration equals the
+sum of its shots. `ProjectValidator` is the cross-object integrity boundary: it
+checks empty and duplicate IDs, asset references, durations, and agreement
+between the timeline and project collections.
+
+The core deliberately does not generate creative content, compile scenes, or
+render frames. Atlas, NOVA, compiler, studio, and renderer integrations must
+consume the core through explicit future interfaces rather than adding their
+behavior to these domain values.
+
 ## Data and interface evolution
 
 Persistent and exchanged data formats will be versioned. Readers should reject
@@ -56,6 +76,6 @@ stable.
 
 ## Current status
 
-Only packaging, quality tooling, documentation, and a minimal importable Python
-namespace are established. Runtime pipelines, renderer behavior, and AI models
-are deliberately outside the current foundation.
+Packaging, quality tooling, and the core project model are established. Runtime
+pipelines, renderer behavior, and AI models remain deliberately outside the
+current foundation.
