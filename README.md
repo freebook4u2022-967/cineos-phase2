@@ -30,6 +30,7 @@ black --check .
 | Path | Purpose |
 | --- | --- |
 | `src/cineos/` | Shared Python package and public interfaces |
+| `src/cineos/plugins/` | Generic plugin discovery and lifecycle framework |
 | `docs/` | Architecture and project planning |
 | `tests/` | Automated tests |
 | `scripts/` | Development and automation entry points |
@@ -42,7 +43,8 @@ black --check .
 | `benchmarks/` | Reproducible performance evaluation |
 
 See [the architecture](docs/ARCHITECTURE.md) for dependency principles and
-[the roadmap](docs/ROADMAP.md) for planned work.
+[the roadmap](docs/ROADMAP.md) for planned work. Plugin authors should also
+read the [plugin framework guide](docs/PLUGINS.md).
 
 ## Contributing
 

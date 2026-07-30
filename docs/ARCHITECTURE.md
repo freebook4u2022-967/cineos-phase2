@@ -23,6 +23,9 @@ implementations are introduced.
 
 - `src/cineos/` contains the shared Python namespace, stable value types, and
   cross-subsystem interfaces. It must remain independent of product shells.
+  Its `plugins` package provides generic extension discovery, metadata,
+  dependency checks, and lifecycle orchestration without subsystem-specific
+  capabilities.
 - `atlas/` owns asset identity, metadata, and provenance concerns.
 - `nova/` is reserved for creative workflow coordination.
 - `compiler/` is reserved for deterministic validation and transformation of
@@ -56,6 +59,6 @@ stable.
 
 ## Current status
 
-Only packaging, quality tooling, documentation, and a minimal importable Python
-namespace are established. Runtime pipelines, renderer behavior, and AI models
-are deliberately outside the current foundation.
+Packaging, quality tooling, documentation, and a generic plugin framework are
+established. Runtime pipelines, renderer behavior, AI models, and GPU-specific
+behavior are deliberately outside the current foundation.
