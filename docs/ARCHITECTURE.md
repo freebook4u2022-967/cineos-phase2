@@ -25,8 +25,8 @@ implementations are introduced.
   cross-subsystem interfaces. It must remain independent of product shells.
 - `atlas/` owns asset identity, metadata, and provenance concerns.
 - `nova/` is reserved for creative workflow coordination.
-- `compiler/` is reserved for deterministic validation and transformation of
-  project descriptions into runtime-ready representations.
+- `src/cineos/compiler/` owns deterministic validation and transformation of
+  core project descriptions into versioned Film Packages.
 - `studio/` is reserved for user-facing production tools and orchestration.
 - `renderer/` marks the rendering boundary. No renderer is implemented in this
   foundation.
@@ -63,9 +63,28 @@ checks empty and duplicate IDs, asset references, durations, and agreement
 between the timeline and project collections.
 
 The core deliberately does not generate creative content, compile scenes, or
-render frames. Atlas, NOVA, compiler, studio, and renderer integrations must
-consume the core through explicit future interfaces rather than adding their
-behavior to these domain values.
+render frames. Atlas, NOVA, compiler, studio, and renderer integrations consume
+the core through explicit interfaces rather than adding their behavior to these
+domain values.
+
+## Film Compiler
+
+`cineos.compiler` is a one-way consumer of `cineos.core`. It first applies the
+core `ProjectValidator`, then copies the project into a `FilmPackage`; it never
+mutates the source project. The package schema includes project metadata plus
+scene, shot, character, location, complete asset, and timeline manifests. It is
+renderer-independent and contains no generated frames or model output.
+
+The format has an explicit version. Serialization uses canonical JSON with
+sorted object keys and fixed separators. SHA-256 hashes cover every manifest
+and the complete unhashed package payload, allowing both deterministic builds
+and detection of modified content. Loading verifies version, manifest identity
+and ordering, structure, and all hashes before returning a package. Unsupported
+versions or invalid packages fail with actionable validation errors.
+
+The compiler has no Atlas or NOVA dependency. Future consumers may read the
+Film Package contract but must not introduce rendering behavior into compiler
+modules.
 
 ## Data and interface evolution
 
@@ -76,6 +95,6 @@ stable.
 
 ## Current status
 
-Packaging, quality tooling, and the core project model are established. Runtime
-pipelines, renderer behavior, and AI models remain deliberately outside the
-current foundation.
+Packaging, quality tooling, the core project model, and deterministic Film
+Package compilation are established. Rendering and AI models remain
+deliberately outside the current foundation.
