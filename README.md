@@ -7,6 +7,30 @@ standards, and architectural boundaries that future implementations will use.
 Phase 2 is intentionally foundation-first. It does **not** include a renderer
 or placeholder AI models.
 
+## Atlas Runtime
+
+The Atlas Runtime queues and executes infrastructure tasks while tracking job
+IDs, lifecycle state, progress, retries, cancellation, logs, and event
+callbacks. Tasks are application-supplied Python callables; the runtime itself
+performs no rendering and uses no GPU or AI model.
+
+```python
+from cineos.runtime import AtlasRuntime, RenderJob
+
+def prepare(context):
+    context.report_progress(0.5)
+    return {"status": "prepared"}
+
+with AtlasRuntime() as runtime:
+    job = RenderJob(prepare, max_retries=1)
+    runtime.submit(job)
+    runtime.run_next().result()
+```
+
+Configuration can be loaded from a JSON file with `load_config`. The environment
+variables `CINEOS_RUNTIME_WORKERS`, `CINEOS_RUNTIME_LOG_LEVEL`, and
+`CINEOS_RUNTIME_SHUTDOWN_TIMEOUT` override file values.
+
 ## Requirements
 
 - Python 3.12

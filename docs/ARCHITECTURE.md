@@ -23,6 +23,10 @@ implementations are introduced.
 
 - `src/cineos/` contains the shared Python namespace, stable value types, and
   cross-subsystem interfaces. It must remain independent of product shells.
+- `src/cineos/runtime/` contains the Atlas infrastructure layer: job lifecycle
+  values, a thread-safe FIFO queue, scheduling, task execution, runtime context,
+  configuration, logging, and synchronous event callbacks. Tasks are plain
+  callables and must cooperate with cancellation through their runtime context.
 - `atlas/` owns asset identity, metadata, and provenance concerns.
 - `nova/` is reserved for creative workflow coordination.
 - `compiler/` is reserved for deterministic validation and transformation of
@@ -56,6 +60,6 @@ stable.
 
 ## Current status
 
-Only packaging, quality tooling, documentation, and a minimal importable Python
-namespace are established. Runtime pipelines, renderer behavior, and AI models
-are deliberately outside the current foundation.
+The Atlas Runtime provides infrastructure for scheduling generic work. It does
+not render media and has no GPU, hardware, or AI integration. Renderer behavior
+and AI models remain deliberately outside the current foundation.
