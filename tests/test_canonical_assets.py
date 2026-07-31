@@ -17,7 +17,9 @@ from cineos.assets import (
 from cineos.assets.exceptions import DuplicateAssetError
 from cineos.assets.storage import load, save
 from cineos.assets.validator import AssetValidator
+from cineos.cli.commands import load_project
 from cineos.cli.main import main
+from cineos.compiler import compile as compile_project
 
 
 def test_reference_round_trip_and_checksum_validation(tmp_path):
@@ -81,3 +83,45 @@ def test_cli_add_show_and_json(tmp_path, capsys, monkeypatch):
     assert main(["assets", "show", asset_id, "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["asset"]["name"] == "Stage"
     assert isinstance(load(tmp_path / "assets.json").get(asset_id), Environment)
+
+
+def test_project_loads_external_assets_and_package_uses_only_ids(tmp_path):
+    registry = AssetRegistry()
+    hero = registry.register(Character(name="Hero"))
+    hero.add_reference("media/hero-front.png", checksum="0" * 64)
+    save(registry, tmp_path / "assets.json")
+    project_path = tmp_path / "project.json"
+    project_path.write_text(
+        json.dumps(
+            {
+                "title": "Film",
+                "author": "Maker",
+                "asset_registry": "assets.json",
+                "asset_ids": [str(hero.asset_id)],
+            }
+        )
+    )
+
+    project = load_project(project_path)
+    package = compile_project(project)
+
+    assert project.asset_registry.retrieve(hero.asset_id).name == "Hero"
+    assert package.asset_manifest == [
+        {
+            "asset_id": str(hero.asset_id),
+            "type": "character",
+            "name": "Hero",
+            "version": 1,
+            "content_hash": hero.content_hash,
+        }
+    ]
+    assert "hero-front.png" not in json.dumps(package.asset_manifest)
+
+
+def test_duplicate_reference_uuids_are_rejected_by_validation():
+    shared = ReferenceImage(file_path="hero.png")
+    registry = AssetRegistry()
+    registry.register(Character(name="Hero", reference_images=[shared]))
+    registry.register(Environment(name="Stage", reference_images=[shared.copy()]))
+
+    assert f"duplicate reference UUID: {shared.reference_id}" in registry.validate()
