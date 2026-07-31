@@ -35,7 +35,7 @@ from cineos.core import (
 from cineos.hardware import probe as probe_hardware
 from cineos.hardware import to_json as hardware_to_json
 from cineos.hardware import to_text as hardware_to_text
-from cineos.plugins import PluginContext, PluginManager
+from cineos.plugins import Plugin, PluginContext, PluginManager, PluginMetadata
 
 from .errors import CLIError, ExitCode
 from .output import Output
@@ -154,7 +154,13 @@ def compile(path: Path, destination: Path, output: Output) -> None:
     )
 
 
-def render(package_path: Path, output_dir: Path, output: Output) -> list[Path]:
+def render(
+    package_path: Path,
+    output_dir: Path,
+    output: Output,
+    *,
+    runtime_log: Path | None = None,
+) -> list[Path]:
     try:
         package = load_package(package_path)
     except (OSError, ValueError, TypeError) as error:
@@ -166,13 +172,13 @@ def render(package_path: Path, output_dir: Path, output: Output) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     registry = RendererRegistry()
-    registry.register("preview", lambda: _PreviewRenderer(output_dir))
     runtime = AtlasRuntime()
     plugin_manager = PluginManager()
     plugin_context = PluginContext(
         services={"renderer_registry": registry, "atlas_runtime": runtime},
         settings={"command": "render", "output_dir": str(output_dir)},
     )
+    plugin_manager.register(_PreviewRendererPlugin(output_dir, registry, package))
     plugin_manager.discover()
     plugin_manager.activate_all(plugin_context)
     adapter = RendererAdapter(registry.create("preview"))
@@ -180,6 +186,16 @@ def render(package_path: Path, output_dir: Path, output: Output) -> list[Path]:
         adapter.initialize()
         adapter.load_model()
         adapter.warmup()
+        metadata = package.project_metadata
+        adapter.capabilities.negotiate(
+            resolution=tuple(metadata["resolution"]),
+            duration=max(
+                (task.shot["duration"] for task in runtime.prepare(package).tasks),
+                default=0,
+            ),
+            fps=metadata["fps"],
+            features=("metadata-preview",),
+        )
         job = runtime.execute(package, adapter.render, job_id="cineos-cli-preview")
     finally:
         try:
@@ -193,6 +209,24 @@ def render(package_path: Path, output_dir: Path, output: Output) -> list[Path]:
     }
     (output_dir / "render-manifest.json").write_text(
         json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    log_path = runtime_log or output_dir / "runtime-log.json"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        json.dumps(
+            {
+                "format": "cineos-runtime-log-v1",
+                "job_id": job.job_id,
+                "state": job.state.value,
+                "completed": job.completed,
+                "progress": job.progress,
+                "results": job.results,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n",
         encoding="utf-8",
     )
     output.success(
@@ -238,11 +272,17 @@ def demo(output_dir: Path, output: Output) -> None:
         scenes=[scene],
         timeline=Timeline([scene.scene_id], {scene.scene_id: [shot.shot_id]}),
     )
+    project_path = output_dir / "project.json"
+    project_path.write_text(
+        json.dumps(_project_to_dict(project), sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
     package_path = output_dir / "film-package.json"
-    save(compile_project(project), package_path)
-    render_dir = output_dir / "renders"
     quiet = _QuietOutput(json_mode=output.json_mode, stderr=output.stderr)
-    render(package_path, render_dir, quiet)
+    compile(project_path, package_path, quiet)
+    render_dir = output_dir / "renders"
+    runtime_log = output_dir / "runtime-log.json"
+    render(package_path, render_dir, quiet, runtime_log=runtime_log)
     movie_path = output_dir / "demo.mp4"
     assemble(
         render_dir,
@@ -252,9 +292,53 @@ def demo(output_dir: Path, output: Output) -> None:
     output.success(
         f"Demo pipeline completed in {output_dir}",
         output_dir=str(output_dir),
+        project=str(project_path),
         package=str(package_path),
+        runtime_log=str(runtime_log),
         movie=str(movie_path),
     )
+
+
+def _project_to_dict(project: MovieProject) -> dict[str, Any]:
+    """Serialize the core fields accepted by :func:`load_project`."""
+
+    return {
+        "title": project.title,
+        "author": project.author,
+        "version": project.version,
+        "fps": project.fps,
+        "resolution": list(project.resolution),
+        "aspect_ratio": project.aspect_ratio,
+        "scenes": [
+            {
+                "scene_id": scene.scene_id,
+                "title": scene.title,
+                "description": scene.description,
+                "location": scene.location,
+                "characters": scene.characters,
+                "duration": scene.duration,
+                "shots": [
+                    {
+                        "shot_id": shot.shot_id,
+                        "camera": shot.camera,
+                        "lens": shot.lens,
+                        "movement": shot.movement,
+                        "lighting": shot.lighting,
+                        "action": shot.action,
+                        "dialogue": shot.dialogue,
+                        "duration": shot.duration,
+                        "references": shot.references,
+                    }
+                    for shot in scene.shots
+                ],
+            }
+            for scene in project.scenes
+        ],
+        "timeline": {
+            "scene_order": project.timeline.scene_order,
+            "shot_order": project.timeline.shot_order,
+        },
+    }
 
 
 def version(output: Output) -> None:
@@ -341,15 +425,17 @@ class _QuietOutput(Output):
 class _PreviewRenderer(BaseRenderer):
     """Deterministic, CPU-only renderer used for pipeline inspection."""
 
-    def __init__(self, output_dir: Path) -> None:
+    def __init__(self, output_dir: Path, resolution: Resolution, fps: float) -> None:
         self.output_dir = output_dir
+        self.resolution = resolution
+        self.fps = fps
 
     @property
     def capabilities(self) -> RendererCapabilities:
         return RendererCapabilities(
-            supported_resolution=(Resolution(1920, 1080),),
+            supported_resolution=(self.resolution,),
             supported_duration=Range(0, float("inf")),
-            supported_fps=(24.0,),
+            supported_fps=(self.fps,),
             supported_features=frozenset({"metadata-preview"}),
         )
 
@@ -378,3 +464,29 @@ class _PreviewRenderer(BaseRenderer):
 
     def shutdown(self) -> None:
         """The preview backend owns no persistent resources."""
+
+
+class _PreviewRendererPlugin(Plugin):
+    """Built-in plugin that contributes the CPU-only preview renderer."""
+
+    metadata = PluginMetadata(
+        "preview-renderer", "1.0.0", "Built-in deterministic preview renderer"
+    )
+
+    def __init__(
+        self, output_dir: Path, registry: RendererRegistry, package: Any
+    ) -> None:
+        self.output_dir = output_dir
+        self.registry = registry
+        self.resolution = Resolution(*package.project_metadata["resolution"])
+        self.fps = package.project_metadata["fps"]
+
+    def activate(self, context: PluginContext) -> None:
+        if context.services["renderer_registry"] is not self.registry:
+            raise ValueError(
+                "preview plugin received an incompatible renderer registry"
+            )
+        self.registry.register(
+            "preview",
+            lambda: _PreviewRenderer(self.output_dir, self.resolution, self.fps),
+        )

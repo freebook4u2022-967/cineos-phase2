@@ -57,8 +57,15 @@ def test_compile_creates_verified_package(tmp_path) -> None:
 def test_demo_runs_integrated_preview_pipeline(tmp_path) -> None:
     destination = tmp_path / "demo"
     assert main(["demo", "--output-dir", str(destination)]) == 0
+    project = json.loads((destination / "project.json").read_text())
+    assert project["title"] == "CINEOS Demo"
     assert (destination / "film-package.json").is_file()
-    assert (destination / "renders" / "demo-shot.preview.json").is_file()
+    rendered = destination / "renders" / "demo-shot.preview.json"
+    assert rendered.is_file()
+    runtime_log = json.loads((destination / "runtime-log.json").read_text())
+    assert runtime_log["state"] == "completed"
+    assert runtime_log["completed"] == ["demo-shot"]
+    assert runtime_log["results"] == {"demo-shot": str(rendered)}
     assert (destination / "demo.mp4").read_bytes().startswith(b"CINEOS-PREVIEW-MOVIE\n")
 
 

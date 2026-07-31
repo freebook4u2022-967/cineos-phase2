@@ -4,9 +4,9 @@ CINEOS Phase 2 is the foundation for an open, modular cinematic production
 platform. This repository establishes the project structure, engineering
 standards, and architectural boundaries that future implementations will use.
 
-Phase 2 is intentionally foundation-first. It does **not** include a renderer
-or placeholder AI models. The renderer-independent core project model provides
-typed assets, scenes, shots, timeline ordering, and validation. Sprint 3 adds a
+Phase 2 is intentionally foundation-first. It does **not** include a production
+renderer or placeholder AI models. The renderer-independent core project model
+provides typed assets, scenes, shots, timeline ordering, and validation. Sprint 3 adds a
 Film Compiler that turns that model into a deterministic, portable Film Package.
 Atlas Runtime consumes that package as ordered, renderer-independent work; it
 tracks lifecycle and progress while leaving execution to application code.
@@ -203,6 +203,20 @@ a deterministic preview container with an `.mp4` filename. It is intended for
 pipeline verification, not media playback or production-quality encoding.
 During rendering, installed CINEOS plugins are activated in stable name order
 with explicit access to the renderer registry and Atlas runtime, then deactivated.
+The built-in preview renderer follows that same plugin contract rather than being
+called directly by the command layer.
+
+The complete integration smoke test is one command:
+
+```bash
+cineos demo --output-dir output/demo
+```
+
+It writes the source `project.json`, compiled `film-package.json`, Atlas
+`runtime-log.json`, per-shot JSON files and `render-manifest.json` under
+`renders/`, and the final `demo.mp4` preview container. The path through those
+artifacts is `MovieProject` → Film Compiler → `FilmPackage` → Atlas Runtime →
+preview renderer plugin → preview assembly.
 
 ## Plugin framework
 
