@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from cineos import __version__
+from cineos.assets.storage import load as load_assets
+from cineos.assets.storage import save as save_assets
 from cineos.atlas import (
     AtlasRuntime,
     BaseRenderer,
@@ -279,6 +281,54 @@ def hardware_report(destination: Path | None, verbose: bool, output: Output) -> 
         output.stdout.write(hardware_to_text(report, verbose=verbose))
         if destination is not None:
             output.stdout.write(f"JSON report written to {destination}\n")
+
+
+def assets(
+    action: str, registry_path: Path, output: Output, destination: Path | None = None
+) -> None:
+    """List, validate, or export a persisted asset registry."""
+
+    try:
+        registry = load_assets(registry_path)
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
+        raise CLIError(
+            f"cannot load asset registry {registry_path}: {error}",
+            code=ExitCode.INPUT,
+        ) from error
+    if action == "validate":
+        if errors := registry.validate():
+            raise CLIError(
+                "asset validation failed: " + "; ".join(errors),
+                code=ExitCode.VALIDATION,
+            )
+        output.success(
+            f"Asset registry is valid: {registry_path}", assets=len(registry)
+        )
+    elif action == "export":
+        assert destination is not None
+        try:
+            save_assets(registry, destination)
+        except OSError as error:
+            raise CLIError(
+                f"cannot export assets: {error}", code=ExitCode.EXECUTION
+            ) from error
+        output.success(
+            f"Exported {len(registry)} asset(s) to {destination}",
+            assets=len(registry),
+            output=str(destination),
+        )
+    else:
+        items = [
+            {"asset_id": str(asset.asset_id), "type": asset.kind, "name": asset.name}
+            for asset in registry.list()
+        ]
+        if output.json_mode:
+            output.success(f"Found {len(items)} asset(s)", assets=items)
+        else:
+            for item in items:
+                output.stdout.write(
+                    f"{item['asset_id']}\t{item['type']}\t{item['name']}\n"
+                )
 
 
 class _QuietOutput(Output):

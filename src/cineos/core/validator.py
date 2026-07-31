@@ -52,6 +52,7 @@ class ProjectValidator:
 
         errors.extend(project.timeline.validate_durations(project.scenes))
         errors.extend(self._validate_timeline(project))
+        errors.extend(project.asset_registry.validate())
         return errors
 
     def is_valid(self, project: MovieProject) -> bool:

@@ -74,6 +74,26 @@ def _parser() -> argparse.ArgumentParser:
     hardware.add_argument(
         "--verbose", action="store_true", help="include raw diagnostic data"
     )
+    assets = subparsers.add_parser("assets", help="manage a CINEOS asset registry")
+    asset_commands = assets.add_subparsers(dest="asset_command", required=True)
+    assets_list = asset_commands.add_parser("list", help="list registered assets")
+    assets_list.add_argument("registry", type=Path)
+    assets_validate = asset_commands.add_parser(
+        "validate", help="validate assets and relationships"
+    )
+    assets_validate.add_argument("registry", type=Path)
+    assets_export = asset_commands.add_parser(
+        "export", help="export canonical asset JSON"
+    )
+    assets_export.add_argument("registry", type=Path)
+    assets_export.add_argument("--output", required=True, type=Path, metavar="FILE")
+    for asset_parser in asset_commands.choices.values():
+        asset_parser.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="emit machine-readable JSON output",
+        )
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -103,6 +123,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             commands.demo(args.output_dir, output)
         elif args.command == "hardware-report":
             commands.hardware_report(args.output, args.verbose, output)
+        elif args.command == "assets":
+            commands.assets(
+                args.asset_command, args.registry, output, getattr(args, "output", None)
+            )
         else:
             commands.version(output)
     except CLIError as error:
