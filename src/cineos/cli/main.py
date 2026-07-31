@@ -104,6 +104,33 @@ def _parser() -> argparse.ArgumentParser:
             default=argparse.SUPPRESS,
             help="emit machine-readable JSON output",
         )
+    cinedna = subparsers.add_parser("cinedna", help="manage CineDNA identity profiles")
+    cinedna.add_argument("--registry", type=Path, default=Path("assets.json"))
+    cinedna.add_argument("--profiles", type=Path, default=Path("cinedna.json"))
+    cinedna_commands = cinedna.add_subparsers(dest="cinedna_command", required=True)
+    cinedna_build = cinedna_commands.add_parser(
+        "build", help="build from a character asset"
+    )
+    cinedna_build.add_argument("character_id")
+    cinedna_commands.add_parser("list", help="list identity profiles")
+    cinedna_show = cinedna_commands.add_parser("show", help="show an identity profile")
+    cinedna_show.add_argument("character_id")
+    cinedna_validate = cinedna_commands.add_parser(
+        "validate", help="validate an identity profile"
+    )
+    cinedna_validate.add_argument("character_id")
+    cinedna_export = cinedna_commands.add_parser(
+        "export", help="export an identity profile"
+    )
+    cinedna_export.add_argument("character_id")
+    cinedna_export.add_argument("--output", required=True, type=Path)
+    for cinedna_parser in cinedna_commands.choices.values():
+        cinedna_parser.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="emit machine-readable JSON output",
+        )
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -141,6 +168,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 getattr(args, "output", None),
                 manifest=getattr(args, "manifest", None),
                 asset_id=getattr(args, "asset_id", None),
+            )
+        elif args.command == "cinedna":
+            commands.cinedna(
+                args.cinedna_command,
+                args.registry,
+                args.profiles,
+                output,
+                character_id=getattr(args, "character_id", None),
+                destination=getattr(args, "output", None),
             )
         else:
             commands.version(output)

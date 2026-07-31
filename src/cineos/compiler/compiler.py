@@ -92,6 +92,7 @@ def compile(project: MovieProject) -> FilmPackage:
                 for scene_id in project.timeline.scene_order
             },
         },
+        "cinedna_ids": sorted(str(value) for value in project.cinedna_ids),
     }
     return FilmPackage(**payload, content_hashes=build_hashes(payload))
 

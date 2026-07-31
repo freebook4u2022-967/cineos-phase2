@@ -1,5 +1,12 @@
 # CINEOS Phase 2
 
+## Persistent character identity
+
+CineDNA v1 turns approved character references and explicit identity metadata
+into deterministic, versioned profiles without embeddings, recognition, AI
+services, or renderer-specific data. See [the CineDNA guide](docs/CINEDNA.md) for
+the schema, authoring rules, and CLI commands.
+
 CINEOS Phase 2 is the foundation for an open, modular cinematic production
 platform. This repository establishes the project structure, engineering
 standards, and architectural boundaries that future implementations will use.

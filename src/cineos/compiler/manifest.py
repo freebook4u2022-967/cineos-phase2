@@ -19,3 +19,4 @@ class FilmPackage:
     timeline_manifest: dict[str, Any]
     content_hashes: dict[str, str] = field(default_factory=dict)
     version: str = FILM_PACKAGE_VERSION
+    cinedna_ids: list[str] = field(default_factory=list)

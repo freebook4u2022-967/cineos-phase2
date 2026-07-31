@@ -21,6 +21,7 @@ def package_to_dict(package: FilmPackage) -> dict[str, Any]:
         "asset_manifest": package.asset_manifest,
         "timeline_manifest": package.timeline_manifest,
         "content_hashes": package.content_hashes,
+        "cinedna_ids": package.cinedna_ids,
     }
 
 
@@ -37,6 +38,7 @@ def package_from_dict(value: Mapping[str, Any]) -> FilmPackage:
         asset_manifest=list(value.get("asset_manifest", [])),
         timeline_manifest=dict(value.get("timeline_manifest", {})),
         content_hashes=dict(value.get("content_hashes", {})),
+        cinedna_ids=list(value.get("cinedna_ids", [])),
     )
 
 
