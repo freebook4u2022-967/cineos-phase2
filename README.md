@@ -37,6 +37,7 @@ black --check .
 | `src/cineos/core/` | Movie project, asset registry, timeline, and validation models |
 | `src/cineos/compiler/` | Deterministic Film Package compilation, serialization, hashing, and validation |
 | `src/cineos/atlas/` | Renderer contracts and renderer-independent package runtime orchestration |
+| `src/cineos/plugins/` | Generic plugin contracts, discovery, dependencies, and lifecycle management |
 | `docs/` | Architecture and project planning |
 | `tests/` | Automated tests |
 | `scripts/` | Development and automation entry points |
@@ -109,6 +110,38 @@ assert job.progress == 1.0
 Use `prepare()` and `run()` separately to inspect or cancel a pending job before
 dispatch. Tasks follow the Film Package timeline rather than manifest insertion
 order.
+
+## Plugin Framework
+
+The plugin framework adds optional capabilities without coupling the core,
+compiler, or runtime to a renderer. Each plugin supplies immutable identity,
+semantic version, host API compatibility, and dependency metadata, plus
+optional load, enable, disable, and unload hooks. `PluginManager` keeps those
+states distinct, loads and enables dependencies first, prevents removal of
+dependencies that are still in use, and safely treats repeated lifecycle
+operations as no-ops.
+
+```python
+from cineos.plugins import Plugin, PluginManager, PluginMetadata
+
+
+class EditorialPlugin(Plugin):
+    metadata = PluginMetadata(
+        name="editorial-notes", version="1.0.0", api_version="1.0.0"
+    )
+
+
+manager = PluginManager(context={"project": project})
+manager.register(EditorialPlugin())
+manager.enable("editorial-notes")
+manager.disable("editorial-notes")
+manager.unload("editorial-notes")
+```
+
+Installed distributions can advertise a plugin class, factory, or instance in
+the `cineos.plugins` Python entry-point group. Calling `discover()` loads and
+registers those entry points in deterministic name order. Discovery is a Python
+packaging boundary only; plugins remain generic and renderer-independent.
 
 ## Contributing
 

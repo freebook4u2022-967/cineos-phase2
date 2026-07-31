@@ -29,6 +29,8 @@ implementations are introduced.
 - `nova/` is reserved for creative workflow coordination.
 - `src/cineos/compiler/` owns deterministic validation and transformation of
   core project descriptions into versioned Film Packages.
+- `src/cineos/plugins/` owns generic extension metadata, discovery, lifecycle,
+  dependency, and compatibility contracts. It has no renderer dependency.
 - `studio/` is reserved for user-facing production tools and orchestration.
 - `renderer/` marks the rendering boundary. No renderer is implemented in this
   foundation.
@@ -102,6 +104,28 @@ makes local, remote, and future execution integrations replaceable. The
 existing renderer SDK remains an optional boundary; runtime modules do not
 depend on a concrete backend.
 
+## Plugin Framework
+
+`cineos.plugins` is an optional extension boundary shared by hosts rather than
+an Atlas or renderer extension system. Plugins declare immutable metadata: a
+unique name, their own semantic version, the supported plugin API version, and
+other plugin names on which they depend. Compatibility is checked before
+registration, and a host rejects plugins targeting a different API major
+version.
+
+`PluginManager` owns discovery and state. It discovers packaging entry points
+from the `cineos.plugins` group, but also accepts explicit instances so embedded
+and test hosts do not depend on installed package metadata. Loading initializes
+a plugin; enabling activates it; disabling leaves it loaded; unloading releases
+it. Operations are idempotent, dependencies transition first, cycles and
+missing dependencies fail explicitly, and an active dependency cannot be
+disabled or unloaded out from under a dependent plugin.
+
+Lifecycle hooks receive an opaque, host-owned context. The framework neither
+defines rendering operations nor imports compiler, Atlas Runtime, hardware, or
+product shells. A plugin may integrate with those systems only through contracts
+provided by its host, preserving dependency direction and renderer independence.
+
 ## Data and interface evolution
 
 Persistent and exchanged data formats will be versioned. Readers should reject
@@ -111,7 +135,7 @@ stable.
 
 ## Current status
 
-Packaging, quality tooling, the core project model, and deterministic Film
-Package compilation are established. Atlas Runtime now provides package task
-orchestration. Rendering, GPU integrations, and AI models remain deliberately
-outside the current foundation.
+Packaging, quality tooling, the core project model, deterministic Film Package
+compilation, Atlas Runtime package task orchestration, and the generic plugin
+framework are established. Rendering, GPU integrations, and AI models remain
+deliberately outside the current foundation.
