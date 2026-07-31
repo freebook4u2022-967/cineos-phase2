@@ -22,6 +22,18 @@ the host through versioned contracts and explicit lifecycle callbacks.
 - [Ruff](https://docs.astral.sh/ruff/) for linting
 - [Black](https://black.readthedocs.io/) for formatting
 
+## Hardware diagnostics
+
+Use `cineos hardware-report` to inspect a workstation before selecting a future
+local AI-video renderer. Add `--json` for deterministic machine output,
+`--output hardware-report.json` to save it, or `--verbose` for raw detail.
+
+The command reports OS, CPU, memory, disk, GPU/NVIDIA/CUDA, optional PyTorch
+CUDA support, and FFmpeg status on Windows, Linux, and macOS. Missing tools and
+CPU-only systems are supported. Render profiles are conservative, non-binding
+guidance; the diagnostic neither downloads models nor installs CUDA or a
+renderer.
+
 ## Getting started
 
 ```bash
@@ -43,6 +55,7 @@ black --check .
 | `src/cineos/atlas/` | Renderer contracts and renderer-independent package runtime orchestration |
 | `src/cineos/cli/` | Command-line validation, compilation, preview rendering, and assembly adapters |
 | `src/cineos/plugins/` | Renderer-independent plugin contracts, discovery, and lifecycle management |
+| `src/cineos/hardware/` | Portable hardware probes, reports, and renderer guidance |
 | `docs/` | Architecture and project planning |
 | `tests/` | Automated tests |
 | `scripts/` | Development and automation entry points |
