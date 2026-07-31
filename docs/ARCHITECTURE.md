@@ -116,6 +116,11 @@ loads a verified Film Package and sends timeline tasks through Atlas Runtime to
 the deterministic preview handler. `assemble` consumes that handler's manifest.
 `demo` composes all of those stages with a built-in minimal project.
 
+At the render boundary the CLI discovers plugins through `PluginManager` and
+activates them with an immutable context containing the renderer registry and
+Atlas runtime. Lifecycle ordering remains deterministic, and all plugins are
+deactivated after execution, including when rendering fails.
+
 The preview format deliberately contains no generated imagery: it exists to
 exercise orchestration reproducibly without GPU support or an AI model. Stable
 exit codes and optional JSON messages make the shell suitable for CI and other

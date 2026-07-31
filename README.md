@@ -119,8 +119,9 @@ order.
 ## Command-line interface
 
 After installation, run `cineos --help` or a command-specific `--help` for
-examples. Every command supports structured output by placing `--json` before
-the command (for example, `cineos --json validate project.json`). Exit statuses
+examples. Every command supports structured output by placing `--json` before or
+after the command (for example, `cineos validate project.json --json`). Usage
+errors also use the selected output format. Exit statuses
 are stable: 0 succeeds, 2 indicates invalid command usage, 3 an input problem,
 4 failed validation, and 5 an execution failure.
 
@@ -154,6 +155,8 @@ which case collection order becomes its explicit order:
 The preview renderer emits canonical JSON shot artifacts and `assemble` creates
 a deterministic preview container with an `.mp4` filename. It is intended for
 pipeline verification, not media playback or production-quality encoding.
+During rendering, installed CINEOS plugins are activated in stable name order
+with explicit access to the renderer registry and Atlas runtime, then deactivated.
 
 ## Plugin framework
 
