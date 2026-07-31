@@ -12,7 +12,8 @@ Atlas Runtime consumes that package as ordered, renderer-independent work; it
 tracks lifecycle and progress while leaving execution to application code.
 The `cineos` command composes these APIs into a deterministic local preview
 workflow; preview artifacts are inspection files and do not require a GPU or AI
-model.
+model. A renderer-independent plugin framework lets optional distributions join
+the host through versioned contracts and explicit lifecycle callbacks.
 
 ## Requirements
 
@@ -41,6 +42,7 @@ black --check .
 | `src/cineos/compiler/` | Deterministic Film Package compilation, serialization, hashing, and validation |
 | `src/cineos/atlas/` | Renderer contracts and renderer-independent package runtime orchestration |
 | `src/cineos/cli/` | Command-line validation, compilation, preview rendering, and assembly adapters |
+| `src/cineos/plugins/` | Renderer-independent plugin contracts, discovery, and lifecycle management |
 | `docs/` | Architecture and project planning |
 | `tests/` | Automated tests |
 | `scripts/` | Development and automation entry points |
@@ -152,6 +154,33 @@ which case collection order becomes its explicit order:
 The preview renderer emits canonical JSON shot artifacts and `assemble` creates
 a deterministic preview container with an `.mp4` filename. It is intended for
 pipeline verification, not media playback or production-quality encoding.
+
+## Plugin framework
+
+Plugins subclass `Plugin`, declare immutable identity and API compatibility
+metadata, and can use `activate` and `deactivate` to acquire and release host
+resources. `PluginManager` also discovers separately installed plugins from the
+`cineos.plugins` Python entry-point group. Registration, discovery, and
+lifecycle order are deterministic; incompatible API versions and duplicate
+names are rejected.
+
+```python
+from cineos.plugins import Plugin, PluginContext, PluginManager, PluginMetadata
+
+class EditorialPlugin(Plugin):
+    metadata = PluginMetadata("editorial", "1.0.0")
+
+    def activate(self, context: PluginContext) -> None:
+        self.catalog = context.services["catalog"]
+
+manager = PluginManager()
+manager.register(EditorialPlugin())
+manager.activate_all(PluginContext(services={"catalog": catalog}))
+```
+
+Plugin context values are copied into read-only mappings. They are generic host
+services and settings, not renderer globals: renderers, compilers, runtimes, and
+other integrations remain optional services behind their own contracts.
 
 ## Contributing
 

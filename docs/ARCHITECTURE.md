@@ -41,6 +41,8 @@ implementations are introduced.
 - `src/cineos/cli/` is the product shell. It converts JSON at the boundary and
   composes core validation, Film Compiler, Atlas Runtime, and renderer contracts;
   domain rules remain in their owning packages.
+- `src/cineos/plugins/` owns optional-extension identity, compatibility,
+  discovery, and lifecycle contracts. It depends on no product subsystem.
 
 ## Dependency direction
 
@@ -120,6 +122,28 @@ exit codes and optional JSON messages make the shell suitable for CI and other
 automation. Files are written in package/timeline order with canonical JSON so
 the command layer does not weaken deterministic build guarantees.
 
+## Plugin framework
+
+`cineos.plugins` is a small host boundary for optional, separately distributed
+extensions. A plugin declares immutable name, version, description, and plugin
+API version metadata. The manager rejects duplicate names and incompatible API
+versions, exposes stable name ordering, and invokes idempotent activation and
+deactivation callbacks with a host-created `PluginContext`. Context mappings
+are copied and read-only so plugins cannot rewrite the host's service registry.
+
+Discovery uses only the `cineos.plugins` packaging entry-point group; importing
+the framework never scans the filesystem or imports optional plugins. Hosts may
+also register instances directly, which supports embedded applications and
+deterministic tests. Bulk activation rolls back plugins activated by that call
+if a later callback fails, while failures retain their original exception as
+the cause.
+
+The framework has no renderer, GPU, AI, Atlas Runtime, Film Compiler, or CLI
+dependency. A host may deliberately expose one of those APIs as a context
+service, but plugins consume its public contract and the framework does not
+select a backend. This preserves replaceable subsystem boundaries and prevents
+plugin discovery from becoming a hidden rendering pipeline.
+
 ## Data and interface evolution
 
 Persistent and exchanged data formats will be versioned. Readers should reject
@@ -129,7 +153,7 @@ stable.
 
 ## Current status
 
-Packaging, quality tooling, the core project model, and deterministic Film
-Package compilation are established. Atlas Runtime now provides package task
-orchestration. Rendering, GPU integrations, and AI models remain deliberately
-outside the current foundation.
+Packaging, quality tooling, the core project model, deterministic Film Package
+compilation, Atlas Runtime orchestration, the execution CLI, and the optional
+plugin framework are established. Rendering, GPU integrations, and AI models
+remain deliberately outside the current foundation.
