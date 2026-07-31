@@ -34,6 +34,8 @@ implementations are introduced.
   foundation.
 - `hardware/` is reserved for explicit hardware capability and integration
   adapters.
+- `src/cineos/hardware/` owns immutable diagnostic values, dependency-optional
+  OS/GPU probes, deterministic reports, and conservative renderer guidance.
 - `benchmarks/` holds documented, reproducible performance workloads rather
   than product code.
 - `scripts/` holds thin development and automation entry points. Reusable logic
@@ -126,6 +128,12 @@ exercise orchestration reproducibly without GPU support or an AI model. Stable
 exit codes and optional JSON messages make the shell suitable for CI and other
 automation. Files are written in package/timeline order with canonical JSON so
 the command layer does not weaken deterministic build guarantees.
+
+The `hardware-report` command is a one-way consumer of `cineos.hardware`. The
+hardware package treats command failures and missing optional libraries as
+data, invokes subprocesses without a shell, and has no renderer or model
+dependency. Recommendations are cautious guidance rather than capability
+guarantees; this subsystem does not install drivers, CUDA, or models.
 
 ## Plugin framework
 

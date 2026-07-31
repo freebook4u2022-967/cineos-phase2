@@ -30,6 +30,9 @@ from cineos.core import (
     Shot,
     Timeline,
 )
+from cineos.hardware import probe as probe_hardware
+from cineos.hardware import to_json as hardware_to_json
+from cineos.hardware import to_text as hardware_to_text
 from cineos.plugins import PluginContext, PluginManager
 
 from .errors import CLIError, ExitCode
@@ -254,6 +257,28 @@ def demo(output_dir: Path, output: Output) -> None:
 
 def version(output: Output) -> None:
     output.success(f"cineos {__version__}", version=__version__)
+
+
+def hardware_report(destination: Path | None, verbose: bool, output: Output) -> None:
+    """Probe local capabilities and optionally persist the deterministic report."""
+
+    report = probe_hardware(destination.parent if destination else None)
+    serialized = hardware_to_json(report)
+    if destination is not None:
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(serialized, encoding="utf-8")
+        except OSError as error:
+            raise CLIError(
+                f"cannot write hardware report {destination}: {error}",
+                code=ExitCode.EXECUTION,
+            ) from error
+    if output.json_mode:
+        output.stdout.write(serialized)
+    else:
+        output.stdout.write(hardware_to_text(report, verbose=verbose))
+        if destination is not None:
+            output.stdout.write(f"JSON report written to {destination}\n")
 
 
 class _QuietOutput(Output):

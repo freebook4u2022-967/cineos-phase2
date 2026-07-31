@@ -67,6 +67,13 @@ def _parser() -> argparse.ArgumentParser:
         epilog="Example: cineos demo --output-dir demo-output",
     )
     demo.add_argument("--output-dir", required=True, type=Path)
+    hardware = subparsers.add_parser(
+        "hardware-report", help="inspect hardware for safe local rendering"
+    )
+    hardware.add_argument("--output", type=Path, metavar="FILE")
+    hardware.add_argument(
+        "--verbose", action="store_true", help="include raw diagnostic data"
+    )
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -94,6 +101,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             commands.assemble(args.render_directory, args.output, output)
         elif args.command == "demo":
             commands.demo(args.output_dir, output)
+        elif args.command == "hardware-report":
+            commands.hardware_report(args.output, args.verbose, output)
         else:
             commands.version(output)
     except CLIError as error:

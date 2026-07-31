@@ -76,3 +76,35 @@ def test_render_and_assemble_are_deterministic(tmp_path) -> None:
     assert main(["render", str(package), "--output-dir", str(render_dir)]) == 0
     assert main(["assemble", str(render_dir), "--output", str(movie)]) == 0
     assert movie.read_bytes() == first
+
+
+def test_hardware_report_json_cli(monkeypatch, tmp_path, capsys) -> None:
+    from cineos.hardware.models import HardwareReport, Recommendation
+
+    report = HardwareReport(
+        "TestOS",
+        "1",
+        "x86_64",
+        "3.12",
+        "CPU",
+        4,
+        2,
+        8,
+        4,
+        (),
+        None,
+        None,
+        False,
+        None,
+        False,
+        None,
+        100,
+        Recommendation("preview-only", "preview", "Guidance only."),
+    )
+    monkeypatch.setattr("cineos.cli.commands.probe_hardware", lambda path=None: report)
+    destination = tmp_path / "hardware-report.json"
+    args = ["hardware-report", "--json", "--output", str(destination)]
+    assert main(args) == 0
+    stdout = capsys.readouterr().out
+    assert json.loads(stdout) == json.loads(destination.read_text(encoding="utf-8"))
+    assert json.loads(stdout)["recommendation"]["renderer"] == "preview"
