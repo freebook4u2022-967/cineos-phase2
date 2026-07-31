@@ -1,6 +1,7 @@
 """Top-level CINEOS movie project model."""
 
 from dataclasses import dataclass, field
+from uuid import UUID
 
 from cineos.assets import AssetRegistry as ProductionAssetRegistry
 
@@ -27,9 +28,11 @@ class MovieProject:
     asset_registry: ProductionAssetRegistry = field(
         default_factory=ProductionAssetRegistry
     )
+    asset_ids: list[UUID] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.fps <= 0:
             raise ValueError("fps must be positive")
         if len(self.resolution) != 2 or any(value <= 0 for value in self.resolution):
             raise ValueError("resolution must contain two positive dimensions")
+        self.asset_ids = [UUID(str(value)) for value in self.asset_ids]

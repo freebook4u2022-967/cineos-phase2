@@ -256,3 +256,7 @@ Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), follow the
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## Canonical assets
+
+Canonical production assets, approved visual references, deterministic storage, and asset CLI workflows are documented in [docs/ASSETS.md](docs/ASSETS.md).

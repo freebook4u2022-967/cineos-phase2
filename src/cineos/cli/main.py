@@ -75,17 +75,27 @@ def _parser() -> argparse.ArgumentParser:
         "--verbose", action="store_true", help="include raw diagnostic data"
     )
     assets = subparsers.add_parser("assets", help="manage a CINEOS asset registry")
+    assets.add_argument(
+        "--registry", type=Path, default=Path("assets.json"), help="asset registry JSON"
+    )
     asset_commands = assets.add_subparsers(dest="asset_command", required=True)
     assets_list = asset_commands.add_parser("list", help="list registered assets")
-    assets_list.add_argument("registry", type=Path)
+    assets_list.add_argument("registry_path", type=Path, nargs="?")
+    assets_show = asset_commands.add_parser("show", help="show one registered asset")
+    assets_show.add_argument("asset_id")
+    for command in ("add-character", "add-environment"):
+        add = asset_commands.add_parser(
+            command, help="register an asset from a manifest"
+        )
+        add.add_argument("manifest", type=Path)
     assets_validate = asset_commands.add_parser(
         "validate", help="validate assets and relationships"
     )
-    assets_validate.add_argument("registry", type=Path)
+    assets_validate.add_argument("registry_path", type=Path, nargs="?")
     assets_export = asset_commands.add_parser(
         "export", help="export canonical asset JSON"
     )
-    assets_export.add_argument("registry", type=Path)
+    assets_export.add_argument("registry_path", type=Path, nargs="?")
     assets_export.add_argument("--output", required=True, type=Path, metavar="FILE")
     for asset_parser in asset_commands.choices.values():
         asset_parser.add_argument(
@@ -125,7 +135,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             commands.hardware_report(args.output, args.verbose, output)
         elif args.command == "assets":
             commands.assets(
-                args.asset_command, args.registry, output, getattr(args, "output", None)
+                args.asset_command,
+                getattr(args, "registry_path", None) or args.registry,
+                output,
+                getattr(args, "output", None),
+                manifest=getattr(args, "manifest", None),
+                asset_id=getattr(args, "asset_id", None),
             )
         else:
             commands.version(output)

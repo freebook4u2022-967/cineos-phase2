@@ -8,3 +8,5 @@ from .asset import Asset
 @dataclass(slots=True, kw_only=True)
 class Character(Asset):
     """A performer or fictional character."""
+
+    asset_type = "character"

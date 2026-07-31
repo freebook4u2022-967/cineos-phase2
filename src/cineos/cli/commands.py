@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from cineos import __version__
+from cineos.assets import AssetRegistry as ProductionAssetRegistry
+from cineos.assets import Character as ProductionCharacter
+from cineos.assets import Environment as ProductionEnvironment
+from cineos.assets import ReferenceImage as ProductionReference
+from cineos.assets.storage import asset_to_dict
 from cineos.assets.storage import load as load_assets
 from cineos.assets.storage import save as save_assets
 from cineos.atlas import (
@@ -368,18 +373,83 @@ def hardware_report(destination: Path | None, verbose: bool, output: Output) -> 
 
 
 def assets(
-    action: str, registry_path: Path, output: Output, destination: Path | None = None
+    action: str,
+    registry_path: Path,
+    output: Output,
+    destination: Path | None = None,
+    *,
+    manifest: Path | None = None,
+    asset_id: str | None = None,
 ) -> None:
-    """List, validate, or export a persisted asset registry."""
+    """Create, inspect, validate, or export a persisted asset registry."""
 
     try:
-        registry = load_assets(registry_path)
+        registry = (
+            load_assets(registry_path)
+            if registry_path.exists()
+            else ProductionAssetRegistry()
+        )
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
         raise CLIError(
             f"cannot load asset registry {registry_path}: {error}",
             code=ExitCode.INPUT,
         ) from error
-    if action == "validate":
+    if action in {"add-character", "add-environment"}:
+        assert manifest is not None
+        value = _read_json(manifest)
+        cls = (
+            ProductionCharacter if action == "add-character" else ProductionEnvironment
+        )
+        try:
+            references = [
+                ProductionReference(**item)
+                for item in value.get("references", value.get("reference_images", []))
+            ]
+            asset = cls(
+                **{
+                    key: value[key]
+                    for key in (
+                        "asset_id",
+                        "name",
+                        "description",
+                        "version",
+                        "tags",
+                        "metadata",
+                        "created_at",
+                        "updated_at",
+                        "content_hash",
+                    )
+                    if key in value
+                },
+                reference_images=references,
+            )
+            registry.register(asset)
+            save_assets(registry, registry_path)
+        except (TypeError, ValueError) as error:
+            raise CLIError(
+                f"invalid asset manifest: {error}", code=ExitCode.INPUT
+            ) from error
+        output.success(
+            f"Registered {asset.kind} {asset.name} ({asset.asset_id})",
+            asset=asset_to_dict(asset),
+            registry=str(registry_path),
+        )
+    elif action == "show":
+        assert asset_id is not None
+        try:
+            item = asset_to_dict(registry.retrieve(asset_id))
+        except (KeyError, ValueError) as error:
+            raise CLIError(
+                f"asset not found: {asset_id}", code=ExitCode.INPUT
+            ) from error
+        if output.json_mode:
+            output.success(f"Asset {asset_id}", asset=item)
+        else:
+            output.stdout.write(
+                f"{item['name']}\nID: {item['asset_id']}\nType: {item['type']}\n"
+                f"Version: {item['version']}\nDescription: {item['description']}\n"
+            )
+    elif action == "validate":
         if errors := registry.validate():
             raise CLIError(
                 "asset validation failed: " + "; ".join(errors),
