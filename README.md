@@ -157,12 +157,14 @@ pipeline verification, not media playback or production-quality encoding.
 
 ## Plugin framework
 
-Plugins subclass `Plugin`, declare immutable identity and API compatibility
-metadata, and can use `activate` and `deactivate` to acquire and release host
-resources. `PluginManager` also discovers separately installed plugins from the
-`cineos.plugins` Python entry-point group. Registration, discovery, and
-lifecycle order are deterministic; incompatible API versions and duplicate
-names are rejected.
+Plugins subclass `Plugin`, declare immutable identity, API compatibility, and
+dependency metadata, and can use `activate` and `deactivate` to acquire and
+release host resources. `PluginManager` also discovers separately installed
+plugins from the `cineos.plugins` Python entry-point group. Registration,
+discovery, and lifecycle order are deterministic; dependencies activate first,
+while incompatible API versions, missing dependencies, and duplicate names are
+rejected. Plugins are enabled by default and may be disabled without unloading
+their distributions.
 
 ```python
 from cineos.plugins import Plugin, PluginContext, PluginManager, PluginMetadata

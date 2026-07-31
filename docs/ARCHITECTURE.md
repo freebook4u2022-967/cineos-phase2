@@ -126,8 +126,9 @@ the command layer does not weaken deterministic build guarantees.
 
 `cineos.plugins` is a small host boundary for optional, separately distributed
 extensions. A plugin declares immutable name, version, description, and plugin
-API version metadata. The manager rejects duplicate names and incompatible API
-versions, exposes stable name ordering, and invokes idempotent activation and
+API version metadata, plus optional dependencies on other plugins. The manager
+rejects duplicate names and incompatible API versions, exposes stable name
+ordering, activates dependencies first, and invokes idempotent activation and
 deactivation callbacks with a host-created `PluginContext`. Context mappings
 are copied and read-only so plugins cannot rewrite the host's service registry.
 
@@ -136,7 +137,9 @@ the framework never scans the filesystem or imports optional plugins. Hosts may
 also register instances directly, which supports embedded applications and
 deterministic tests. Bulk activation rolls back plugins activated by that call
 if a later callback fails, while failures retain their original exception as
-the cause.
+the cause. Hosts can enable or disable registered plugins independently of
+discovery; disabling an active plugin deactivates it and its active dependants
+first.
 
 The framework has no renderer, GPU, AI, Atlas Runtime, Film Compiler, or CLI
 dependency. A host may deliberately expose one of those APIs as a context
