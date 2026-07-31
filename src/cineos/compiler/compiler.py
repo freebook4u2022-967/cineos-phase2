@@ -29,6 +29,17 @@ def compile(project: MovieProject) -> FilmPackage:
     characters = [_asset(asset, "character") for asset in project.characters]
     locations = [_asset(asset, "location") for asset in project.locations]
     props = [_asset(asset, "prop") for asset in project.props]
+    canonical_assets = [
+        {
+            "asset_id": str(asset.asset_id),
+            "type": asset.kind,
+            "name": asset.name,
+            "version": asset.version,
+            "content_hash": asset.content_hash,
+        }
+        for asset in project.asset_registry.list()
+        if not project.asset_ids or asset.asset_id in project.asset_ids
+    ]
     scenes = [
         {
             "scene_id": scene.scene_id,
@@ -71,7 +82,9 @@ def compile(project: MovieProject) -> FilmPackage:
         "shot_manifest": shots,
         "character_manifest": characters,
         "location_manifest": locations,
-        "asset_manifest": [*characters, *locations, *props],
+        # Only stable identity metadata enters a Film Package. Reference media paths
+        # and image bytes remain in the external asset registry.
+        "asset_manifest": [*characters, *locations, *props, *canonical_assets],
         "timeline_manifest": {
             "scene_order": list(project.timeline.scene_order),
             "shot_order": {

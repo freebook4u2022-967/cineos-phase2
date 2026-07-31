@@ -53,6 +53,10 @@ class ProjectValidator:
         errors.extend(project.timeline.validate_durations(project.scenes))
         errors.extend(self._validate_timeline(project))
         errors.extend(project.asset_registry.validate())
+        registered_ids = {asset.asset_id for asset in project.asset_registry.list()}
+        for asset_id in project.asset_ids:
+            if asset_id not in registered_ids:
+                errors.append(f"project references unknown canonical asset {asset_id}")
         return errors
 
     def is_valid(self, project: MovieProject) -> bool:

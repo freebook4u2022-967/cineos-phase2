@@ -8,3 +8,5 @@ from .asset import Asset
 @dataclass(slots=True, kw_only=True)
 class Wardrobe(Asset):
     """A costume or wardrobe item."""
+
+    asset_type = "wardrobe"

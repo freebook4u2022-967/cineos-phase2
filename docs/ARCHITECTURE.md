@@ -186,3 +186,7 @@ SDK, and the plugin framework are integrated. The deterministic metadata
 preview plugin validates that path, while production rendering, GPU
 integrations, AI models, NOVA, and CineDNA remain deliberately outside the
 current foundation.
+
+## Canonical asset boundary
+
+`cineos.assets` owns persistent production identities, reference metadata, relationships, validation, and deterministic filesystem persistence. Movie projects select canonical assets by UUID. The compiler emits only stable identity metadata into Film Packages; media paths and bytes remain outside the compiler/runtime boundary. See [ASSETS.md](ASSETS.md).
