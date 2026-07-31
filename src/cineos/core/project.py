@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from cineos.assets import AssetRegistry as ProductionAssetRegistry
+
 from .asset import Character, Environment, Prop
 from .scene import Scene
 from .timeline import Timeline
@@ -22,6 +24,9 @@ class MovieProject:
     props: list[Prop] = field(default_factory=list)
     scenes: list[Scene] = field(default_factory=list)
     timeline: Timeline = field(default_factory=Timeline)
+    asset_registry: ProductionAssetRegistry = field(
+        default_factory=ProductionAssetRegistry
+    )
 
     def __post_init__(self) -> None:
         if self.fps <= 0:

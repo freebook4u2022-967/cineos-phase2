@@ -51,6 +51,7 @@ black --check .
 | --- | --- |
 | `src/cineos/` | Shared Python package and public interfaces |
 | `src/cineos/core/` | Movie project, asset registry, timeline, and validation models |
+| `src/cineos/assets/` | UUID asset catalog, references, versions, relationships, and JSON storage |
 | `src/cineos/compiler/` | Deterministic Film Package compilation, serialization, hashing, and validation |
 | `src/cineos/atlas/` | Renderer contracts and renderer-independent package runtime orchestration |
 | `src/cineos/cli/` | Command-line validation, compilation, preview rendering, and assembly adapters |
@@ -88,6 +89,38 @@ ProjectValidator().raise_for_errors(project)
 Asset references use stable project-local IDs. Timeline order is explicit and
 must mirror the project scene and shot collections. Declared scene durations
 must equal the sum of their shot durations.
+
+## Asset and reference management
+
+The `cineos.assets` subsystem provides UUID-identified character, environment,
+prop, vehicle, wardrobe, and storyboard assets. Every type supports arbitrary
+JSON metadata, searchable tags, multiple reference images, and numbered
+snapshots. `AssetRegistry` owns assets and typed directed relationships such as
+`character --wears--> wardrobe` or `character --uses--> prop`; it is also
+available as `MovieProject.asset_registry`, so project validation checks the
+catalog along with scenes and the timeline.
+
+```python
+from cineos.assets import AssetRegistry, Character, Wardrobe
+from cineos.assets.storage import save
+
+registry = AssetRegistry()
+hero = registry.register(Character(name="Hero", tags={"principal"}))
+coat = registry.register(Wardrobe(name="Blue coat"))
+hero.add_reference("references/hero-front.png", label="front")
+hero.create_version("approved concept")
+registry.relate(hero, coat, "wears")
+save(registry, "assets.json")
+```
+
+Registry JSON uses the versioned `cineos-assets-v1` format. The asset CLI can
+inspect, validate, and make a normalized deterministic export:
+
+```bash
+cineos assets list assets.json
+cineos assets validate assets.json
+cineos assets export assets.json --output assets-export.json
+```
 
 ## Film Compiler
 

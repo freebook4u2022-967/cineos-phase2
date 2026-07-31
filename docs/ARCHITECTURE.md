@@ -26,6 +26,9 @@ implementations are introduced.
 - `atlas/` owns asset identity, metadata, and provenance concerns.
 - `src/cineos/atlas/` owns renderer contracts and the renderer-independent
   runtime that schedules Film Package tasks.
+- `src/cineos/assets/` owns globally unique production-asset identity,
+  references, revision snapshots, relationships, validation, and portable
+  storage. The core project consumes its registry through an explicit field.
 - `nova/` is reserved for creative workflow coordination.
 - `src/cineos/compiler/` owns deterministic validation and transformation of
   core project descriptions into versioned Film Packages.
