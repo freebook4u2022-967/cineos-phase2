@@ -101,3 +101,46 @@ def test_activate_all_rolls_back_plugins_activated_by_the_call() -> None:
 
     assert manager.active_plugins == ()
     assert [event for event, _ in recording.events] == ["activate", "deactivate"]
+
+
+def test_dependencies_activate_first_and_missing_dependencies_are_rejected() -> None:
+    events: list[str] = []
+
+    class FoundationPlugin(Plugin):
+        metadata = PluginMetadata("foundation", "1.0.0")
+
+        def activate(self, context: PluginContext) -> None:
+            events.append("foundation")
+
+    class ConsumerPlugin(Plugin):
+        metadata = PluginMetadata("consumer", "1.0.0", dependencies=("foundation",))
+
+        def activate(self, context: PluginContext) -> None:
+            events.append("consumer")
+
+    manager = PluginManager()
+    manager.register(ConsumerPlugin())
+    with pytest.raises(PluginLifecycleError, match="requires unregistered"):
+        manager.activate("consumer")
+
+    manager.register(FoundationPlugin())
+    manager.activate("consumer")
+    assert events == ["foundation", "consumer"]
+
+
+def test_enable_disable_controls_bulk_lifecycle() -> None:
+    manager = PluginManager()
+    plugin = manager.register(RecordingPlugin())
+
+    assert manager.disable("recording") is plugin
+    assert manager.enabled_plugins == ()
+    with pytest.raises(PluginLifecycleError, match="is disabled"):
+        manager.activate("recording")
+    manager.activate_all()
+    assert manager.active_plugins == ()
+
+    manager.enable("recording")
+    manager.activate_all()
+    assert manager.active_plugins == (plugin,)
+    manager.disable("recording")
+    assert manager.active_plugins == ()

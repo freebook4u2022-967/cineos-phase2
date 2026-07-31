@@ -17,11 +17,18 @@ class PluginMetadata:
     version: str
     description: str = ""
     api_version: str = "1"
+    dependencies: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in ("name", "version", "api_version"):
             if not getattr(self, field_name).strip():
                 raise ValueError(f"plugin {field_name} must not be empty")
+        if any(not dependency.strip() for dependency in self.dependencies):
+            raise ValueError("plugin dependency names must not be empty")
+        if self.name in self.dependencies:
+            raise ValueError("plugin must not depend on itself")
+        if len(set(self.dependencies)) != len(self.dependencies):
+            raise ValueError("plugin dependencies must be unique")
 
 
 @dataclass(frozen=True, slots=True)
