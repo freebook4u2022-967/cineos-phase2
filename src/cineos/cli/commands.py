@@ -23,6 +23,9 @@ from cineos.atlas import (
     RendererRegistry,
     Resolution,
 )
+from cineos.cinedna import CineDNABuilder, CineDNARegistry
+from cineos.cinedna.serializer import profile_to_dict
+from cineos.cinedna.serializer import save as save_cinedna
 from cineos.compiler import compile as compile_project
 from cineos.compiler import load as load_package
 from cineos.compiler import save
@@ -132,6 +135,7 @@ def load_project(path: Path) -> MovieProject:
             timeline=timeline,
             asset_registry=production_assets,
             asset_ids=list(value.get("asset_ids", [])),
+            cinedna_ids=list(value.get("cinedna_ids", [])),
         )
     except (KeyError, TypeError, ValueError, AttributeError, OSError) as error:
         raise CLIError(
@@ -327,6 +331,7 @@ def _project_to_dict(project: MovieProject) -> dict[str, Any]:
         "fps": project.fps,
         "resolution": list(project.resolution),
         "aspect_ratio": project.aspect_ratio,
+        "cinedna_ids": [str(value) for value in project.cinedna_ids],
         "scenes": [
             {
                 "scene_id": scene.scene_id,
@@ -496,6 +501,99 @@ def assets(
                 output.stdout.write(
                     f"{item['asset_id']}\t{item['type']}\t{item['name']}\n"
                 )
+
+
+def cinedna(
+    action: str,
+    asset_registry_path: Path,
+    profile_registry_path: Path,
+    output: Output,
+    *,
+    character_id: str | None = None,
+    destination: Path | None = None,
+) -> None:
+    """Build and inspect persistent character identity profiles."""
+
+    try:
+        registry = (
+            CineDNARegistry.load(profile_registry_path)
+            if profile_registry_path.exists()
+            else CineDNARegistry()
+        )
+        if action == "build":
+            if not asset_registry_path.exists():
+                raise FileNotFoundError(asset_registry_path)
+            assets_registry = load_assets(asset_registry_path)
+            asset = assets_registry.retrieve(character_id or "")
+            if not isinstance(asset, ProductionCharacter):
+                raise TypeError("asset is not a character")
+            profile = CineDNABuilder().build(asset)
+            if profile.character_uuid in {
+                item.character_uuid for item in registry.list()
+            }:
+                registry.update(profile)
+            else:
+                registry.register(profile)
+            registry.save(profile_registry_path)
+            output.success(
+                f"Built CineDNA for {profile.display_name} ({profile.character_uuid})",
+                profile=profile_to_dict(profile),
+                registry=str(profile_registry_path),
+            )
+            return
+        if action == "list":
+            items = [
+                {
+                    "character_uuid": str(item.character_uuid),
+                    "display_name": item.display_name,
+                    "profile_version": item.profile_version,
+                    "content_hash": item.content_hash,
+                }
+                for item in registry.list()
+            ]
+            if output.json_mode:
+                output.success(f"Found {len(items)} CineDNA profile(s)", profiles=items)
+            else:
+                for item in items:
+                    output.stdout.write(
+                        f"{item['character_uuid']}\t{item['profile_version']}\t"
+                        f"{item['display_name']}\n"
+                    )
+            return
+        profile = registry.retrieve(character_id or "")
+        if action == "validate":
+            errors = registry.validate(profile.character_uuid)
+            if errors:
+                raise CLIError(
+                    "CineDNA validation failed: " + "; ".join(errors),
+                    code=ExitCode.VALIDATION,
+                )
+            output.success(
+                f"CineDNA profile is valid: {profile.character_uuid}",
+                character_uuid=str(profile.character_uuid),
+            )
+        elif action == "export":
+            assert destination is not None
+            save_cinedna(profile, destination)
+            output.success(
+                f"Exported CineDNA profile to {destination}", output=str(destination)
+            )
+        else:
+            item = profile_to_dict(profile)
+            if output.json_mode:
+                output.success(f"CineDNA {profile.character_uuid}", profile=item)
+            else:
+                output.stdout.write(
+                    f"{profile.display_name}\nID: {profile.character_uuid}\n"
+                    f"Version: {profile.profile_version}\n"
+                    f"Hash: {profile.content_hash}\n"
+                )
+    except CLIError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
+        raise CLIError(
+            f"CineDNA operation failed: {error}", code=ExitCode.INPUT
+        ) from error
 
 
 class _QuietOutput(Output):

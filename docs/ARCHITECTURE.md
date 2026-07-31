@@ -1,5 +1,15 @@
 # CINEOS Phase 2 Architecture
 
+## CineDNA identity layer
+
+`cineos.cinedna` sits between canonical production assets and future renderer
+adapters. The builder accepts approved character assets, the validator enforces
+reference and continuity rules, canonical serialization provides stable hashes,
+and the versioned registry resolves a character UUID to its latest or requested
+profile. `MovieProject.cinedna_ids` and `FilmPackage.cinedna_ids` carry only
+stable identity references through compilation, keeping profiles independent of
+renderers and external media.
+
 ## Purpose
 
 Phase 2 establishes a modular foundation for cinematic production workflows.

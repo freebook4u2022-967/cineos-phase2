@@ -29,6 +29,7 @@ class MovieProject:
         default_factory=ProductionAssetRegistry
     )
     asset_ids: list[UUID] = field(default_factory=list)
+    cinedna_ids: list[UUID] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.fps <= 0:
@@ -36,3 +37,4 @@ class MovieProject:
         if len(self.resolution) != 2 or any(value <= 0 for value in self.resolution):
             raise ValueError("resolution must contain two positive dimensions")
         self.asset_ids = [UUID(str(value)) for value in self.asset_ids]
+        self.cinedna_ids = [UUID(str(value)) for value in self.cinedna_ids]
