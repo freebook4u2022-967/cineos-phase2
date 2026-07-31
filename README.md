@@ -10,6 +10,9 @@ typed assets, scenes, shots, timeline ordering, and validation. Sprint 3 adds a
 Film Compiler that turns that model into a deterministic, portable Film Package.
 Atlas Runtime consumes that package as ordered, renderer-independent work; it
 tracks lifecycle and progress while leaving execution to application code.
+The `cineos` command composes these APIs into a deterministic local preview
+workflow; preview artifacts are inspection files and do not require a GPU or AI
+model.
 
 ## Requirements
 
@@ -37,6 +40,7 @@ black --check .
 | `src/cineos/core/` | Movie project, asset registry, timeline, and validation models |
 | `src/cineos/compiler/` | Deterministic Film Package compilation, serialization, hashing, and validation |
 | `src/cineos/atlas/` | Renderer contracts and renderer-independent package runtime orchestration |
+| `src/cineos/cli/` | Command-line validation, compilation, preview rendering, and assembly adapters |
 | `docs/` | Architecture and project planning |
 | `tests/` | Automated tests |
 | `scripts/` | Development and automation entry points |
@@ -109,6 +113,45 @@ assert job.progress == 1.0
 Use `prepare()` and `run()` separately to inspect or cancel a pending job before
 dispatch. Tasks follow the Film Package timeline rather than manifest insertion
 order.
+
+## Command-line interface
+
+After installation, run `cineos --help` or a command-specific `--help` for
+examples. Every command supports structured output by placing `--json` before
+the command (for example, `cineos --json validate project.json`). Exit statuses
+are stable: 0 succeeds, 2 indicates invalid command usage, 3 an input problem,
+4 failed validation, and 5 an execution failure.
+
+```bash
+cineos validate project.json
+cineos compile project.json --output film-package.json
+cineos render film-package.json --output-dir renders
+cineos assemble renders --output movie.mp4
+cineos demo --output-dir demo-output
+cineos version
+```
+
+Project JSON uses the core model's field names. A timeline may be omitted, in
+which case collection order becomes its explicit order:
+
+```json
+{
+  "title": "Example",
+  "author": "Filmmaker",
+  "scenes": [
+    {
+      "scene_id": "scene-1",
+      "title": "Arrival",
+      "duration": 2.5,
+      "shots": [{"shot_id": "shot-1", "action": "The door opens.", "duration": 2.5}]
+    }
+  ]
+}
+```
+
+The preview renderer emits canonical JSON shot artifacts and `assemble` creates
+a deterministic preview container with an `.mp4` filename. It is intended for
+pipeline verification, not media playback or production-quality encoding.
 
 ## Contributing
 

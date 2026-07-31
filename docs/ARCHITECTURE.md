@@ -38,6 +38,9 @@ implementations are introduced.
   than product code.
 - `scripts/` holds thin development and automation entry points. Reusable logic
   belongs in a tested package.
+- `src/cineos/cli/` is the product shell. It converts JSON at the boundary and
+  composes core validation, Film Compiler, Atlas Runtime, and renderer contracts;
+  domain rules remain in their owning packages.
 
 ## Dependency direction
 
@@ -101,6 +104,21 @@ model, or interpret task results. This keeps orchestration deterministic and
 makes local, remote, and future execution integrations replaceable. The
 existing renderer SDK remains an optional boundary; runtime modules do not
 depend on a concrete backend.
+
+## Command-line integration
+
+The CLI is a one-way consumer of the core, compiler, and Atlas public APIs.
+`validate` and `compile` deserialize project JSON into the Core Project Model;
+validation and compilation are delegated to their existing services. `render`
+loads a verified Film Package and sends timeline tasks through Atlas Runtime to
+the deterministic preview handler. `assemble` consumes that handler's manifest.
+`demo` composes all of those stages with a built-in minimal project.
+
+The preview format deliberately contains no generated imagery: it exists to
+exercise orchestration reproducibly without GPU support or an AI model. Stable
+exit codes and optional JSON messages make the shell suitable for CI and other
+automation. Files are written in package/timeline order with canonical JSON so
+the command layer does not weaken deterministic build guarantees.
 
 ## Data and interface evolution
 
