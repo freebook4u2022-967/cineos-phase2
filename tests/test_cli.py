@@ -33,6 +33,14 @@ def test_version_supports_json(capsys) -> None:
     assert json.loads(capsys.readouterr().out)["version"] == "0.1.0"
 
 
+def test_usage_errors_support_json(capsys) -> None:
+    assert main(["compile", "project.json", "--json"]) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["ok"] is False
+    assert error["exit_code"] == 2
+    assert "--output" in error["error"]
+
+
 def test_validate_rejects_invalid_project(tmp_path, capsys) -> None:
     project = _project(tmp_path / "project.json", duration=2.0)
     assert main(["validate", str(project)]) == 4
@@ -52,3 +60,19 @@ def test_demo_runs_integrated_preview_pipeline(tmp_path) -> None:
     assert (destination / "film-package.json").is_file()
     assert (destination / "renders" / "demo-shot.preview.json").is_file()
     assert (destination / "demo.mp4").read_bytes().startswith(b"CINEOS-PREVIEW-MOVIE\n")
+
+
+def test_render_and_assemble_are_deterministic(tmp_path) -> None:
+    project = _project(tmp_path / "project.json")
+    package = tmp_path / "film-package.json"
+    render_dir = tmp_path / "renders"
+    movie = tmp_path / "movie.mp4"
+
+    assert main(["compile", str(project), "--output", str(package)]) == 0
+    assert main(["render", str(package), "--output-dir", str(render_dir)]) == 0
+    assert main(["assemble", str(render_dir), "--output", str(movie)]) == 0
+    first = movie.read_bytes()
+
+    assert main(["render", str(package), "--output-dir", str(render_dir)]) == 0
+    assert main(["assemble", str(render_dir), "--output", str(movie)]) == 0
+    assert movie.read_bytes() == first

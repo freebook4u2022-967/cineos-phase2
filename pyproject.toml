@@ -33,6 +33,7 @@ packages = ["src/cineos"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
+pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]

@@ -30,6 +30,7 @@ from cineos.core import (
     Shot,
     Timeline,
 )
+from cineos.plugins import PluginContext, PluginManager
 
 from .errors import CLIError, ExitCode
 from .output import Output
@@ -161,16 +162,25 @@ def render(package_path: Path, output_dir: Path, output: Output) -> list[Path]:
 
     registry = RendererRegistry()
     registry.register("preview", lambda: _PreviewRenderer(output_dir))
+    runtime = AtlasRuntime()
+    plugin_manager = PluginManager()
+    plugin_context = PluginContext(
+        services={"renderer_registry": registry, "atlas_runtime": runtime},
+        settings={"command": "render", "output_dir": str(output_dir)},
+    )
+    plugin_manager.discover()
+    plugin_manager.activate_all(plugin_context)
     adapter = RendererAdapter(registry.create("preview"))
-    adapter.initialize()
-    adapter.load_model()
-    adapter.warmup()
     try:
-        job = AtlasRuntime().execute(
-            package, adapter.render, job_id="cineos-cli-preview"
-        )
+        adapter.initialize()
+        adapter.load_model()
+        adapter.warmup()
+        job = runtime.execute(package, adapter.render, job_id="cineos-cli-preview")
     finally:
-        adapter.shutdown()
+        try:
+            adapter.shutdown()
+        finally:
+            plugin_manager.deactivate_all(plugin_context)
     paths = [Path(job.results[shot_id]) for shot_id in job.completed]
     manifest = {
         "format": "cineos-preview-render-v1",

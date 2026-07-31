@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -11,8 +12,19 @@ from .errors import CLIError, ExitCode
 from .output import Output
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """Report usage failures through the CLI's normal output boundary."""
+
+    def error(self, message: str) -> None:
+        raise CLIError(
+            f"invalid command usage: {message}",
+            code=ExitCode.USAGE,
+            hint=f"Run '{self.prog} --help' for usage and examples.",
+        )
+
+
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         prog="cineos",
         description="Compile and preview deterministic CINEOS film projects.",
         epilog="Example: cineos compile project.json --output film-package.json",
@@ -67,9 +79,11 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    output = Output(json_mode=args.json)
+    arguments = list(argv) if argv is not None else sys.argv[1:]
+    output = Output(json_mode="--json" in arguments)
     try:
+        args = _parser().parse_args(arguments)
+        output.json_mode = args.json
         if args.command == "validate":
             commands.validate(args.project, output)
         elif args.command == "compile":
