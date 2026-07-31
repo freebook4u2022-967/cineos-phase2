@@ -18,6 +18,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.scripts]
+cineos = "cineos.cli.main:main"
+
 [project.optional-dependencies]
 dev = [
   "black>=24.4,<26",
