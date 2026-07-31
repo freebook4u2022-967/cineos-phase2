@@ -76,6 +76,17 @@ def load_project(path: Path) -> MovieProject:
 
     value = _read_json(path)
     try:
+        registry_value = value.get("asset_registry")
+        if registry_value is not None and not isinstance(registry_value, str):
+            raise TypeError("asset_registry must be a file path")
+        registry_path = (
+            (path.parent / registry_value).resolve() if registry_value else None
+        )
+        production_assets = (
+            load_assets(registry_path)
+            if registry_path is not None
+            else ProductionAssetRegistry()
+        )
         scenes = [
             Scene(
                 scene_id=scene["scene_id"],
@@ -119,8 +130,10 @@ def load_project(path: Path) -> MovieProject:
             props=[Prop(**item) for item in value.get("props", [])],
             scenes=scenes,
             timeline=timeline,
+            asset_registry=production_assets,
+            asset_ids=list(value.get("asset_ids", [])),
         )
-    except (KeyError, TypeError, ValueError, AttributeError) as error:
+    except (KeyError, TypeError, ValueError, AttributeError, OSError) as error:
         raise CLIError(
             f"invalid project structure: {error}",
             code=ExitCode.INPUT,

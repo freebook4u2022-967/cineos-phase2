@@ -124,12 +124,17 @@ class AssetRegistry:
     def validate(self) -> list[str]:
         errors: list[str] = []
         names: set[tuple[str, str]] = set()
+        reference_ids: set[UUID] = set()
         for asset in self.list():
             errors.extend(f"asset {asset.asset_id}: {e}" for e in asset.validate())
             key = (asset.kind.casefold(), asset.name.casefold())
             if key in names:
                 errors.append(f"duplicate {asset.kind} asset name: {asset.name!r}")
             names.add(key)
+            for reference in asset.references:
+                if reference.reference_id in reference_ids:
+                    errors.append(f"duplicate reference UUID: {reference.reference_id}")
+                reference_ids.add(reference.reference_id)
         for item in self.relationships:
             source = self._assets.get(item.source_id)
             target = self._assets.get(item.target_id)

@@ -190,3 +190,8 @@ current foundation.
 ## Canonical asset boundary
 
 `cineos.assets` owns persistent production identities, reference metadata, relationships, validation, and deterministic filesystem persistence. Movie projects select canonical assets by UUID. The compiler emits only stable identity metadata into Film Packages; media paths and bytes remain outside the compiler/runtime boundary. See [ASSETS.md](ASSETS.md).
+
+At the CLI boundary, a project may name an external asset-registry JSON file and
+select entries through an `asset_ids` UUID list. The path is resolved relative
+to the project document, keeping the project portable while preserving the
+registry as the sole owner of reference paths and checksums.

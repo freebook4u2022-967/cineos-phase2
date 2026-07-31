@@ -122,6 +122,22 @@ cineos assets validate assets.json
 cineos assets export assets.json --output assets-export.json
 ```
 
+A project JSON selects canonical assets without embedding them by declaring an
+external registry path (resolved relative to the project file) and stable UUIDs:
+
+```json
+{
+  "title": "Example",
+  "author": "Filmmaker",
+  "asset_registry": "assets.json",
+  "asset_ids": ["6fa459ea-ee8a-3ca4-894e-db77e160355e"]
+}
+```
+
+Compilation validates every selected UUID and writes only identity metadata to
+the Film Package. Reference paths, checksums, and media remain in the external
+registry.
+
 ## Film Compiler
 
 The compiler validates a `MovieProject` before producing a versioned

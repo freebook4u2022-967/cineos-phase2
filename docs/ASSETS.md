@@ -12,6 +12,12 @@ The registry stores paths and checksums only: it never copies, uploads, or embed
 
 Typed directed links cover character-to-wardrobe, character-to-prop, character-to-vehicle, scene-to-environment, and storyboard-to-scene. Both endpoints must resolve before adding a link. Film Packages contain stable asset identity metadata, never image bytes or reference media paths.
 
+Project JSON connects to the catalog with an `asset_registry` file path and an
+`asset_ids` array of UUIDs. Registry paths are relative to the project file.
+Project validation rejects UUIDs absent from that registry; compilation filters
+the package asset manifest to the selected identities and does not serialize
+their reference records.
+
 ## JSON and CLI
 
 Assets, relationships, keys, and tags are sorted before encoding, so an unchanged load/save round trip produces identical bytes.
