@@ -33,8 +33,9 @@ implementations are introduced.
 - `src/cineos/compiler/` owns deterministic validation and transformation of
   core project descriptions into versioned Film Packages.
 - `studio/` is reserved for user-facing production tools and orchestration.
-- `renderer/` marks the rendering boundary. No renderer is implemented in this
-  foundation.
+- `renderer/` marks the production-rendering boundary. The only implementation
+  in this foundation is the CLI's deterministic metadata preview plugin; it
+  produces inspection artifacts rather than playable media.
 - `hardware/` is reserved for explicit hardware capability and integration
   adapters.
 - `src/cineos/hardware/` owns immutable diagnostic values, dependency-optional
@@ -114,19 +115,26 @@ depend on a concrete backend.
 
 ## Command-line integration
 
-The CLI is a one-way consumer of the core, compiler, and Atlas public APIs.
+The CLI is a one-way consumer of the core, compiler, Atlas, renderer SDK, and
+plugin public APIs.
 `validate` and `compile` deserialize project JSON into the Core Project Model;
 validation and compilation are delegated to their existing services. `render`
 loads a verified Film Package and sends timeline tasks through Atlas Runtime to
 the deterministic preview handler. `assemble` consumes that handler's manifest.
-`demo` composes all of those stages with a built-in minimal project.
+`demo` persists a built-in minimal `MovieProject` as `project.json`, then
+composes those same compile, render, and assemble adapters. It also persists the
+Atlas job result as `runtime-log.json`; it does not maintain a second execution
+pipeline.
 
-At the render boundary the CLI discovers plugins through `PluginManager` and
+At the render boundary the CLI registers its built-in preview renderer as a
+plugin, then discovers external plugins through `PluginManager` and
 activates them with an immutable context containing the renderer registry and
 Atlas runtime. Lifecycle ordering remains deterministic, and all plugins are
 deactivated after execution, including when rendering fails.
 
-The preview format deliberately contains no generated imagery: it exists to
+The canonical executable flow is `MovieProject` → Film Compiler → `FilmPackage`
+→ Atlas Runtime → renderer plugin → preview output. The preview format
+deliberately contains no generated imagery: it exists to
 exercise orchestration reproducibly without GPU support or an AI model. Stable
 exit codes and optional JSON messages make the shell suitable for CI and other
 automation. Files are written in package/timeline order with canonical JSON so
@@ -173,6 +181,8 @@ stable.
 ## Current status
 
 Packaging, quality tooling, the core project model, deterministic Film Package
-compilation, Atlas Runtime orchestration, the execution CLI, and the optional
-plugin framework are established. Rendering, GPU integrations, and AI models
-remain deliberately outside the current foundation.
+compilation, Atlas Runtime orchestration, the execution CLI, the Atlas renderer
+SDK, and the plugin framework are integrated. The deterministic metadata
+preview plugin validates that path, while production rendering, GPU
+integrations, AI models, NOVA, and CineDNA remain deliberately outside the
+current foundation.
