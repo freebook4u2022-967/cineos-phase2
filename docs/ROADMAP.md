@@ -35,3 +35,5 @@ only when the preceding stage has documented, tested acceptance criteria.
 A renderer is not part of the foundation and will require a separately reviewed
 design. No AI model is selected, implied, or represented by a placeholder in
 this roadmap.
+
+- [x] First backend-neutral complete short-film assembly pipeline

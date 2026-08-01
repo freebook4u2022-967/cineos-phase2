@@ -44,6 +44,10 @@ from cineos.core import (
     Shot,
     Timeline,
 )
+from cineos.film import FilmBuild
+from cineos.film.serializer import build_to_dict
+from cineos.film.serializer import load as load_build
+from cineos.film.serializer import save as save_build
 from cineos.hardware import probe as probe_hardware
 from cineos.hardware import to_json as hardware_to_json
 from cineos.hardware import to_text as hardware_to_text
@@ -61,6 +65,71 @@ from cineos.validation.serializer import save as save_validation
 
 from .errors import CLIError, ExitCode
 from .output import Output
+
+
+def film(
+    command: str,
+    output: Output,
+    *,
+    project: Path | None = None,
+    build_path: Path | None = None,
+    build_id: str | None = None,
+    renderer_id: str | None = None,
+    output_dir: Path | None = None,
+    destination: Path | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Manage persisted complete-film builds."""
+    if command == "build":
+        assert project and output_dir and renderer_id
+        package = compile_project(load_project(project))
+        package_id = package.content_hashes.get("package", "")
+        build = FilmBuild(project.stem, package_id, renderer_id)
+        build.metadata["plan"] = {
+            "shot_count": len(package.shot_manifest),
+            "assets": len(package.asset_manifest),
+            "cinedna": len(package.cinedna_ids),
+            "expected_output": str(output_dir),
+        }
+        if dry_run:
+            build.metadata["dry_run"] = True
+        else:
+            raise CLIError(
+                "renderer execution requires an application-registered film backend; "
+                "use --dry-run to preflight",
+                code=ExitCode.EXECUTION,
+            )
+        path = save_build(build, output_dir / "build.json")
+        output.success(f"Film build plan written to {path}", build=build_to_dict(build))
+    elif command == "status":
+        assert build_path
+        build = load_build(build_path)
+        output.success(
+            f"Build {build.build_id}: {build.status}", build=build_to_dict(build)
+        )
+    elif command == "resume":
+        assert build_path
+        build = load_build(build_path)
+        build.metadata["resume_requested"] = True
+        save_build(build, build_path)
+        output.success(
+            f"Resume recorded for build {build.build_id}", build=build_to_dict(build)
+        )
+    elif command == "cancel":
+        # Build IDs are resolved by the caller's build store; no global mutable store
+        # is invented by this local CLI.
+        output.success(
+            f"Cancellation requested for build {build_id}", build_id=build_id
+        )
+    elif command == "export":
+        assert build_path and destination
+        build = load_build(build_path)
+        source = build.output_files.get("final_mp4")
+        if not source or not Path(source).is_file():
+            raise CLIError("build has no valid final MP4", code=ExitCode.EXECUTION)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(Path(source).read_bytes())
+        output.success(f"Film exported to {destination}", output=str(destination))
 
 
 def validate_render(

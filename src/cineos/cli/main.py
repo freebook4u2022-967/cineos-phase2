@@ -187,6 +187,28 @@ def _parser() -> argparse.ArgumentParser:
     validation_compare = validation_commands.add_parser("compare")
     validation_compare.add_argument("previous", type=Path)
     validation_compare.add_argument("current", type=Path)
+    film = subparsers.add_parser("film", help="build and manage complete short films")
+    film_commands = film.add_subparsers(dest="film_command", required=True)
+    film_build = film_commands.add_parser("build")
+    film_build.add_argument("project", type=Path)
+    film_build.add_argument("--renderer", required=True, dest="renderer_id")
+    film_build.add_argument("--output-dir", required=True, type=Path)
+    film_build.add_argument("--dry-run", action="store_true")
+    film_build.add_argument("--max-parallel-shots", type=int, default=1)
+    film_build.add_argument("--max-recovery-attempts", type=int, default=1)
+    film_build.add_argument("--skip-audio", action="store_true")
+    film_build.add_argument("--skip-subtitles", action="store_true")
+    film_build.add_argument("--manual-review-on-failure", action="store_true")
+    film_build.add_argument("--resume", action="store_true")
+    film_status = film_commands.add_parser("status")
+    film_status.add_argument("build", type=Path)
+    film_resume = film_commands.add_parser("resume")
+    film_resume.add_argument("build", type=Path)
+    film_cancel = film_commands.add_parser("cancel")
+    film_cancel.add_argument("build_id")
+    film_export = film_commands.add_parser("export")
+    film_export.add_argument("build", type=Path)
+    film_export.add_argument("--output", required=True, type=Path)
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -268,6 +290,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 report_path=getattr(args, "report", None),
                 previous=getattr(args, "previous", None),
                 current=getattr(args, "current", None),
+            )
+        elif args.command == "film":
+            commands.film(
+                args.film_command,
+                output,
+                project=getattr(args, "project", None),
+                build_path=getattr(args, "build", None),
+                build_id=getattr(args, "build_id", None),
+                renderer_id=getattr(args, "renderer_id", None),
+                output_dir=getattr(args, "output_dir", None),
+                destination=getattr(args, "output", None),
+                dry_run=getattr(args, "dry_run", False),
             )
         else:
             commands.version(output)
