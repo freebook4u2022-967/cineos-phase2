@@ -16,10 +16,11 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
 ]
-dependencies = []
+dependencies = ["PySide6>=6.7,<7"]
 
 [project.scripts]
 cineos = "cineos.cli.main:main"
+cineos-studio = "cineos.studio.app:main"
 
 [project.optional-dependencies]
 dev = [

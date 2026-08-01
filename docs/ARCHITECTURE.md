@@ -231,3 +231,12 @@ not leak into FilmPackage, ConditioningPackage, assets, or CineDNA.
 ## Film orchestration
 
 `cineos.film` composes validation, compilation, conditioning, rendering, shot validation, FFmpeg assembly, and artifact export. Persisted state is the audit boundary for recovery, escalation, cancellation, and hash-verified resume.
+
+## Studio Alpha presentation layer
+
+`cineos.studio` is a native PySide6 presentation and orchestration layer. Widgets
+read `StudioState`, user actions pass through `StudioController`, and controllers
+delegate domain work to Core, Compiler, Atlas Runtime, renderer, validation,
+recovery, and Film Build APIs. `BackgroundWorker` executes long-running injected
+operations in `QThreadPool`, emits Qt signals, and supplies cooperative cancellation.
+No compiler or renderer business rules live in widgets.

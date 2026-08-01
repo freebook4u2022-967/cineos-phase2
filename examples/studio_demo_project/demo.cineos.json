@@ -1,0 +1,10 @@
+{
+  "format": "cineos-project-1",
+  "project": {
+    "title": "Studio Demo", "author": "CINEOS", "version": "1.0", "fps": 24.0,
+    "resolution": [1920, 1080], "aspect_ratio": "16:9",
+    "characters": [], "locations": [], "props": [],
+    "scenes": [{"scene_id": "scene-1", "title": "Opening", "description": "A minimal compilable Studio project.", "shots": [{"shot_id": "shot-1", "camera": "wide", "lens": "35mm", "movement": "locked", "lighting": "day", "action": "The title appears.", "dialogue": "", "duration": 2.0, "references": []}], "location": null, "characters": [], "duration": 2.0}]
+  },
+  "studio": {"language": "en", "duration_target": 2.0}
+}

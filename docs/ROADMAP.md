@@ -37,3 +37,14 @@ design. No AI model is selected, implied, or represented by a placeholder in
 this roadmap.
 
 - [x] First backend-neutral complete short-film assembly pipeline
+
+## Studio Alpha
+
+- [x] Native cross-platform PySide6 workspace shell
+- [x] Project persistence, metadata, scene/shot ordering, validation and compilation
+- [x] Asset, timeline, renderer, queue, review, recovery, and export surfaces
+- [x] Thread-pool worker, cancellation, settings persistence, and offscreen launch support
+- [ ] Post-alpha rich editors and additional real renderer integrations
+
+Studio Alpha intentionally excludes collaboration, cloud billing, model training,
+and nonlinear timeline editing and does not claim production readiness.

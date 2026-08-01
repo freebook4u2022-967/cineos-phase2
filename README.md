@@ -313,3 +313,11 @@ and requires neither proprietary APIs nor inference packages. Run
 ## Complete film builds
 
 The first auditable short-film build pipeline is documented in [Film builds](docs/FILM_BUILD.md), with a safe CLI dry-run and resumable per-shot records.
+
+## CINEOS Studio Alpha
+
+The optional native PySide6 desktop workflow launches with `cineos-studio`. It
+provides project, asset, scene/shot, timeline, renderer, queue, review, recovery,
+and export surfaces backed by existing CINEOS APIs. See
+[Studio documentation](docs/STUDIO.md) and the
+[workflow guide](docs/STUDIO_WORKFLOW.md). Studio Alpha is not production ready.
