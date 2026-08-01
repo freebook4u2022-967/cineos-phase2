@@ -1,0 +1,19 @@
+{
+  "model_path": "models/text-to-video-ms-1.7b",
+  "device": "cpu",
+  "precision": "float32",
+  "width": 576,
+  "height": 320,
+  "fps": 8,
+  "duration": 2.0,
+  "inference_steps": 25,
+  "guidance": 9.0,
+  "seed": 12345,
+  "output_format": "mp4",
+  "enable_attention_slicing": true,
+  "enable_vae_slicing": true,
+  "cpu_offload": false,
+  "minimum_vram_gb": 8.0,
+  "minimum_disk_gb": 5.0,
+  "output_directory": "renders"
+}

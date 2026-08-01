@@ -152,6 +152,23 @@ def _parser() -> argparse.ArgumentParser:
             name, help=f"{name} a conditioning package"
         )
         item.add_argument("conditioning_package", type=Path)
+    renderer = subparsers.add_parser("renderer", help="inspect and run Atlas renderers")
+    renderer_commands = renderer.add_subparsers(dest="renderer_command", required=True)
+    renderer_commands.add_parser("list", help="list installed renderers")
+    for name in ("inspect", "validate"):
+        item = renderer_commands.add_parser(name, help=f"{name} a renderer")
+        item.add_argument("renderer_id")
+        item.add_argument("--config", type=Path)
+    renderer_render = renderer_commands.add_parser(
+        "render", help="render one compiled shot"
+    )
+    renderer_render.add_argument("film_package", type=Path)
+    renderer_render.add_argument("--renderer", dest="renderer_id", default="local-ai")
+    renderer_render.add_argument("--shot", required=True)
+    renderer_render.add_argument("--conditioning", required=True, type=Path)
+    renderer_render.add_argument("--output", required=True, type=Path)
+    renderer_render.add_argument("--config", type=Path)
+    renderer_render.add_argument("--dry-run", action="store_true")
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -209,6 +226,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 shot_id=getattr(args, "shot_id", None),
                 conditioning_path=getattr(args, "conditioning_package", None),
                 destination=getattr(args, "output", None),
+            )
+        elif args.command == "renderer":
+            commands.renderer(
+                args.renderer_command,
+                output,
+                renderer_id=getattr(args, "renderer_id", None),
+                config_path=getattr(args, "config", None),
+                package_path=getattr(args, "film_package", None),
+                conditioning_path=getattr(args, "conditioning", None),
+                shot_id=getattr(args, "shot", None),
+                destination=getattr(args, "output", None),
+                dry_run=getattr(args, "dry_run", False),
             )
         else:
             commands.version(output)
