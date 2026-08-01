@@ -59,6 +59,10 @@ implementations are introduced.
   domain rules remain in their owning packages.
 - `src/cineos/plugins/` owns optional-extension identity, compatibility,
   discovery, and lifecycle contracts. It depends on no product subsystem.
+- `src/cineos/validation/` owns renderer-neutral post-render checks and reports.
+  Model-specific image and temporal analysis stays behind `ValidatorBackend`;
+  Atlas invokes validation only after render completion and attaches results to
+  renderer metadata without making computer-vision dependencies mandatory.
 
 ## Dependency direction
 

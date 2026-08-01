@@ -72,6 +72,7 @@ class RuntimeJob:
 
 
 TaskHandler = Callable[[RuntimeTask], Any]
+ResultValidator = Callable[[RuntimeTask, Any], Any]
 
 
 class AtlasRuntime:
@@ -129,6 +130,29 @@ class AtlasRuntime:
             RuntimeState.CANCELLED if job._cancel_requested else RuntimeState.COMPLETED
         )
         return job
+
+    def run_with_validation(
+        self,
+        job: RuntimeJob,
+        handler: TaskHandler,
+        validator: ResultValidator,
+    ) -> RuntimeJob:
+        """Render each task, then validate and attach its report immediately."""
+        if not callable(validator):
+            raise TypeError("validator must be callable")
+
+        def render_and_validate(task: RuntimeTask) -> Any:
+            result = handler(task)
+            report = validator(task, result)
+            metadata = getattr(result, "renderer_metadata", None)
+            if isinstance(metadata, dict):
+                from cineos.validation.serializer import report_to_dict
+
+                metadata["validation_report"] = report_to_dict(report)
+                metadata["mark_for_rerender"] = report.should_rerender
+            return result
+
+        return self.run(job, render_and_validate)
 
     def execute(
         self,

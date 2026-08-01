@@ -300,3 +300,12 @@ The `local-ai` Atlas plugin integrates the Diffusers
 ConditioningPackage. It renders one 576x320, 8 FPS MP4 shot at a time. The
 plugin never downloads weights or installs dependencies. Start with
 `cineos renderer inspect local-ai` and follow [the renderer setup guide](docs/RENDERER_SETUP.md).
+
+## Identity and continuity validation
+
+Completed shots can be checked independently of their renderer for character
+identity invariants, wardrobe, props, environment, and temporal continuity.
+Validation uses approved conditioning references, supports optional CV plugins,
+and requires neither proprietary APIs nor inference packages. Run
+`cineos validate-render`, `cineos validation show`, or
+`cineos validation compare`; see [the validation guide](docs/VALIDATION.md).

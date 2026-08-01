@@ -50,9 +50,89 @@ from cineos.hardware import to_text as hardware_to_text
 from cineos.plugins import Plugin, PluginContext, PluginManager, PluginMetadata
 from cineos.renderers.local_ai import LocalAIConfig, LocalAIRendererPlugin
 from cineos.renderers.local_ai.installer import setup_commands
+from cineos.validation import (
+    FakeValidatorBackend,
+    TemporalValidator,
+    ValidationPipeline,
+)
+from cineos.validation.serializer import load as load_validation
+from cineos.validation.serializer import report_to_dict
+from cineos.validation.serializer import save as save_validation
 
 from .errors import CLIError, ExitCode
 from .output import Output
+
+
+def validate_render(
+    render_path: Path,
+    shot_id: str,
+    conditioning_path: Path,
+    destination: Path,
+    output: Output,
+) -> None:
+    """Validate one completed render and persist its structured report."""
+    try:
+        conditioning = load_conditioning(conditioning_path)
+        report = ValidationPipeline().validate(
+            render_path,
+            conditioning,
+            shot_id=shot_id,
+            renderer_id="cli",
+        )
+        save_validation(report, destination)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise CLIError(
+            f"render validation failed: {error}", code=ExitCode.VALIDATION
+        ) from error
+    output.success(
+        f"Validation report written to {destination}",
+        report=report_to_dict(report),
+    )
+
+
+def validation(
+    command: str,
+    output: Output,
+    *,
+    report_path: Path | None,
+    previous: Path | None,
+    current: Path | None,
+) -> None:
+    """Show a report or compare temporal continuity between two renders."""
+    if command == "show":
+        if report_path is None:
+            raise CLIError("report path is required", code=ExitCode.USAGE)
+        report = load_validation(report_path)
+        payload = report_to_dict(report)
+        output.success(
+            f"{report.shot_id}: {report.overall_status.value} "
+            f"({report.overall_score})",
+            report=payload,
+        )
+        return
+    if previous is None or current is None:
+        raise CLIError("two render paths are required", code=ExitCode.USAGE)
+    if not previous.is_file() or not current.is_file():
+        raise CLIError("comparison render does not exist", code=ExitCode.INPUT)
+    # Plugins can replace these deterministic zero-drift metrics with optical
+    # flow, perceptual hashes, or temporal models without changing the CLI.
+    backend = FakeValidatorBackend(temporal={})
+    conditioning = {
+        "character_conditioning": [],
+        "wardrobe_conditioning": [],
+        "prop_conditioning": [],
+        "environment_conditioning": None,
+    }
+    report = ValidationPipeline(backend, validators=[TemporalValidator()]).validate(
+        current,
+        conditioning,
+        shot_id=current.stem,
+        renderer_id="comparison",
+        frames=[previous, current],
+    )
+    output.success(
+        f"Compared {previous} with {current}", comparison=report_to_dict(report)
+    )
 
 
 def renderer(
