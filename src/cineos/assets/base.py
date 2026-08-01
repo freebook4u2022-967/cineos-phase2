@@ -112,14 +112,23 @@ class Asset:
         }
 
     def refresh_content_hash(self) -> str:
+        self.content_hash = self.calculate_content_hash()
+        return self.content_hash
+
+    def calculate_content_hash(self) -> str:
+        """Return the canonical hash without changing the asset.
+
+        Keeping calculation separate from ``refresh_content_hash`` lets validators
+        detect manifests whose identity metadata was edited without updating the
+        recorded digest.
+        """
         data = json.dumps(
             self.hash_payload(),
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
         )
-        self.content_hash = hashlib.sha256(data.encode()).hexdigest()
-        return self.content_hash
+        return hashlib.sha256(data.encode()).hexdigest()
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -129,6 +138,8 @@ class Asset:
             errors.append("asset name cannot be empty")
         if self.version < 1:
             errors.append("asset version must be positive")
+        if self.content_hash != self.calculate_content_hash():
+            errors.append("asset content hash does not match canonical content")
         if any(not tag.strip() for tag in self.tags):
             errors.append("asset tags cannot be empty")
         numbers = [item.version for item in self.versions]
