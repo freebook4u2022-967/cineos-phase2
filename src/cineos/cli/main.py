@@ -169,6 +169,24 @@ def _parser() -> argparse.ArgumentParser:
     renderer_render.add_argument("--output", required=True, type=Path)
     renderer_render.add_argument("--config", type=Path)
     renderer_render.add_argument("--dry-run", action="store_true")
+    validate_render = subparsers.add_parser(
+        "validate-render", help="validate a completed rendered shot"
+    )
+    validate_render.add_argument("render", type=Path)
+    validate_render.add_argument("--shot", required=True)
+    validate_render.add_argument("--conditioning", required=True, type=Path)
+    validate_render.add_argument("--output", required=True, type=Path)
+    validation = subparsers.add_parser(
+        "validation", help="inspect and compare render validation"
+    )
+    validation_commands = validation.add_subparsers(
+        dest="validation_command", required=True
+    )
+    validation_show = validation_commands.add_parser("show")
+    validation_show.add_argument("report", type=Path)
+    validation_compare = validation_commands.add_parser("compare")
+    validation_compare.add_argument("previous", type=Path)
+    validation_compare.add_argument("current", type=Path)
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -238,6 +256,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 shot_id=getattr(args, "shot", None),
                 destination=getattr(args, "output", None),
                 dry_run=getattr(args, "dry_run", False),
+            )
+        elif args.command == "validate-render":
+            commands.validate_render(
+                args.render, args.shot, args.conditioning, args.output, output
+            )
+        elif args.command == "validation":
+            commands.validation(
+                args.validation_command,
+                output,
+                report_path=getattr(args, "report", None),
+                previous=getattr(args, "previous", None),
+                current=getattr(args, "current", None),
             )
         else:
             commands.version(output)
