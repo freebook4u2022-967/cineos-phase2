@@ -48,9 +48,108 @@ from cineos.hardware import probe as probe_hardware
 from cineos.hardware import to_json as hardware_to_json
 from cineos.hardware import to_text as hardware_to_text
 from cineos.plugins import Plugin, PluginContext, PluginManager, PluginMetadata
+from cineos.renderers.local_ai import LocalAIConfig, LocalAIRendererPlugin
+from cineos.renderers.local_ai.installer import setup_commands
 
 from .errors import CLIError, ExitCode
 from .output import Output
+
+
+def renderer(
+    command: str,
+    output: Output,
+    *,
+    renderer_id: str | None,
+    config_path: Path | None,
+    package_path: Path | None,
+    conditioning_path: Path | None,
+    shot_id: str | None,
+    destination: Path | None,
+    dry_run: bool,
+) -> None:
+    """Inspect, validate, or execute the built-in Atlas renderer plugin."""
+    if command == "list":
+        output.success(
+            "local-ai 1.0.0", renderers=[{"id": "local-ai", "version": "1.0.0"}]
+        )
+        return
+    if renderer_id != "local-ai":
+        raise CLIError(f"unknown renderer: {renderer_id}", code=ExitCode.INPUT)
+    try:
+        config = LocalAIConfig.load(config_path)
+        plugin = LocalAIRendererPlugin(config)
+        if command == "inspect":
+            caps = plugin.renderer.capabilities
+            output.success(
+                "local-ai: damo-vilab/text-to-video-ms-1.7b",
+                renderer={
+                    "id": "local-ai",
+                    "version": plugin.version,
+                    "model": plugin.renderer.model_identifier,
+                    "config": config.to_dict(),
+                    "resolutions": [
+                        [item.width, item.height] for item in caps.supported_resolution
+                    ],
+                    "duration": [
+                        caps.supported_duration.minimum,
+                        caps.supported_duration.maximum,
+                    ],
+                    "fps": list(caps.supported_fps),
+                    "features": sorted(caps.supported_features),
+                    "setup_commands": list(setup_commands()),
+                },
+            )
+            return
+        if command == "validate":
+            report = plugin.renderer.validate_environment()
+            if not report.valid:
+                raise CLIError(
+                    "renderer environment is invalid: " + "; ".join(report.errors),
+                    code=ExitCode.VALIDATION,
+                    hint="See docs/RENDERER_SETUP.md; no dependencies were installed.",
+                )
+            output.success(
+                "local-ai environment is valid",
+                warnings=report.warnings,
+                details=report.details,
+            )
+            return
+        if not all((package_path, conditioning_path, shot_id, destination)):
+            raise CLIError(
+                "renderer render requires package, conditioning, shot, and output",
+                code=ExitCode.USAGE,
+            )
+        package = load_package(package_path)
+        conditioning = load_conditioning(conditioning_path)
+        result = plugin.render(
+            package, conditioning, destination, shot_id=shot_id, dry_run=dry_run
+        )
+        if dry_run:
+            output.success(
+                "renderer dry-run passed",
+                request={
+                    "job_id": result.job_id,
+                    "shot_id": result.shot_id,
+                    "prompt": result.prompt,
+                    "seed": result.seed,
+                    "output": str(result.output_path),
+                    "resolution": [result.width, result.height],
+                    "fps": result.fps,
+                    "duration": result.duration,
+                },
+            )
+        else:
+            output.success(
+                f"rendered {shot_id} to {destination}", result=result.to_dict()
+            )
+    except CLIError:
+        raise
+    except (OSError, ValueError, RuntimeError) as error:
+        raise CLIError(
+            f"renderer operation failed: {error}",
+            code=ExitCode.VALIDATION,
+            hint="Inspect the request and run 'cineos renderer validate local-ai'.",
+        ) from error
 
 
 def condition(

@@ -292,3 +292,11 @@ references and versioned CineDNA; it does not generate embeddings or renderer
 prompts. Use `cineos condition build SHOT`, `validate FILE`, `show FILE`, or
 `export SHOT --output FILE` (the default source files are `film-package.json`,
 `assets.json`, and `cinedna.json`).
+
+## First real AI-video renderer
+
+The `local-ai` Atlas plugin integrates the Diffusers
+`damo-vilab/text-to-video-ms-1.7b` pipeline without changing FilmPackage or
+ConditioningPackage. It renders one 576x320, 8 FPS MP4 shot at a time. The
+plugin never downloads weights or installs dependencies. Start with
+`cineos renderer inspect local-ai` and follow [the renderer setup guide](docs/RENDERER_SETUP.md).

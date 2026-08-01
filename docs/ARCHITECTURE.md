@@ -214,3 +214,12 @@ versioned CineDNA into a content-hashed shot package. Atlas validates the
 package's resolution, duration, FPS, character-count, and reference feature
 requirements before renderer execution. No model-specific syntax belongs at
 this boundary.
+
+## Real renderer boundary
+
+`cineos.renderers.local_ai` is the only module that knows about Diffusers and
+the selected model. The CLI constructs a backend-independent request from a
+compiled FilmPackage and ConditioningPackage, validates it, then dispatches it
+through Atlas Runtime. Model loading, inference, progress callbacks, encoding,
+cancellation, and cleanup remain behind the plugin. Model-specific concepts do
+not leak into FilmPackage, ConditioningPackage, assets, or CineDNA.
