@@ -309,3 +309,7 @@ Validation uses approved conditioning references, supports optional CV plugins,
 and requires neither proprietary APIs nor inference packages. Run
 `cineos validate-render`, `cineos validation show`, or
 `cineos validation compare`; see [the validation guide](docs/VALIDATION.md).
+
+## Complete film builds
+
+The first auditable short-film build pipeline is documented in [Film builds](docs/FILM_BUILD.md), with a safe CLI dry-run and resumable per-shot records.

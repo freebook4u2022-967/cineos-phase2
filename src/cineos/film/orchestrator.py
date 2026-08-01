@@ -1,0 +1,180 @@
+"""Backend-neutral complete film execution coordinator."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from threading import Event
+from time import monotonic
+from typing import Any
+
+from .assembly import assemble
+from .build import BuildStatus, FilmBuild
+from .exceptions import BuildCancelled, FilmBuildError
+from .planner import plan_shots
+from .shot_state import ShotState
+from .validator import ShotValidator, file_hash, validate_reusable_output
+
+
+class FilmOrchestrator:
+    """Render in timeline order with explicit validation and bounded recovery."""
+
+    def __init__(
+        self,
+        renderer: Any,
+        validator: Any | None = None,
+        *,
+        max_recovery_attempts: int = 1,
+        manual_review_on_failure: bool = False,
+    ) -> None:
+        self.renderer = renderer
+        self.validator = validator or ShotValidator()
+        self.max_recovery_attempts = max_recovery_attempts
+        self.manual_review_on_failure = manual_review_on_failure
+        self.cancel_event = Event()
+
+    def cancel(self) -> None:
+        self.cancel_event.set()
+        cancel = getattr(self.renderer, "cancel_pending", None)
+        if cancel:
+            cancel()
+
+    def run(
+        self,
+        package: Any,
+        build: FilmBuild,
+        output_dir: str | Path,
+        *,
+        dry_run: bool = False,
+        resume: bool = False,
+    ) -> FilmBuild:
+        root = Path(output_dir)
+        root.mkdir(parents=True, exist_ok=True)
+        plan = plan_shots(package)
+        existing = {state.shot_id: state for state in build.shot_states}
+        build.shot_states = [
+            existing.get(item.shot_id, ShotState(item.shot_id)) for item in plan
+        ]
+        if dry_run:
+            build.metadata["dry_run"] = {
+                "shot_count": len(plan),
+                "output_dir": str(root),
+                "renderer_compatible": True,
+            }
+            return build
+        try:
+            for item, state in zip(plan, build.shot_states, strict=True):
+                if self.cancel_event.is_set():
+                    raise BuildCancelled("build cancelled")
+                if (
+                    resume
+                    and state.approved
+                    and validate_reusable_output(
+                        state.selected_output or "", state.output_hash
+                    )
+                ):
+                    continue
+                self._render_shot(item, state, root, build)
+                if not state.approved:
+                    build.failures.append(f"{item.shot_id}: {state.failure_reason}")
+                    build.transition(
+                        BuildStatus.MANUAL_REVIEW_REQUIRED
+                        if self.manual_review_on_failure
+                        else BuildStatus.FAILED
+                    )
+                    return build
+            build.transition(BuildStatus.ASSEMBLING)
+            movie = assemble(
+                [
+                    state.selected_output
+                    for state in build.shot_states
+                    if state.selected_output
+                ],
+                root / "final.mp4",
+                durations=[item.duration for item in plan],
+            )
+            build.output_files["final_mp4"] = str(movie)
+            build.transition(
+                BuildStatus.COMPLETED_WITH_WARNINGS
+                if build.warnings
+                else BuildStatus.COMPLETED
+            )
+        except BuildCancelled:
+            build.transition(BuildStatus.CANCELLED)
+        except Exception as error:
+            build.failures.append(str(error))
+            build.transition(BuildStatus.FAILED)
+        return build
+
+    def _render_shot(
+        self, planned: Any, state: ShotState, root: Path, build: FilmBuild
+    ) -> None:
+        attempts = self.max_recovery_attempts + 1
+        for attempt in range(attempts):
+            build.transition(
+                BuildStatus.RECOVERING if attempt else BuildStatus.RENDERING
+            )
+            state.attempt_count += 1
+            started = monotonic()
+            target = (
+                root
+                / "shots"
+                / f"{planned.index:04d}-{planned.shot_id}-a{state.attempt_count}.mp4"
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                result = self.renderer.render(planned, target)
+                path = Path(result if isinstance(result, (str, Path)) else target)
+                state.output_path = str(path)
+                state.render_status = "completed"
+                build.transition(BuildStatus.VALIDATING_SHOTS)
+                report = self.validator.validate(path, planned)
+                approved = (
+                    bool(report.get("approved", False))
+                    if isinstance(report, dict)
+                    else bool(report)
+                )
+                build.validation_states.append(
+                    {
+                        "shot_id": planned.shot_id,
+                        "attempt": state.attempt_count,
+                        "approved": approved,
+                    }
+                )
+                if approved:
+                    state.validation_status = "approved"
+                    state.selected_output = str(path)
+                    state.output_hash = file_hash(path)
+                    state.recovery_status = "recovered" if attempt else "not_required"
+                    state.attempt_history.append(
+                        {
+                            "attempt": state.attempt_count,
+                            "approved": True,
+                            "output_hash": state.output_hash,
+                        }
+                    )
+                    return
+                raise FilmBuildError("validator rejected output")
+            except Exception as error:
+                state.failure_reason = str(error)
+                state.validation_status = "rejected"
+                state.recovery_status = (
+                    "retrying" if attempt + 1 < attempts else "exhausted"
+                )
+                state.attempt_history.append(
+                    {
+                        "attempt": state.attempt_count,
+                        "approved": False,
+                        "reason": str(error),
+                    }
+                )
+                build.recovery_states.append(
+                    {
+                        "shot_id": planned.shot_id,
+                        "attempt": state.attempt_count,
+                        "reason": str(error),
+                    }
+                )
+            finally:
+                state.timing_metrics[f"attempt_{state.attempt_count}_seconds"] = (
+                    monotonic() - started
+                )
