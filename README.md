@@ -283,3 +283,12 @@ This project is licensed under the [MIT License](LICENSE).
 ## Canonical assets
 
 Canonical production assets, approved visual references, deterministic storage, and asset CLI workflows are documented in [docs/ASSETS.md](docs/ASSETS.md).
+
+## Reference conditioning
+
+A compiled shot can be converted into a deterministic, renderer-independent
+`ConditioningPackage`. The contract resolves only approved canonical asset
+references and versioned CineDNA; it does not generate embeddings or renderer
+prompts. Use `cineos condition build SHOT`, `validate FILE`, `show FILE`, or
+`export SHOT --output FILE` (the default source files are `film-package.json`,
+`assets.json`, and `cinedna.json`).

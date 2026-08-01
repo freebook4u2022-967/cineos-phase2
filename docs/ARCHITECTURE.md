@@ -205,3 +205,12 @@ At the CLI boundary, a project may name an external asset-registry JSON file and
 select entries through an `asset_ids` UUID list. The path is resolved relative
 to the project document, keeping the project portable while preserving the
 registry as the sole owner of reference paths and checksums.
+
+## Reference conditioning boundary
+
+`cineos.conditioning` sits between deterministic Film Package compilation and
+Atlas renderer plugins. It resolves approved AssetRegistry references and
+versioned CineDNA into a content-hashed shot package. Atlas validates the
+package's resolution, duration, FPS, character-count, and reference feature
+requirements before renderer execution. No model-specific syntax belongs at
+this boundary.
