@@ -131,6 +131,27 @@ def _parser() -> argparse.ArgumentParser:
             default=argparse.SUPPRESS,
             help="emit machine-readable JSON output",
         )
+    condition = subparsers.add_parser(
+        "condition", help="build and inspect renderer-independent conditioning"
+    )
+    condition.add_argument("--package", type=Path, default=Path("film-package.json"))
+    condition.add_argument("--registry", type=Path, default=Path("assets.json"))
+    condition.add_argument("--profiles", type=Path, default=Path("cinedna.json"))
+    condition_commands = condition.add_subparsers(
+        dest="condition_command", required=True
+    )
+    for name in ("build", "export"):
+        item = condition_commands.add_parser(
+            name, help=f"{name} conditioning for one shot"
+        )
+        item.add_argument("shot_id")
+        if name == "export":
+            item.add_argument("--output", required=True, type=Path)
+    for name in ("validate", "show"):
+        item = condition_commands.add_parser(
+            name, help=f"{name} a conditioning package"
+        )
+        item.add_argument("conditioning_package", type=Path)
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -176,6 +197,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.profiles,
                 output,
                 character_id=getattr(args, "character_id", None),
+                destination=getattr(args, "output", None),
+            )
+        elif args.command == "condition":
+            commands.condition(
+                args.condition_command,
+                output,
+                package_path=args.package,
+                registry_path=args.registry,
+                profiles_path=args.profiles,
+                shot_id=getattr(args, "shot_id", None),
+                conditioning_path=getattr(args, "conditioning_package", None),
                 destination=getattr(args, "output", None),
             )
         else:

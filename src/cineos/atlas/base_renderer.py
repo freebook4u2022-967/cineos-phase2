@@ -36,6 +36,17 @@ class BaseRenderer(ABC):
     def render(self, request: Any) -> Any:
         """Render a backend-defined request and return a backend-defined result."""
 
+    def accepts_conditioning(self, package: Any) -> bool:
+        """Validate and accept a renderer-independent conditioning package.
+
+        Validation raises a detailed error rather than deferring an incompatible
+        request until model execution.
+        """
+        from cineos.conditioning import validate_renderer_capabilities
+
+        validate_renderer_capabilities(package, self.capabilities)
+        return True
+
     @abstractmethod
     def shutdown(self) -> None:
         """Release all resources. Implementations should make this idempotent."""

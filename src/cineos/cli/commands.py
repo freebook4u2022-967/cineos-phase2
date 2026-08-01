@@ -29,6 +29,10 @@ from cineos.cinedna.serializer import save as save_cinedna
 from cineos.compiler import compile as compile_project
 from cineos.compiler import load as load_package
 from cineos.compiler import save
+from cineos.conditioning import ConditioningBuilder, ConditioningValidator
+from cineos.conditioning.serializer import load as load_conditioning
+from cineos.conditioning.serializer import package_to_dict as conditioning_to_dict
+from cineos.conditioning.serializer import save as save_conditioning
 from cineos.core import (
     Character,
     Environment,
@@ -47,6 +51,50 @@ from cineos.plugins import Plugin, PluginContext, PluginManager, PluginMetadata
 
 from .errors import CLIError, ExitCode
 from .output import Output
+
+
+def condition(
+    command: str,
+    output: Output,
+    *,
+    package_path: Path,
+    registry_path: Path,
+    profiles_path: Path,
+    shot_id: str | None = None,
+    conditioning_path: Path | None = None,
+    destination: Path | None = None,
+) -> None:
+    """Build, export, validate, or display reference conditioning."""
+    if command in {"validate", "show"}:
+        if conditioning_path is None:
+            raise CLIError("conditioning package path is required", code=ExitCode.USAGE)
+        package = load_conditioning(conditioning_path)
+        ConditioningValidator().raise_for_errors(package)
+        if command == "show":
+            output.success(
+                json.dumps(conditioning_to_dict(package), sort_keys=True, indent=2),
+                package=conditioning_to_dict(package),
+            )
+        else:
+            output.success(
+                f"Conditioning package is valid: {conditioning_path}",
+                package=str(conditioning_path),
+            )
+        return
+    if shot_id is None:
+        raise CLIError("shot ID is required", code=ExitCode.USAGE)
+    package = ConditioningBuilder(
+        load_package(package_path),
+        load_assets(registry_path),
+        CineDNARegistry.load(profiles_path),
+    ).build(shot_id)
+    target = destination or Path(f"{shot_id}.conditioning.json")
+    save_conditioning(package, target)
+    output.success(
+        f"Conditioning package written to {target}",
+        output=str(target),
+        content_hash=package.content_hash,
+    )
 
 
 def _read_json(path: Path) -> dict[str, Any]:

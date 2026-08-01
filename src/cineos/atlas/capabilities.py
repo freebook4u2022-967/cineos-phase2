@@ -47,6 +47,7 @@ class RendererCapabilities:
     supported_duration: Range
     supported_fps: tuple[float, ...]
     supported_features: frozenset[str] = field(default_factory=frozenset)
+    maximum_character_count: int | None = None
 
     def __post_init__(self) -> None:
         resolutions = tuple(self.supported_resolution)
@@ -58,6 +59,11 @@ class RendererCapabilities:
             raise ValueError("supported fps values must be non-empty and positive")
         if any(not feature for feature in features):
             raise ValueError("feature names must not be empty")
+        if (
+            self.maximum_character_count is not None
+            and self.maximum_character_count < 0
+        ):
+            raise ValueError("maximum character count cannot be negative")
         object.__setattr__(self, "supported_resolution", resolutions)
         object.__setattr__(self, "supported_fps", fps_values)
         object.__setattr__(self, "supported_features", features)
