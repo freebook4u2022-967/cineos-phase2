@@ -125,3 +125,16 @@ def test_duplicate_reference_uuids_are_rejected_by_validation():
     registry.register(Environment(name="Stage", reference_images=[shared.copy()]))
 
     assert f"duplicate reference UUID: {shared.reference_id}" in registry.validate()
+
+
+def test_tampered_asset_content_hash_is_rejected_without_mutating_it():
+    registry = AssetRegistry()
+    hero = registry.register(Character(name="Hero"))
+    recorded_hash = hero.content_hash
+
+    hero.name = "Altered Hero"
+
+    assert "asset content hash does not match canonical content" in " ".join(
+        registry.validate()
+    )
+    assert hero.content_hash == recorded_hash
