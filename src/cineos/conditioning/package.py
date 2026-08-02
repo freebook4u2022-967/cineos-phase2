@@ -40,6 +40,13 @@ class ConditioningPackage:
     schema_version: str = CONDITIONING_SCHEMA_VERSION
     content_hash: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    performance_package_id: str = ""
+    dialogue_timing: list[dict[str, Any]] = field(default_factory=list)
+    facial_targets: list[dict[str, Any]] = field(default_factory=list)
+    body_performance_tracks: list[dict[str, Any]] = field(default_factory=list)
+    gesture_tracks: list[dict[str, Any]] = field(default_factory=list)
+    eye_lines: list[dict[str, Any]] = field(default_factory=list)
+    performance_capability_requirements: dict[str, bool] = field(default_factory=dict)
 
     # Concise compatibility aliases.
     @property

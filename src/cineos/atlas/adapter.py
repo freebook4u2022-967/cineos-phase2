@@ -61,6 +61,27 @@ class RendererAdapter:
         self._require(RendererState.READY)
         return self._renderer.render(request)
 
+    def map_performance(self, plan: Any) -> tuple[dict[str, Any], list[str]]:
+        """Translate a performance plan through optional renderer-specific hooks."""
+        mapped: dict[str, Any] = {}
+        warnings: list[str] = []
+        hooks = {
+            "visemes": ("map_visemes", plan.lip_sync_tracks),
+            "expressions": ("map_expressions", plan.facial_performance_tracks),
+            "poses": ("map_pose_controls", plan.body_performance_tracks),
+            "audio_timing": ("map_audio_timing", plan.lip_sync_tracks),
+            "motion_references": ("map_motion_references", plan.gesture_tracks),
+            "gaze_targets": ("map_gaze_targets", plan.eye_line_tracks),
+        }
+        for key, (hook, value) in hooks.items():
+            mapper = getattr(self._renderer, hook, None)
+            if mapper is None:
+                if value:
+                    warnings.append(f"renderer does not support {hook}")
+                continue
+            mapped[key] = mapper(value)
+        return mapped, warnings
+
     def shutdown(self) -> None:
         if self._state is RendererState.SHUTDOWN:
             return

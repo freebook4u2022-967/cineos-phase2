@@ -333,3 +333,7 @@ CINEOS includes provider-neutral dialogue casting, cue planning, synthesis,
 mixing, future-renderer lip-sync metadata, and deliverable export. Start with
 [`docs/AUDIO_WORKFLOW.md`](docs/AUDIO_WORKFLOW.md); voice rights and stable casting
 are documented in [`docs/VOICE_CASTING.md`](docs/VOICE_CASTING.md).
+
+## Performance and lip-sync
+
+The Performance alpha creates deterministic renderer-independent facial, lip-sync, gesture, body, eye-line, and emotional timelines. See [the performance guide](docs/PERFORMANCE.md) and [workflow](docs/PERFORMANCE_WORKFLOW.md).

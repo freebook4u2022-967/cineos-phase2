@@ -256,3 +256,7 @@ speech/music vendor. Capability adapters isolate synthesis; the portable mixer
 provides PCM/silence output and uses FFmpeg only through argument-list subprocesses.
 Studio and FilmBuild consume the same API, and lip-sync remains metadata for future
 renderer plugins.
+
+## Performance layer
+
+`cineos.performance` sits between NOVA/audio/CineDNA and conditioning. It produces canonical plans, validates expression and cross-shot continuity constraints, negotiates explicit renderer capabilities, and exposes translation hooks through Atlas without coupling plans to a backend.

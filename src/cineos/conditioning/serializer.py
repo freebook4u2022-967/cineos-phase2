@@ -77,6 +77,15 @@ def package_from_dict(value: Mapping[str, Any]) -> ConditioningPackage:
         deterministic_seed=int(value["deterministic_seed"]),
         content_hash=str(value.get("content_hash", "")),
         metadata=dict(value.get("metadata", {})),
+        performance_package_id=str(value.get("performance_package_id", "")),
+        dialogue_timing=list(value.get("dialogue_timing", [])),
+        facial_targets=list(value.get("facial_targets", [])),
+        body_performance_tracks=list(value.get("body_performance_tracks", [])),
+        gesture_tracks=list(value.get("gesture_tracks", [])),
+        eye_lines=list(value.get("eye_lines", [])),
+        performance_capability_requirements=dict(
+            value.get("performance_capability_requirements", {})
+        ),
     )
 
 
