@@ -1,0 +1,13 @@
+{
+  "title": "The Last Signal",
+  "premise": "a radio operator chooses whether to answer a mysterious signal",
+  "genre": "science fiction",
+  "tone": "restrained",
+  "theme": "connection requires risk",
+  "target_duration": 45,
+  "required_characters": ["operator-asset-uuid"],
+  "required_environments": ["radio-room-asset-uuid"],
+  "narrative_constraints": ["The operator makes the final choice"],
+  "forbidden_content": ["graphic violence"],
+  "metadata": {"author": "Example Filmmaker", "time_of_day": "night"}
+}

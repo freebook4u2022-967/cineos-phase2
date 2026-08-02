@@ -14,6 +14,14 @@ from cineos.core import Character, Environment, MovieProject, ProjectValidator, 
 from cineos.core.scene import Scene
 from cineos.core.shot import Shot
 from cineos.core.timeline import Timeline
+from cineos.nova import (
+    CreativeBrief,
+    CritiqueFinding,
+    NOVACritic,
+    NOVADirector,
+    NOVARevisionEngine,
+)
+from cineos.nova.director import DirectorPlan
 
 from .state import StudioState
 
@@ -30,6 +38,7 @@ class StudioController:
         self.state = state or StudioState()
         self.settings = settings
         self._listeners: list[Callable[[], None]] = []
+        self.nova_plan: DirectorPlan | None = None
 
     def subscribe(self, listener: Callable[[], None]) -> None:
         self._listeners.append(listener)
@@ -67,6 +76,38 @@ class StudioController:
         scene.duration = scene.shot_duration
         self.state.mark_dirty()
         self._changed()
+
+    def generate_nova_plan(
+        self, brief: CreativeBrief, *, seed: int = 0, planner: str = "rule-based"
+    ) -> DirectorPlan:
+        """Generate story, scene, and shot plans while preserving approved assets."""
+        registry = (
+            self.state.project.asset_registry
+            if self.state.project is not None
+            else None
+        )
+        self.nova_plan = NOVADirector(registry).create_plan(
+            brief, seed=seed, planner=planner
+        )
+        self.state.project = self.nova_plan.project
+        self.state.mark_dirty()
+        self._changed()
+        return self.nova_plan
+
+    def critique_nova_plan(self) -> list[CritiqueFinding]:
+        if self.nova_plan is None:
+            raise ValueError("generate a NOVA plan before critiquing it")
+        return NOVACritic().critique(self.nova_plan)
+
+    def revise_nova_plan(self, accepted: list[CritiqueFinding]) -> DirectorPlan:
+        """Apply only accepted findings; rejected findings leave edits untouched."""
+        if self.nova_plan is None:
+            raise ValueError("generate a NOVA plan before revising it")
+        self.nova_plan = NOVARevisionEngine().revise(self.nova_plan, accepted)
+        self.state.project = self.nova_plan.project
+        self.state.mark_dirty()
+        self._changed()
+        return self.nova_plan
 
     def add_shot(self, scene_id: str, shot: Shot) -> None:
         project = self.state.require_project()

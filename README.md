@@ -1,5 +1,10 @@
 # CINEOS Phase 2
 
+NOVA Director Alpha adds deterministic, renderer-independent creative-brief to
+film-plan generation, structured critique, targeted revision, CLI commands, and
+Studio controller integration. See [the NOVA guide](docs/NOVA.md) and
+[workflow](docs/NOVA_WORKFLOW.md).
+
 ## Persistent character identity
 
 CineDNA v1 turns approved character references and explicit identity metadata
