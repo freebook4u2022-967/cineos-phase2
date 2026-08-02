@@ -286,6 +286,28 @@ def _parser() -> argparse.ArgumentParser:
         audio_parser.add_argument(
             "--output-format", choices=("wav", "aac", "m4a"), default="wav"
         )
+    performance = subparsers.add_parser(
+        "performance", help="build and review renderer-independent performance"
+    )
+    performance_commands = performance.add_subparsers(
+        dest="performance_command", required=True
+    )
+    performance_build = performance_commands.add_parser("build")
+    performance_build.add_argument("shot_id")
+    performance_build.add_argument("--audio-project", required=True, type=Path)
+    performance_build.add_argument("--output", required=True, type=Path)
+    performance_export = performance_commands.add_parser("export")
+    performance_export.add_argument("shot_id")
+    performance_export.add_argument("--output", required=True, type=Path)
+    for name in ("validate", "inspect"):
+        item = performance_commands.add_parser(name)
+        item.add_argument("performance_file", type=Path)
+    for item in performance_commands.choices.values():
+        item.add_argument("--character", dest="character_id")
+        item.add_argument("--renderer", dest="renderer_id")
+        item.add_argument("--fallback-policy", type=Path)
+        item.add_argument("--dry-run", action="store_true")
+        item.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -409,6 +431,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 skip_effects=getattr(args, "skip_effects", False),
                 normalize_target=getattr(args, "normalize_target", None),
                 output_format=getattr(args, "output_format", "wav"),
+            )
+        elif args.command == "performance":
+            commands.performance(
+                args.performance_command,
+                output,
+                shot_id=getattr(args, "shot_id", None),
+                source=getattr(args, "performance_file", None),
+                audio_project=getattr(args, "audio_project", None),
+                destination=getattr(args, "output", None),
+                character_id=getattr(args, "character_id", None),
+                renderer_id=getattr(args, "renderer_id", None),
+                fallback_policy=getattr(args, "fallback_policy", None),
+                dry_run=getattr(args, "dry_run", False),
             )
         else:
             commands.version(output)

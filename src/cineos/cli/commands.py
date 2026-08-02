@@ -1197,3 +1197,82 @@ class _PreviewRendererPlugin(Plugin):
             "preview",
             lambda: _PreviewRenderer(self.output_dir, self.resolution, self.fps),
         )
+
+
+def performance(
+    command: str,
+    output: Output,
+    *,
+    shot_id: str | None = None,
+    source: Path | None = None,
+    audio_project: Path | None = None,
+    destination: Path | None = None,
+    character_id: str | None = None,
+    renderer_id: str | None = None,
+    fallback_policy: Path | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Build, validate, inspect, or export a PerformancePlan."""
+    from cineos.audio.serializer import load as load_audio_project
+    from cineos.nova.shot_plan import ShotPlan
+    from cineos.performance import PerformanceBuilder, PerformanceValidator
+    from cineos.performance.report import inspect_plan
+    from cineos.performance.serializer import load, save
+
+    if command in {"validate", "inspect"}:
+        plan = load(source)
+        if command == "validate":
+            report = PerformanceValidator().validate(plan)
+            if report.errors:
+                raise CLIError(
+                    "performance validation failed: " + "; ".join(report.errors),
+                    code=ExitCode.INPUT,
+                )
+            output.success("performance plan is valid", **inspect_plan(plan))
+        else:
+            output.success("performance plan inspected", **inspect_plan(plan))
+        return
+    if command == "export":
+        candidate = Path(f"{shot_id}.performance.json")
+        if not candidate.exists():
+            raise CLIError(
+                f"performance plan not found: {candidate}", code=ExitCode.INPUT
+            )
+        plan = load(candidate)
+        if not dry_run:
+            save(plan, destination)
+        output.success(
+            "performance plan exported", output=str(destination), **inspect_plan(plan)
+        )
+        return
+    project = load_audio_project(audio_project)
+    cues = [
+        cue
+        for cue in project.dialogue_tracks
+        if cue.shot_id == shot_id
+        and (not character_id or cue.character_id == character_id)
+    ]
+    if not cues:
+        raise CLIError(
+            f"no dialogue cues found for shot {shot_id}", code=ExitCode.INPUT
+        )
+    policy = json.loads(fallback_policy.read_text()) if fallback_policy else None
+    shot = ShotPlan(
+        shot_id=shot_id,
+        scene_id=cues[0].scene_id,
+        shot_purpose="dialogue performance",
+        action="deliver dialogue",
+        character_blocking={str(c.character_id): "approved blocking" for c in cues},
+        duration=max(c.end_time for c in cues),
+    )
+    plan = PerformanceBuilder().build(
+        shot, cues, project.lip_sync_metadata, fallback_policy=policy
+    )
+    if not dry_run:
+        save(plan, destination)
+    output.success(
+        "performance plan built",
+        output=str(destination),
+        renderer=renderer_id or "renderer-independent",
+        **inspect_plan(plan),
+    )

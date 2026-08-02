@@ -28,6 +28,8 @@ class StudioState:
     audio_project: Any | None = None
     audio_provider: str = ""
     audio_synthesis_progress: float = 0.0
+    performance_plans: dict[str, Any] = field(default_factory=dict)
+    performance_capability_warnings: list[str] = field(default_factory=list)
 
     def require_project(self) -> MovieProject:
         if self.project is None:

@@ -24,6 +24,7 @@ from cineos.nova import (
     NOVARevisionEngine,
 )
 from cineos.nova.director import DirectorPlan
+from cineos.performance import PerformanceBuilder, PerformanceValidator
 
 from .state import StudioState
 
@@ -179,6 +180,31 @@ class StudioController:
     def export_audio(self, output_dir: str | Path) -> dict[str, Path]:
         project = self.state.audio_project or self.plan_audio()
         return AudioExporter().export(project, output_dir)
+
+    def build_performance(self, shot_plan: Any, **inputs: Any) -> Any:
+        """Build an editable performance timeline for Studio panels."""
+        existing = self.state.performance_plans.get(shot_plan.shot_id)
+        plan = PerformanceBuilder().build(shot_plan, existing=existing, **inputs)
+        self.state.performance_plans[shot_plan.shot_id] = plan
+        self.state.performance_capability_warnings = (
+            PerformanceValidator()
+            .validate(
+                plan,
+                renderer_features=inputs.get("renderer_features"),
+                fallback_policy=inputs.get("fallback_policy"),
+            )
+            .warnings
+        )
+        self.state.mark_dirty()
+        self._changed()
+        return plan
+
+    def lock_performance_track(self, shot_id: str, track_name: str, index: int) -> None:
+        """Apply a manual lock so rebuilding cannot overwrite an edited track."""
+        track = getattr(self.state.performance_plans[shot_id], track_name)[index]
+        track.locked = True
+        self.state.mark_dirty()
+        self._changed()
 
     def save_package(self, path: str | Path) -> None:
         if self.state.film_package is None:
