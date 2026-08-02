@@ -74,6 +74,18 @@ def _parser() -> argparse.ArgumentParser:
     hardware.add_argument(
         "--verbose", action="store_true", help="include raw diagnostic data"
     )
+    mission = subparsers.add_parser(
+        "mission-zero", help="preflight, render, and verify the real local-AI proof"
+    )
+    mission_commands = mission.add_subparsers(dest="mission_command", required=True)
+    mission_preflight = mission_commands.add_parser("preflight")
+    mission_preflight.add_argument("--hardware", required=True, type=Path)
+    mission_preflight.add_argument("--config", required=True, type=Path)
+    mission_render = mission_commands.add_parser("render")
+    mission_render.add_argument("--project", required=True, type=Path)
+    mission_render.add_argument("--output-dir", required=True, type=Path)
+    mission_verify = mission_commands.add_parser("verify")
+    mission_verify.add_argument("--output", required=True, type=Path)
     assets = subparsers.add_parser("assets", help="manage a CINEOS asset registry")
     assets.add_argument(
         "--registry", type=Path, default=Path("assets.json"), help="asset registry JSON"
@@ -373,6 +385,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             commands.demo(args.output_dir, output)
         elif args.command == "hardware-report":
             commands.hardware_report(args.output, args.verbose, output)
+        elif args.command == "mission-zero":
+            commands.mission_zero(
+                args.mission_command,
+                output,
+                hardware=getattr(args, "hardware", None),
+                config=getattr(args, "config", None),
+                project=getattr(args, "project", None),
+                output_dir=getattr(args, "output_dir", None),
+                render=getattr(args, "output", None),
+            )
         elif args.command == "assets":
             commands.assets(
                 args.asset_command,

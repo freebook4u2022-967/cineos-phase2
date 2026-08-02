@@ -1,0 +1,26 @@
+{
+  "title": "Mission Zero",
+  "author": "CINEOS",
+  "version": "1.0",
+  "fps": 8,
+  "resolution": [576, 320],
+  "characters": [{"asset_id": "character-001", "name": "The Traveler", "description": "A solitary traveler in a rust-red coat"}],
+  "locations": [{"asset_id": "environment-001", "name": "Salt Flat", "description": "A quiet salt flat at blue hour"}],
+  "scenes": [{
+    "scene_id": "scene-001",
+    "title": "Arrival",
+    "description": "Blue hour on an empty salt flat",
+    "location": "environment-001",
+    "characters": ["character-001"],
+    "duration": 5,
+    "shots": [{
+      "shot_id": "shot-001",
+      "camera": "static wide camera",
+      "lighting": "soft blue-hour natural light",
+      "action": "one solitary traveler in a rust-red coat stands still on a reflective salt flat, subtle coat movement in a light breeze, cinematic, realistic",
+      "dialogue": "",
+      "duration": 5
+    }]
+  }],
+  "timeline": {"scene_order": ["scene-001"], "shot_order": {"scene-001": ["shot-001"]}}
+}

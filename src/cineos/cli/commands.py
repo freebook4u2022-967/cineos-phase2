@@ -620,6 +620,41 @@ def renderer(
         ) from error
 
 
+def mission_zero(
+    command: str,
+    output: Output,
+    *,
+    hardware: Path | None,
+    config: Path | None,
+    project: Path | None,
+    output_dir: Path | None,
+    render: Path | None,
+) -> None:
+    """Run only the gated, auditable Mission Zero workflow."""
+    from . import mission_zero as mission
+
+    if command == "preflight":
+        report = mission.preflight(hardware, config)
+        if not report["passed"]:
+            raise CLIError(
+                "Mission Zero preflight failed: " + "; ".join(report["failures"]),
+                code=ExitCode.VALIDATION,
+                hint=report["upgrade_requirement"],
+            )
+        output.success("Mission Zero workstation preflight passed", report=report)
+    elif command == "render":
+        result = mission.render(project, output_dir)
+        output.success("Mission Zero real render completed", result=result)
+    else:
+        report = mission.verify(render)
+        if not report["passed"]:
+            raise CLIError(
+                "Mission Zero verification failed: " + "; ".join(report["failures"]),
+                code=ExitCode.VALIDATION,
+            )
+        output.success("Mission Zero MP4 verification passed", report=report)
+
+
 def condition(
     command: str,
     output: Output,
