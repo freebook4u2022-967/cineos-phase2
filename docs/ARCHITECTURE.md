@@ -247,3 +247,12 @@ delegate domain work to Core, Compiler, Atlas Runtime, renderer, validation,
 recovery, and Film Build APIs. `BackgroundWorker` executes long-running injected
 operations in `QThreadPool`, emits Qt signals, and supplies cooperative cancellation.
 No compiler or renderer business rules live in widgets.
+
+## Audio production layer
+
+`cineos.audio` sits after approved shot planning and before final assembly. Domain
+models, casting, timing, validation, and export do not depend on a renderer or a
+speech/music vendor. Capability adapters isolate synthesis; the portable mixer
+provides PCM/silence output and uses FFmpeg only through argument-list subprocesses.
+Studio and FilmBuild consume the same API, and lip-sync remains metadata for future
+renderer plugins.

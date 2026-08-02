@@ -51,3 +51,9 @@ this roadmap.
 
 Studio Alpha intentionally excludes collaboration, cloud billing, model training,
 and nonlinear timeline editing and does not claim production readiness.
+
+## Voice and Audio Production Alpha
+
+- [x] Provider-neutral dialogue, casting, cues, timeline, lip-sync metadata, mix,
+  validation, export, CLI, FilmBuild, and Studio controller integration.
+- [ ] Visual lip-sync renderer plugins and production music provider adapters.

@@ -25,6 +25,9 @@ class StudioState:
     reviews: dict[str, ReviewResult] = field(default_factory=dict)
     film_package: Any | None = None
     build: Any | None = None
+    audio_project: Any | None = None
+    audio_provider: str = ""
+    audio_synthesis_progress: float = 0.0
 
     def require_project(self) -> MovieProject:
         if self.project is None:

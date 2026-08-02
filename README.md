@@ -326,3 +326,10 @@ provides project, asset, scene/shot, timeline, renderer, queue, review, recovery
 and export surfaces backed by existing CINEOS APIs. See
 [Studio documentation](docs/STUDIO.md) and the
 [workflow guide](docs/STUDIO_WORKFLOW.md). Studio Alpha is not production ready.
+
+## Voice and audio production
+
+CINEOS includes provider-neutral dialogue casting, cue planning, synthesis,
+mixing, future-renderer lip-sync metadata, and deliverable export. Start with
+[`docs/AUDIO_WORKFLOW.md`](docs/AUDIO_WORKFLOW.md); voice rights and stable casting
+are documented in [`docs/VOICE_CASTING.md`](docs/VOICE_CASTING.md).

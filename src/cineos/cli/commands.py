@@ -24,6 +24,17 @@ from cineos.atlas import (
     RendererRegistry,
     Resolution,
 )
+from cineos.audio import (
+    AudioExporter,
+    AudioValidator,
+    LipSyncMetadata,
+    Mixer,
+    MixInput,
+    ProviderRegistry,
+)
+from cineos.audio.planner import plan_audio
+from cineos.audio.serializer import load as load_audio
+from cineos.audio.serializer import save as save_audio
 from cineos.cinedna import CineDNABuilder, CineDNARegistry
 from cineos.cinedna.serializer import profile_to_dict
 from cineos.cinedna.serializer import save as save_cinedna
@@ -75,6 +86,138 @@ from cineos.validation.serializer import save as save_validation
 
 from .errors import CLIError, ExitCode
 from .output import Output
+
+
+def audio(
+    command: str,
+    output: Output,
+    *,
+    source: Path,
+    destination: Path | None = None,
+    output_dir: Path | None = None,
+    language: str | None = None,
+    provider_id: str | None = None,
+    dry_run: bool = False,
+    skip_dialogue: bool = False,
+    skip_music: bool = False,
+    skip_effects: bool = False,
+    normalize_target: float | None = None,
+    output_format: str = "wav",
+) -> None:
+    """Plan, validate, synthesize, mix, and export audio deliverables."""
+    if command == "plan":
+        movie = load_project(source)
+        package = compile_project(movie)
+        project = plan_audio(
+            movie, package.content_hashes.get("package", ""), language=language or "en"
+        )
+        if not dry_run:
+            assert destination
+            save_audio(project, destination)
+        output.success(
+            (
+                "Audio project validated"
+                if dry_run
+                else f"Audio project written to {destination}"
+            ),
+            project_id=project.project_id,
+            content_hash=project.content_hash,
+            cues=len(project.dialogue_tracks),
+            dry_run=dry_run,
+        )
+        return
+    project = load_audio(source)
+    if language:
+        project.language = language
+    if normalize_target is not None:
+        project.mix_settings.normalization_target = normalize_target
+    registry = ProviderRegistry()
+    provider = registry.get(provider_id) if provider_id else None
+    report = AudioValidator().validate(project, provider=provider, check_ffmpeg=True)
+    if command in {"cast", "inspect"} or dry_run:
+        output.success(
+            "Audio preflight complete",
+            valid=report.valid,
+            errors=report.errors,
+            warnings=report.warnings,
+            ffmpeg_available=report.ffmpeg_available,
+            expected_outputs=report.expected_outputs,
+            dry_run=dry_run,
+        )
+        return
+    if command == "synthesize":
+        if skip_dialogue:
+            output.success("Dialogue synthesis skipped", synthesized=0)
+            return
+        if provider is None:
+            raise ValueError("--provider is required for synthesis")
+        assert output_dir
+        profiles = {item.voice_id: item for item in project.voice_profiles}
+        count = 0
+        for cue in project.dialogue_tracks:
+            voice_id = cue.approved_voice_profile_id or project.voice_assignments.get(
+                cue.character_id
+            )
+            if voice_id not in profiles:
+                raise ValueError(f"missing approved voice for cue {cue.cue_id}")
+            result = provider.synthesize(
+                cue, profiles[voice_id], output_dir / f"{cue.cue_id}.wav"
+            )
+            project.lip_sync_metadata.append(
+                LipSyncMetadata(
+                    cue.shot_id,
+                    cue.character_id,
+                    cue.cue_id,
+                    result.phonemes,
+                    result.words,
+                    source_provider=result.provider_id,
+                    timing_confidence=1.0,
+                )
+            )
+            count += 1
+        output.success(
+            f"Synthesized dialogue to {output_dir}",
+            synthesized=count,
+            provider=provider.provider_id,
+        )
+    elif command == "mix":
+        assert destination
+        assets = source.parent / "synthesis"
+        tracks = (
+            [
+                MixInput(
+                    assets / f"{cue.cue_id}.wav",
+                    cue.start_time,
+                    cue.gain,
+                    "dialogue",
+                    cue.fade_in,
+                    cue.fade_out,
+                    cue.pan,
+                    cue.muted,
+                )
+                for cue in project.dialogue_tracks
+            ]
+            if not skip_dialogue
+            else []
+        )
+        result = Mixer(
+            project.sample_rate, project.channel_layout, project.mix_settings
+        ).mix(tracks, destination)
+        if output_format != "wav":
+            result = Mixer(
+                project.sample_rate, project.channel_layout, project.mix_settings
+            ).convert(result, result.with_suffix(f".{output_format}"))
+        output.success(
+            f"Mixed audio written to {result}",
+            silence_fallback=not any(item.path.is_file() for item in tracks),
+        )
+    elif command == "export":
+        assert output_dir
+        outputs = AudioExporter().export(project, output_dir)
+        output.success(
+            f"Audio deliverables written to {output_dir}",
+            outputs={key: str(value) for key, value in outputs.items()},
+        )
 
 
 def nova(
@@ -457,6 +600,10 @@ def load_project(path: Path) -> MovieProject:
     """Deserialize the documented JSON representation into the core model."""
 
     value = _read_json(path)
+    # Studio persists the canonical model under ``project`` while the original
+    # CLI format is flat. Both representations describe the same MovieProject.
+    if isinstance(value.get("project"), dict):
+        value = value["project"]
     try:
         registry_value = value.get("asset_registry")
         if registry_value is not None and not isinstance(registry_value, str):

@@ -77,3 +77,14 @@ class FilmBuild:
 
     def shot(self, shot_id: str) -> ShotState:
         return next(item for item in self.shot_states if item.shot_id == shot_id)
+
+    def attach_audio(
+        self, mixed_audio: str | None, metadata: dict[str, Any] | None = None
+    ) -> None:
+        """Attach a completed mix, preserving an explicit silent fallback."""
+        if mixed_audio:
+            self.output_files["mixed_audio"] = mixed_audio
+        else:
+            self.warnings.append("No mixed audio supplied; final assembly uses silence")
+        self.metadata["audio"] = metadata or {"silent_fallback": not bool(mixed_audio)}
+        self.updated_at = _now()
