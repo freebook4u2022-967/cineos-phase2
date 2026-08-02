@@ -38,7 +38,7 @@ class LocalAIRenderer(BaseRenderer):
     @property
     def capabilities(self) -> RendererCapabilities:
         return RendererCapabilities(
-            (Resolution(576, 320),), Range(0.125, 4.0), (8.0,), frozenset(), 0
+            (Resolution(576, 320),), Range(0.125, 5.0), (8.0,), frozenset(), 0
         )
 
     def _emit(self, name: str, **payload: Any) -> None:
