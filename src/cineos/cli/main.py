@@ -240,6 +240,52 @@ def _parser() -> argparse.ArgumentParser:
             default=argparse.SUPPRESS,
             help="emit machine-readable JSON output",
         )
+    audio = subparsers.add_parser(
+        "audio", help="plan and produce renderer-independent audio"
+    )
+    audio_commands = audio.add_subparsers(dest="audio_command", required=True)
+    audio_plan = audio_commands.add_parser(
+        "plan", help="create a deterministic AudioProject"
+    )
+    audio_plan.add_argument("project", type=Path)
+    audio_plan.add_argument("--output", required=True, type=Path)
+    audio_cast = audio_commands.add_parser(
+        "cast", help="validate stable approved voice casting"
+    )
+    audio_cast.add_argument("project", type=Path)
+    audio_synthesize = audio_commands.add_parser(
+        "synthesize", help="synthesize assigned dialogue"
+    )
+    audio_synthesize.add_argument("project", type=Path)
+    audio_synthesize.add_argument("--output-dir", required=True, type=Path)
+    audio_mix = audio_commands.add_parser(
+        "mix", help="mix synthesized assets or silence"
+    )
+    audio_mix.add_argument("project", type=Path)
+    audio_mix.add_argument("--output", required=True, type=Path)
+    audio_export = audio_commands.add_parser(
+        "export", help="export audio production deliverables"
+    )
+    audio_export.add_argument("project", type=Path)
+    audio_export.add_argument("--output-dir", required=True, type=Path)
+    audio_inspect = audio_commands.add_parser(
+        "inspect", help="inspect and preflight audio"
+    )
+    audio_inspect.add_argument("project", type=Path)
+    for audio_parser in audio_commands.choices.values():
+        audio_parser.add_argument(
+            "--json", action="store_true", default=argparse.SUPPRESS
+        )
+        audio_parser.add_argument("--language", default=None)
+        audio_parser.add_argument("--provider", default=None)
+        audio_parser.add_argument("--skip-dialogue", action="store_true")
+        audio_parser.add_argument("--skip-music", action="store_true")
+        audio_parser.add_argument("--skip-effects", action="store_true")
+        audio_parser.add_argument("--dry-run", action="store_true")
+        audio_parser.add_argument("--normalize-target", type=float)
+        audio_parser.add_argument(
+            "--output-format", choices=("wav", "aac", "m4a"), default="wav"
+        )
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -347,6 +393,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_shots=getattr(args, "max_shots", None),
                 target_duration=getattr(args, "target_duration", None),
                 dry_run=getattr(args, "dry_run", False),
+            )
+        elif args.command == "audio":
+            commands.audio(
+                args.audio_command,
+                output,
+                source=args.project,
+                destination=getattr(args, "output", None),
+                output_dir=getattr(args, "output_dir", None),
+                language=getattr(args, "language", None),
+                provider_id=getattr(args, "provider", None),
+                dry_run=getattr(args, "dry_run", False),
+                skip_dialogue=getattr(args, "skip_dialogue", False),
+                skip_music=getattr(args, "skip_music", False),
+                skip_effects=getattr(args, "skip_effects", False),
+                normalize_target=getattr(args, "normalize_target", None),
+                output_format=getattr(args, "output_format", "wav"),
             )
         else:
             commands.version(output)

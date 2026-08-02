@@ -8,6 +8,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from cineos.audio import AudioExporter, AudioValidator, ProviderRegistry
+from cineos.audio.planner import plan_audio
 from cineos.compiler import FilmCompiler
 from cineos.compiler import save as save_package
 from cineos.core import Character, Environment, MovieProject, ProjectValidator, Prop
@@ -146,6 +148,37 @@ class StudioController:
         self.state.film_package = FilmCompiler().compile(self.state.require_project())
         self._changed()
         return self.state.film_package
+
+    def plan_audio(self, *, language: str | None = None) -> Any:
+        """Create the Studio cue timeline while preserving existing dialogue edits."""
+        package = self.state.film_package or self.compile()
+        identifier = package.content_hashes.get("package", "")
+        self.state.audio_project = plan_audio(
+            self.state.require_project(),
+            identifier,
+            language=language or self.state.language or "en",
+            existing=self.state.audio_project,
+        )
+        self._changed()
+        return self.state.audio_project
+
+    def select_audio_provider(self, provider_id: str) -> None:
+        ProviderRegistry().get(provider_id)
+        self.state.audio_provider = provider_id
+        self._changed()
+
+    def validate_audio(self) -> Any:
+        project = self.state.audio_project or self.plan_audio()
+        provider = (
+            ProviderRegistry().get(self.state.audio_provider)
+            if self.state.audio_provider
+            else None
+        )
+        return AudioValidator().validate(project, provider=provider, check_ffmpeg=True)
+
+    def export_audio(self, output_dir: str | Path) -> dict[str, Path]:
+        project = self.state.audio_project or self.plan_audio()
+        return AudioExporter().export(project, output_dir)
 
     def save_package(self, path: str | Path) -> None:
         if self.state.film_package is None:

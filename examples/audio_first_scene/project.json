@@ -1,0 +1,33 @@
+{
+  "format": "cineos-project-1",
+  "project": {
+    "title": "Audio First Scene",
+    "author": "CINEOS",
+    "characters": [
+      {
+        "asset_id": "guide",
+        "name": "Guide",
+        "description": ""
+      }
+    ],
+    "locations": [],
+    "props": [],
+    "scenes": [
+      {
+        "scene_id": "scene-001",
+        "title": "Arrival",
+        "characters": [
+          "guide"
+        ],
+        "shots": [
+          {
+            "shot_id": "shot-001",
+            "dialogue": "Welcome.",
+            "duration": 1.0
+          }
+        ],
+        "duration": 1.0
+      }
+    ]
+  }
+}
