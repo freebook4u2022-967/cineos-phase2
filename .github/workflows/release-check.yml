@@ -1,0 +1,16 @@
+name: Release check
+on: [workflow_dispatch]
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install '.[dev]' build
+      - run: python -m build
+      - run: python -m venv /tmp/cineos-clean
+      - run: /tmp/cineos-clean/bin/pip install dist/*.whl
+      - run: /tmp/cineos-clean/bin/cineos version
+      - run: /tmp/cineos-clean/bin/cineos demo --output-dir /tmp/demo
+      - run: /tmp/cineos-clean/bin/cineos hardware-report --json

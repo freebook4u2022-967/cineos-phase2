@@ -59,3 +59,9 @@ and nonlinear timeline editing and does not claim production readiness.
 - [ ] Visual lip-sync renderer plugins and production music provider adapters.
 
 - [x] Performance and Lip-Sync Integration Alpha: deterministic beats, facial/lip-sync/body/gesture/eye-line tracks, continuity, Studio controller, conditioning, CLI, and adapter hooks.
+
+## Controlled Alpha quality milestone
+
+- [x] Deterministic benchmark contracts, smoke runner, preserved baselines, and regression gates
+- [x] Wheel/sdist checks, semantic release manifest, CI smoke coverage, and explicit limitations
+- [ ] Native installers and production renderer certification (not claimed)

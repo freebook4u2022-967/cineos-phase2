@@ -309,6 +309,42 @@ def _parser() -> argparse.ArgumentParser:
         item.add_argument("--dry-run", action="store_true")
         item.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     subparsers.add_parser("version", help="print the installed CINEOS version")
+    benchmark = subparsers.add_parser("benchmark", help="run quality benchmarks")
+    benchmark_commands = benchmark.add_subparsers(
+        dest="benchmark_command", required=True
+    )
+    benchmark_commands.add_parser("list")
+    benchmark_run = benchmark_commands.add_parser("run")
+    benchmark_run.add_argument("--suite", required=True)
+    benchmark_run.add_argument("--output-dir", required=True, type=Path)
+    benchmark_run.add_argument("--renderer")
+    benchmark_run.add_argument("--hardware-profile", default="cpu")
+    benchmark_run.add_argument("--mandatory-only", action="store_true")
+    benchmark_run.add_argument("--include-slow", action="store_true")
+    benchmark_run.add_argument("--dry-run", action="store_true")
+    benchmark_compare = benchmark_commands.add_parser("compare")
+    benchmark_compare.add_argument("--report", required=True, type=Path)
+    benchmark_compare.add_argument("--baseline", required=True, type=Path)
+    benchmark_compare.add_argument("--fail-on-warning", action="store_true")
+    baseline_create = benchmark_commands.add_parser("baseline-create")
+    baseline_create.add_argument("--report", required=True, type=Path)
+    baseline_create.add_argument("--output", required=True, type=Path)
+    release = subparsers.add_parser("release", help="verify a controlled release")
+    release_commands = release.add_subparsers(dest="release_command", required=True)
+    verify = release_commands.add_parser("verify")
+    verify.add_argument("--manifest", required=True, type=Path)
+    verify.add_argument("--dry-run", action="store_true")
+    release_commands.add_parser("diagnose")
+    for item in (
+        *benchmark_commands.choices.values(),
+        *release_commands.choices.values(),
+    ):
+        item.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="emit machine-readable JSON output",
+        )
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
             "--json",
@@ -444,6 +480,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 renderer_id=getattr(args, "renderer_id", None),
                 fallback_policy=getattr(args, "fallback_policy", None),
                 dry_run=getattr(args, "dry_run", False),
+            )
+        elif args.command == "benchmark":
+            commands.benchmark(
+                args.benchmark_command,
+                output,
+                **{key: value for key, value in vars(args).items() if key != "command"},
+            )
+        elif args.command == "release":
+            commands.release(
+                args.release_command,
+                output,
+                **{key: value for key, value in vars(args).items() if key != "command"},
             )
         else:
             commands.version(output)

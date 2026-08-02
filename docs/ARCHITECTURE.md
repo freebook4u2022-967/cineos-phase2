@@ -260,3 +260,10 @@ renderer plugins.
 ## Performance layer
 
 `cineos.performance` sits between NOVA/audio/CineDNA and conditioning. It produces canonical plans, validates expression and cross-shot continuity constraints, negotiates explicit renderer capabilities, and exposes translation hooks through Atlas without coupling plans to a backend.
+
+## Quality and release boundary
+
+`cineos.benchmarks` owns versioned cases, measurements, reports, immutable
+baselines, and regression policy. `cineos.release` owns manifests, package
+integrity, diagnostics, and release gates. Neither layer invokes expensive AI
+inference implicitly; renderer integrations remain optional hardware-gated jobs.

@@ -30,7 +30,7 @@ def _project(path: Path, *, duration: float = 1.0) -> Path:
 
 def test_version_supports_json(capsys) -> None:
     assert main(["--json", "version"]) == 0
-    assert json.loads(capsys.readouterr().out)["version"] == "0.1.0"
+    assert json.loads(capsys.readouterr().out)["version"] == "0.1.0-alpha.1"
 
 
 def test_usage_errors_support_json(capsys) -> None:
