@@ -88,6 +88,99 @@ from .errors import CLIError, ExitCode
 from .output import Output
 
 
+def benchmark(command: str, output: Output, **options: Any) -> None:
+    """List, run, compare, and preserve Alpha benchmark baselines."""
+    from cineos.benchmarks import (
+        BenchmarkRunner,
+        alpha_suite,
+        compare_against_baseline,
+        create_baseline,
+        load_baseline,
+    )
+    from cineos.benchmarks.serializer import load_report
+
+    suite = alpha_suite()
+    if command == "list":
+        output.success(
+            "Alpha benchmark suite",
+            suite_id=suite.suite_id,
+            suite_version=suite.suite_version,
+            cases=[
+                {
+                    "case_id": case.case_id,
+                    "title": case.title,
+                    "mandatory": case.mandatory,
+                }
+                for case in suite.cases
+            ],
+        )
+    elif command == "run":
+        if options["suite"] not in {suite.suite_id, "alpha"}:
+            raise ValueError(f"unknown benchmark suite: {options['suite']}")
+        report = BenchmarkRunner().run(
+            suite,
+            options["output_dir"],
+            mandatory_only=options.get("mandatory_only", False),
+            include_slow=options.get("include_slow", False),
+            hardware_profile=options.get("hardware_profile", "cpu"),
+            renderer=options.get("renderer"),
+            dry_run=options.get("dry_run", False),
+        )
+        output.success(
+            "Benchmark complete",
+            passed=report.passed,
+            report=str(options["output_dir"] / "report.json"),
+            cases=len(report.results),
+        )
+    elif command == "compare":
+        findings = compare_against_baseline(
+            load_report(options["report"]), load_baseline(options["baseline"])
+        )
+        blocking = [item for item in findings if item.severity == "blocking"]
+        warnings = [item for item in findings if item.severity == "warning"]
+        output.success(
+            "Benchmark comparison complete",
+            regressions=[asdict(item) for item in findings],
+        )
+        if blocking or (warnings and options.get("fail_on_warning")):
+            raise CLIError(
+                "benchmark regressions exceed release policy", code=ExitCode.EXECUTION
+            )
+    else:
+        baseline = create_baseline(load_report(options["report"]), options["output"])
+        output.success(
+            "Unapproved baseline created",
+            baseline_id=baseline.baseline_id,
+            approved=False,
+        )
+
+
+def release(command: str, output: Output, **options: Any) -> None:
+    """Diagnose or verify a release manifest and artifact checksums."""
+    from cineos.release.diagnostics import diagnose
+    from cineos.release.manifest import load_manifest
+    from cineos.release.packaging import verify_checksums
+    from cineos.release.smoke_test import import_smoke_test
+
+    if command == "diagnose":
+        output.success("Release diagnostics complete", **diagnose())
+        return
+    manifest = load_manifest(options["manifest"])
+    missing = verify_checksums(manifest.checksums, options["manifest"].parent)
+    imports = import_smoke_test()
+    if missing or imports:
+        raise CLIError(
+            f"release verification failed: checksum={missing}, imports={imports}",
+            code=ExitCode.EXECUTION,
+        )
+    output.success(
+        "Release manifest verified",
+        version=manifest.release_version,
+        content_hash=manifest.content_hash,
+        dry_run=options.get("dry_run", False),
+    )
+
+
 def audio(
     command: str,
     output: Output,

@@ -337,3 +337,10 @@ are documented in [`docs/VOICE_CASTING.md`](docs/VOICE_CASTING.md).
 ## Performance and lip-sync
 
 The Performance alpha creates deterministic renderer-independent facial, lip-sync, gesture, body, eye-line, and emotional timelines. See [the performance guide](docs/PERFORMANCE.md) and [workflow](docs/PERFORMANCE_WORKFLOW.md).
+
+## Quality Benchmarking and controlled Alpha releases
+
+Version `0.1.0-alpha.1` adds CPU-safe benchmark and release tooling. See
+[benchmarks](docs/BENCHMARKS.md), the [release process](docs/RELEASE_PROCESS.md),
+and the explicit [Alpha limitations](docs/ALPHA_LIMITATIONS.md). This evaluation
+release is not production ready and makes no claim of production-renderer quality.

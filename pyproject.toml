@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cineos"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 description = "Foundation for the CINEOS Phase 2 cinematic production platform"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,13 +16,15 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
 ]
-dependencies = ["PySide6>=6.7,<7"]
+dependencies = []
 
 [project.scripts]
 cineos = "cineos.cli.main:main"
 cineos-studio = "cineos.studio.app:main"
 
 [project.optional-dependencies]
+studio = ["PySide6>=6.7,<7"]
+hardware = ["psutil>=5.9,<8"]
 dev = [
   "black>=24.4,<26",
   "pytest>=8.2,<9",
@@ -31,6 +33,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cineos"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["benchmarks/reports", "benchmarks/baselines", "*.safetensors", "*.ckpt", "*.pt", "*.pth", "*.ttf", "*.otf", "*.mov"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
