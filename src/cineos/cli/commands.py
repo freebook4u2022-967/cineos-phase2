@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,15 @@ from cineos.film.serializer import save as save_build
 from cineos.hardware import probe as probe_hardware
 from cineos.hardware import to_json as hardware_to_json
 from cineos.hardware import to_text as hardware_to_text
+from cineos.nova import (
+    CreativeBrief,
+    CritiqueFinding,
+    NOVACritic,
+    NOVADirector,
+    NOVARevisionEngine,
+)
+from cineos.nova.serializer import load as load_nova
+from cineos.nova.serializer import save as save_nova
 from cineos.plugins import Plugin, PluginContext, PluginManager, PluginMetadata
 from cineos.renderers.local_ai import LocalAIConfig, LocalAIRendererPlugin
 from cineos.renderers.local_ai.installer import setup_commands
@@ -65,6 +75,79 @@ from cineos.validation.serializer import save as save_validation
 
 from .errors import CLIError, ExitCode
 from .output import Output
+
+
+def nova(
+    command: str,
+    output: Output,
+    *,
+    source: Path,
+    destination: Path | None = None,
+    critique_path: Path | None = None,
+    seed: int = 0,
+    planner: str = "rule-based",
+    max_scenes: int | None = None,
+    max_shots: int | None = None,
+    target_duration: float | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Plan, critique, revise, or inspect a NOVA project."""
+    if command == "plan":
+        raw = _read_json(source)
+        registry_path = raw.pop("asset_registry", None)
+        registry = (
+            load_assets(source.parent / registry_path)
+            if registry_path
+            else ProductionAssetRegistry()
+        )
+        brief = CreativeBrief(**raw)
+        if target_duration is not None:
+            brief.target_duration = target_duration
+        plan = NOVADirector(registry).create_plan(
+            brief,
+            seed=seed,
+            planner=planner,
+            max_scenes=max_scenes,
+            max_shots=max_shots,
+        )
+        if not dry_run:
+            assert destination
+            save_nova(plan, destination)
+        output.success(
+            "NOVA plan validated" if dry_run else f"NOVA plan written to {destination}",
+            scenes=len(plan.scenes),
+            shots=len(plan.shots),
+            story_hash=plan.story.content_hash,
+            dry_run=dry_run,
+        )
+        return
+    plan = load_nova(source)
+    if command == "critique":
+        findings = NOVACritic().critique(plan)
+        assert destination
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            json.dumps([asdict(item) for item in findings], indent=2) + "\n",
+            encoding="utf-8",
+        )
+        output.success(f"Critique written to {destination}", findings=len(findings))
+    elif command == "revise":
+        assert critique_path and destination
+        values = json.loads(critique_path.read_text(encoding="utf-8"))
+        findings = [CritiqueFinding(**item) for item in values]
+        revised = NOVARevisionEngine().revise(plan, findings)
+        save_nova(revised, destination)
+        output.success(f"Revised plan written to {destination}", findings=len(findings))
+    elif command == "show":
+        output.success(
+            f"{plan.brief.title}: {len(plan.scenes)} scenes, {len(plan.shots)} shots",
+            title=plan.brief.title,
+            logline=plan.story.logline,
+            duration=sum(item.duration for item in plan.shots),
+            scenes=len(plan.scenes),
+            shots=len(plan.shots),
+            planner=plan.planner_id,
+        )
 
 
 def film(

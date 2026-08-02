@@ -1,5 +1,12 @@
 # CINEOS Phase 2 Architecture
 
+## NOVA directing layer
+
+`cineos.nova` sits before the core project/compiler boundary. Planning providers
+produce detailed directing plans; NOVA validates approved assets, continuity,
+duration, and optional Atlas capabilities, then adapts the result to a core
+`MovieProject`. It never invokes renderer-specific code or renders media.
+
 ## CineDNA identity layer
 
 `cineos.cinedna` sits between canonical production assets and future renderer

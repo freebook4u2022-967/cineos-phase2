@@ -1,5 +1,8 @@
 # CINEOS Phase 2 Roadmap
 
+- **NOVA Director Alpha:** deterministic planning, critique, targeted revision,
+  CLI workflow, and Studio controller integration are implemented.
+
 The roadmap communicates direction rather than delivery dates. Work advances
 only when the preceding stage has documented, tested acceptance criteria.
 

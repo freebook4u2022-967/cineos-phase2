@@ -209,6 +209,37 @@ def _parser() -> argparse.ArgumentParser:
     film_export = film_commands.add_parser("export")
     film_export.add_argument("build", type=Path)
     film_export.add_argument("--output", required=True, type=Path)
+    nova = subparsers.add_parser("nova", help="plan and review films with NOVA")
+    nova_commands = nova.add_subparsers(dest="nova_command", required=True)
+    nova_plan = nova_commands.add_parser(
+        "plan", help="create a deterministic film plan"
+    )
+    nova_plan.add_argument("brief", type=Path)
+    nova_plan.add_argument("--output", required=True, type=Path)
+    nova_plan.add_argument("--seed", type=int, default=0)
+    nova_plan.add_argument("--planner", default="rule-based")
+    nova_plan.add_argument("--max-scenes", type=int)
+    nova_plan.add_argument("--max-shots", type=int)
+    nova_plan.add_argument("--target-duration", type=float)
+    nova_plan.add_argument("--dry-run", action="store_true")
+    nova_critique = nova_commands.add_parser("critique", help="critique a NOVA plan")
+    nova_critique.add_argument("project", type=Path)
+    nova_critique.add_argument("--output", required=True, type=Path)
+    nova_revise = nova_commands.add_parser(
+        "revise", help="apply selected critique findings"
+    )
+    nova_revise.add_argument("project", type=Path)
+    nova_revise.add_argument("--critique", required=True, type=Path)
+    nova_revise.add_argument("--output", required=True, type=Path)
+    nova_show = nova_commands.add_parser("show", help="show a NOVA plan summary")
+    nova_show.add_argument("project", type=Path)
+    for nova_parser in nova_commands.choices.values():
+        nova_parser.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="emit machine-readable JSON output",
+        )
     subparsers.add_parser("version", help="print the installed CINEOS version")
     for command_parser in subparsers.choices.values():
         command_parser.add_argument(
@@ -301,6 +332,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 renderer_id=getattr(args, "renderer_id", None),
                 output_dir=getattr(args, "output_dir", None),
                 destination=getattr(args, "output", None),
+                dry_run=getattr(args, "dry_run", False),
+            )
+        elif args.command == "nova":
+            commands.nova(
+                args.nova_command,
+                output,
+                source=getattr(args, "brief", None) or getattr(args, "project", None),
+                destination=getattr(args, "output", None),
+                critique_path=getattr(args, "critique", None),
+                seed=getattr(args, "seed", 0),
+                planner=getattr(args, "planner", "rule-based"),
+                max_scenes=getattr(args, "max_scenes", None),
+                max_shots=getattr(args, "max_shots", None),
+                target_duration=getattr(args, "target_duration", None),
                 dry_run=getattr(args, "dry_run", False),
             )
         else:
