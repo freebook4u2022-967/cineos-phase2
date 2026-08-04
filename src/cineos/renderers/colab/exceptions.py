@@ -1,0 +1,2 @@
+class ColabRendererError(Exception):
+    pass

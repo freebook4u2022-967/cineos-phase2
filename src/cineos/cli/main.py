@@ -86,6 +86,38 @@ def _parser() -> argparse.ArgumentParser:
     mission_render.add_argument("--output-dir", required=True, type=Path)
     mission_verify = mission_commands.add_parser("verify")
     mission_verify.add_argument("--output", required=True, type=Path)
+    mission_one = subparsers.add_parser(
+        "mission-one", help="compile and run a directed three-shot Colab film"
+    )
+    mission_one_commands = mission_one.add_subparsers(
+        dest="mission_one_command", required=True
+    )
+    mo_compile = mission_one_commands.add_parser("compile")
+    mo_compile.add_argument("source", type=Path)
+    mo_compile.add_argument("--output-dir", required=True, type=Path)
+    mo_inspect = mission_one_commands.add_parser("inspect")
+    mo_inspect.add_argument("source", type=Path)
+    mo_export = mission_one_commands.add_parser("export-colab")
+    mo_export.add_argument("source", type=Path)
+    mo_export.add_argument("--output", required=True, type=Path)
+    mo_verify = mission_one_commands.add_parser("verify")
+    mo_verify.add_argument("source", type=Path)
+    mo_assemble = mission_one_commands.add_parser("assemble")
+    mo_assemble.add_argument("source", type=Path)
+    mo_assemble.add_argument("--output", required=True, type=Path)
+    for item in mission_one_commands.choices.values():
+        item.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="emit machine-readable JSON output",
+        )
+        item.add_argument("--dry-run", action="store_true")
+        item.add_argument("--model", default="THUDM/CogVideoX-2b")
+        item.add_argument("--resolution", default="720x480")
+        item.add_argument("--fps", type=int, default=8)
+        item.add_argument("--steps", type=int, default=50)
+        item.add_argument("--seed", type=int, default=42)
     assets = subparsers.add_parser("assets", help="manage a CINEOS asset registry")
     assets.add_argument(
         "--registry", type=Path, default=Path("assets.json"), help="asset registry JSON"
@@ -395,6 +427,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output_dir=getattr(args, "output_dir", None),
                 render=getattr(args, "output", None),
             )
+        elif args.command == "mission-one":
+            from .mission_one import run
+
+            result = run(
+                args.mission_one_command,
+                source=args.source,
+                output=getattr(args, "output", None),
+                output_dir=getattr(args, "output_dir", None),
+                dry_run=args.dry_run,
+                model=args.model,
+                resolution=args.resolution,
+                fps=args.fps,
+                steps=args.steps,
+                seed=args.seed,
+            )
+            output.success("Mission One command completed", **result)
         elif args.command == "assets":
             commands.assets(
                 args.asset_command,
