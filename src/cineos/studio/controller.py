@@ -42,6 +42,63 @@ class StudioController:
         self.settings = settings
         self._listeners: list[Callable[[], None]] = []
         self.nova_plan: DirectorPlan | None = None
+        self.mission_one_brief: Any | None = None
+        self.mission_one_package: Any | None = None
+
+    def load_mission_one_brief(self, path: Path) -> Any:
+        """Load an editable Mission One brief without redesigning Studio state."""
+        from cineos.mission_one.brief import DirectedSceneBrief
+
+        self.mission_one_brief = DirectedSceneBrief.from_dict(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+        self._changed()
+        return self.mission_one_brief
+
+    def update_mission_one_shot(self, shot_id: str, **direction: Any) -> Any:
+        if self.mission_one_brief is None:
+            raise ValueError("load a Mission One brief first")
+        shot = next(x for x in self.mission_one_brief.shots if x.shot_id == shot_id)
+        editable = {
+            "action",
+            "dialogue_text",
+            "dialogue_delivery",
+            "emotional_objective",
+            "facial_expression",
+            "body_posture",
+            "gesture",
+            "eye_line",
+            "blocking",
+            "shot_size",
+            "camera_angle",
+            "lens_intent",
+            "camera_movement",
+        }
+        for key, value in direction.items():
+            if key not in editable:
+                raise ValueError(f"unsupported directed-shot edit: {key}")
+            setattr(shot, key, value)
+        self._changed()
+        return shot
+
+    def compile_mission_one(self, destination: Path | None = None) -> Any:
+        from cineos.mission_one.compiler import compile_scene
+        from cineos.renderers.colab.serializer import dump_json
+
+        if self.mission_one_brief is None:
+            raise ValueError("load a Mission One brief first")
+        self.mission_one_package = compile_scene(self.mission_one_brief)
+        if destination:
+            dump_json(self.mission_one_package.to_dict(), destination)
+        self._changed()
+        return self.mission_one_package
+
+    def import_mission_one_results(self, path: Path) -> dict[str, Any]:
+        from cineos.renderers.colab.verifier import verify_results
+
+        result = verify_results(path)
+        self._changed()
+        return result
 
     def subscribe(self, listener: Callable[[], None]) -> None:
         self._listeners.append(listener)

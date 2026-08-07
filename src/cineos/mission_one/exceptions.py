@@ -1,0 +1,2 @@
+class MissionOneError(Exception):
+    pass
