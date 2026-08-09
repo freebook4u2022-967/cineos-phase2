@@ -19,6 +19,15 @@ class MissionOneReport:
     model: str = ""
     hardware: str = ""
     manual_review_notes: list[str] = field(default_factory=list)
+    total_shots: int = 0
+    valid_shots: int = 0
+    failed_shots: int = 0
+    black_frame_failures: int = 0
+    frozen_frame_warnings: int = 0
+    hardware_profile: dict[str, Any] = field(default_factory=dict)
+    model_profile: dict[str, Any] = field(default_factory=dict)
+    limitations: list[str] = field(default_factory=list)
+    manual_review_required: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
