@@ -1,5 +1,26 @@
 from .brief import DirectedSceneBrief
 
+VALID_RENDER_STATUSES = {
+    "valid",
+    "black_frame_failure",
+    "frozen_frame_failure",
+    "empty_output",
+    "decode_failure",
+    "render_exception",
+    "manual_review_required",
+}
+
+
+def assembly_ready(shots: list[dict], expected_shots: list[str] | None = None) -> bool:
+    """Return true only when every mandatory shot explicitly passed validation."""
+    expected = expected_shots or [shot.get("shot_id", "") for shot in shots]
+    valid = {
+        shot.get("shot_id")
+        for shot in shots
+        if shot.get("success") and shot.get("content_status") == "valid"
+    }
+    return bool(expected) and all(shot_id in valid for shot_id in expected)
+
 
 def validate_brief(brief: DirectedSceneBrief) -> list[str]:
     errors = []

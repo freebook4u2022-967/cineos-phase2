@@ -46,6 +46,7 @@ testpaths = ["tests"]
 target-version = "py312"
 line-length = 88
 src = ["src", "tests"]
+extend-exclude = ["colab/CINEOS-Mission-One.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -53,3 +54,4 @@ select = ["E", "F", "I", "UP"]
 [tool.black]
 target-version = ["py312"]
 line-length = 88
+extend-exclude = 'colab/CINEOS-Mission-One\.ipynb'
