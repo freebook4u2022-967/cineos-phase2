@@ -1,3 +1,4 @@
+from cineos.atlas.native_request import NativeShotRequest
 from cineos.native_image import compile_native_image_plan
 from cineos.native_image.temporal_identity import (
     IdentityObservation,
@@ -5,7 +6,6 @@ from cineos.native_image.temporal_identity import (
     TemporalIdentityMemory,
     apply_temporal_identity_memory,
 )
-from cineos.atlas.native_request import NativeShotRequest
 
 
 def _plan(shot_id: str = "shot-002"):
