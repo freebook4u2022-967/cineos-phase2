@@ -1,10 +1,7 @@
 """Provider-neutral multi-axis visual continuity quality control."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-
 
 VISUAL_QC_AXES = (
     "face_identity",
