@@ -9,15 +9,21 @@ from cineos.native_image.evolution_state import (
 from cineos.native_image.training_budget import ResourceUsage
 
 
+def _score(checkpoint_id: str) -> CheckpointScore:
+    return CheckpointScore(checkpoint_id, 0.2, 0.4, 0.5, 0.9)
+
+
 def test_evolution_state_round_trips_all_safe_resume_fields(tmp_path):
     path = tmp_path / "resume.json"
     state = EvolutionResumeState(
         run_id="run-001",
         current_generation=3,
         current_config=EvolutionConfig(1e-3, 16, 64, 8, 1.0, 1.0),
-        best_score=CheckpointScore("best", 0.2, 0.4, 0.5, 0.9),
+        best_score=_score("best"),
         usage=ResourceUsage(2, 6, 4.5, 1),
-        candidates=(CandidateProgress("candidate-a", "completed", "a.pt"),),
+        candidates=(
+            CandidateProgress("candidate-a", "completed", "a.pt", _score("candidate-a")),
+        ),
         completed_generations=(1, 2),
     )
     store = EvolutionStateStore(path)
@@ -50,7 +56,7 @@ def test_completed_candidate_is_not_retrained_after_recovery():
     state = EvolutionResumeState(
         run_id="run-003",
         candidates=(
-            CandidateProgress("done", "completed", "done.pt"),
+            CandidateProgress("done", "completed", "done.pt", _score("done")),
             CandidateProgress("next", "pending"),
         ),
     )
