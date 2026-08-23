@@ -17,11 +17,14 @@ class CandidateProgress:
     candidate_id: str
     status: str = "pending"
     checkpoint_path: str | None = None
+    score: CheckpointScore | None = None
     error: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in {"pending", "running", "completed", "failed"}:
             raise ValueError("unsupported candidate progress status")
+        if self.status == "completed" and self.score is None:
+            raise ValueError("completed candidate progress requires a score")
 
 
 @dataclass(slots=True)
@@ -33,7 +36,7 @@ class EvolutionResumeState:
     usage: ResourceUsage = field(default_factory=ResourceUsage)
     candidates: tuple[CandidateProgress, ...] = ()
     completed_generations: tuple[int, ...] = ()
-    schema: str = "cineos-evolution-resume/0.1"
+    schema: str = "cineos-evolution-resume/0.2"
 
     def __post_init__(self) -> None:
         if not self.run_id:
@@ -48,7 +51,11 @@ class EvolutionResumeState:
         )
 
     def with_candidate(self, progress: CandidateProgress) -> EvolutionResumeState:
-        items = [item for item in self.candidates if item.candidate_id != progress.candidate_id]
+        items = [
+            item
+            for item in self.candidates
+            if item.candidate_id != progress.candidate_id
+        ]
         items.append(progress)
         self.candidates = tuple(items)
         return self
@@ -93,10 +100,23 @@ class EvolutionStateStore:
 
     def load(self) -> EvolutionResumeState:
         payload = json.loads(self.path.read_text(encoding="utf-8"))
-        if payload.get("schema") != "cineos-evolution-resume/0.1":
+        schema = payload.get("schema")
+        if schema not in {"cineos-evolution-resume/0.1", "cineos-evolution-resume/0.2"}:
             raise ValueError("unsupported evolution resume schema")
         current_config = payload.get("current_config")
         best_score = payload.get("best_score")
+        candidates = []
+        for item in payload.get("candidates", []):
+            score = item.get("score")
+            candidates.append(
+                CandidateProgress(
+                    candidate_id=item["candidate_id"],
+                    status=item.get("status", "pending"),
+                    checkpoint_path=item.get("checkpoint_path"),
+                    score=CheckpointScore(**score) if score is not None else None,
+                    error=item.get("error"),
+                )
+            )
         return EvolutionResumeState(
             run_id=payload["run_id"],
             current_generation=int(payload["current_generation"]),
@@ -107,9 +127,7 @@ class EvolutionStateStore:
                 CheckpointScore(**best_score) if best_score is not None else None
             ),
             usage=ResourceUsage(**payload["usage"]),
-            candidates=tuple(
-                CandidateProgress(**item) for item in payload.get("candidates", [])
-            ),
+            candidates=tuple(candidates),
             completed_generations=tuple(payload.get("completed_generations", [])),
         )
 
@@ -127,6 +145,7 @@ def recover_interrupted_candidates(state: EvolutionResumeState) -> EvolutionResu
                     candidate_id=item.candidate_id,
                     status="pending",
                     checkpoint_path=item.checkpoint_path,
+                    score=item.score,
                     error="recovered from interrupted training attempt",
                 )
             )
