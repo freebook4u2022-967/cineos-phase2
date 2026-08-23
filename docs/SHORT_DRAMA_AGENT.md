@@ -2,78 +2,48 @@
 
 ## Product goal
 
-CINEOS Short Drama Agent is an independent, provider-neutral short-drama creation system. It owns story reasoning, character state, directing decisions, continuity and downstream film planning. External renderers are optional adapters, not the product core.
+CINEOS Short Drama Agent is an independent, provider-neutral short-drama creation system. It owns story reasoning, character state, directing decisions, continuity, character identity approval and downstream film planning. External renderers are optional adapters, not the product core.
 
-## Sprint 1 foundation
+## Current pipeline
 
-Sprint 1 established the orchestration boundary:
+`DramaBrief -> DramaBrain -> CharacterBrain -> ScreenwriterAgent -> DirectorDecisionEngine -> ShotPlanner -> SceneStateEngine -> ContinuitySupervisor -> DramaPlan -> MovieProject -> FilmPackage`
 
-`DramaBrief -> Story -> Screenplay -> Direction -> Shots -> Continuity -> DramaPlan`
+## Sprint 3 character identity approval
 
-## Sprint 2 creative brain
+Short Drama character assets are initially created with CineDNA status `pending-approved-reference`. CINEOS does not infer or fabricate a person's face/body identity from a filename or image path.
 
-Sprint 2 turns the skeleton into a richer deterministic creative brain while keeping the contracts local and renderer-independent.
+A character becomes CineDNA-ready only after an approved reference and explicit identity JSON are supplied:
 
-Current creative pipeline:
+`cineos drama character approve Protagonist --assets assets.json --reference references/protagonist-front.png --identity identity.json --profiles cinedna.json`
 
-`DramaBrief -> DramaBrain -> CharacterBrain -> ScreenwriterAgent -> DirectorDecisionEngine -> ShotPlanner -> SceneStateEngine -> ContinuitySupervisor -> DramaPlan`
+The identity JSON must explicitly contain `face` and `body` objects. The approval workflow then:
 
-### Drama Brain
+1. resolves the canonical character asset,
+2. records the reference as approved,
+3. stores the explicit CineDNA identity data,
+4. builds and validates a CineDNA profile,
+5. persists the updated asset registry and CineDNA registry.
 
-Expands one premise into genre/theme, hook, stakes, reversal, climax, resolution and an emotional curve.
+This provides a stable identity boundary for future native rendering and character-consistency systems.
 
-### Character Brain
+## Short-drama creation
 
-Creates persistent character profiles containing role, motivation, fear, secret, relationships, knowledge, emotion, physical state, wardrobe and props.
-
-Each generated character is now linked to a deterministic canonical CINEOS character asset. The asset is explicitly marked `pending-approved-reference` for CineDNA. CINEOS does not fabricate face/body identity data or claim a CineDNA profile exists before approved references and explicit identity metadata are supplied.
-
-### Scene State Engine
-
-Carries world and character state across scenes. State changes must be explicit; wardrobe, props, physical condition, knowledge and environment otherwise persist.
-
-### Director Decision Engine
-
-Creates explicit story-first camera and performance decisions for every dramatic beat: shot size, lens, movement, blocking rule, performance intention and lighting intention.
-
-## Production bridge
-
-`DramaPlan` now compiles into the existing CINEOS `MovieProject` and deterministic `FilmPackage` contracts. Character assets are exported through the canonical asset registry and remain ready for the existing CineDNA approval workflow.
-
-The installed command is routed through the Short Drama Agent entrypoint while preserving all existing commands:
-
-```bash
-cineos drama create "A man receives a message from his wife who died three years ago." \
-  --duration 180 \
-  --genre mystery \
-  --tone "tense and intimate" \
-  --output-dir output/drama
-```
+`cineos drama create "A man receives a message from his wife who died three years ago." --duration 180 --genre mystery --output-dir output/drama`
 
 The command writes:
 
-- `drama-package.json` — creative brain output and continuity state
-- `assets.json` — canonical production assets and CineDNA readiness metadata
-- `film-package.json` — verified output of the existing CINEOS Film Compiler
-
-The original `cineos validate`, `compile`, `render`, `film`, `nova`, `audio`, `performance`, benchmark and release commands continue to delegate to the existing CLI.
-
-## Benchmark premise
-
-The regression benchmark remains:
-
-> A man receives a message from his wife who died three years ago.
-
-For a 180-second mystery plan the system must produce five dramatic beats/scenes, character state, five director decisions, five timed shots, a state timeline, a passing continuity report, canonical character assets and a verified Film Package.
+- `drama-package.json`
+- `assets.json`
+- `film-package.json`
 
 ## Architectural rule
 
-No renderer-specific prompt format, proprietary video API or external video model is permitted inside the Short Drama Agent core. Future learned CINEOS models can replace deterministic brains behind the same contracts.
+No renderer-specific prompt format, proprietary video API or external video model is permitted inside the Short Drama Agent core. Future learned CINEOS models and Atlas Native Renderer components must integrate behind provider-neutral contracts.
 
 ## Next targets
 
-1. Add an explicit Character Approval workflow that attaches approved references and completes CineDNA identity metadata.
-2. Add pluggable learned creative-brain adapters behind provider-neutral schemas.
-3. Expand screenplay generation from beat intent into dialogue, subtext and performance-aware scene text.
-4. Add a Short Drama quality benchmark covering hook strength, pacing, continuity and character-state preservation.
-5. Begin Atlas Native Renderer research without coupling it to the creative brain.
+1. Multi-reference character approval and reference ranking.
+2. Character consistency conditioning from approved CineDNA.
+3. Richer screenplay dialogue, subtext and performance generation.
+4. Short Drama quality benchmark and automatic QC.
+5. Atlas Native Renderer research and native shot generation.
