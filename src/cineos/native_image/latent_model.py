@@ -185,8 +185,15 @@ class CineosLatentFrameModel:
     ) -> NativePixelFrame:
         if self._plan is None:
             raise RuntimeError("encode_scene must run before generate")
-        latent = self.components.sample_latent(identity_state, scene_state, seed=seed)
-        scale = min(1.0, self.max_dimension / max(self._plan.width, self._plan.height))
+        latent = self.components.sample_latent(
+            identity_state,
+            scene_state,
+            seed=seed,
+        )
+        scale = min(
+            1.0,
+            self.max_dimension / max(self._plan.width, self._plan.height),
+        )
         width = max(1, round(self._plan.width * scale))
         height = max(1, round(self._plan.height * scale))
         rgb = self.components.decode_rgb(latent, width=width, height=height)
