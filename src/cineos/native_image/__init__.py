@@ -12,6 +12,12 @@ from .frame_runtime import (
     NativeFrameObserver,
     NativeFrameRuntime,
 )
+from .latent_model import (
+    CineosLatentFrameModel,
+    NativePixelFrame,
+    ProceduralLatentComponents,
+    TrainableLatentComponents,
+)
 from .rerender import AutomaticRerenderController, RerenderDecision, correction_payload
 from .temporal_identity import (
     IdentityObservation,
@@ -34,6 +40,7 @@ __all__ = [
     "NATIVE_IMAGE_PLAN_SCHEMA",
     "VISUAL_QC_AXES",
     "AutomaticRerenderController",
+    "CineosLatentFrameModel",
     "IdentityObservation",
     "IdentityObservationError",
     "IdentityQCReport",
@@ -46,8 +53,11 @@ __all__ = [
     "NativeImageConditioningPlan",
     "NativeImageResearchBackend",
     "NativeImageResearchResult",
+    "NativePixelFrame",
+    "ProceduralLatentComponents",
     "RerenderDecision",
     "TemporalIdentityMemory",
+    "TrainableLatentComponents",
     "VisualContinuityMemory",
     "VisualContinuityObservation",
     "VisualQCReport",
