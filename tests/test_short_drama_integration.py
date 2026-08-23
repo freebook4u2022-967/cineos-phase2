@@ -21,9 +21,7 @@ def test_drama_plan_compiles_through_existing_film_compiler():
     project, package = compile_drama_plan(_plan())
 
     verify(package)
-    assert project.timeline.scene_order == [
-        scene.scene_id for scene in project.scenes
-    ]
+    assert project.timeline.scene_order == [scene.scene_id for scene in project.scenes]
     assert package.project_metadata["title"].startswith("A man receives")
     assert len(package.scene_manifest) == 5
     assert len(package.shot_manifest) == 5
