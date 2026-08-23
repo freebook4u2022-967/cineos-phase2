@@ -4,7 +4,10 @@ from cineos.native_image import NativeImageResearchBackend, compile_native_image
 
 class StubNativeImageModel:
     def encode_identity(self, tokens):
-        return {"identity_count": len(tokens), "primary": tokens[0]["primary_reference_id"]}
+        return {
+            "identity_count": len(tokens),
+            "primary": tokens[0]["primary_reference_id"],
+        }
 
     def encode_scene(self, plan):
         return {"size": [plan.width, plan.height], "shot_id": plan.shot_id}
