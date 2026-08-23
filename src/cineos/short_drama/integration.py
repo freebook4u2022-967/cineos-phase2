@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from cineos.assets import AssetRegistry
-from cineos.assets import Character as CanonicalCharacter
+from cineos.assets import AssetRegistry, Character as CanonicalCharacter
 from cineos.assets.storage import save as save_asset_registry
 from cineos.compiler import FilmPackage, compile as compile_film_package
 from cineos.compiler import save as save_film_package
@@ -72,7 +72,6 @@ def plan_to_movie_project(
         for profile in plan.characters
     ]
 
-    scenes_by_id = {scene["scene_id"]: scene for scene in plan.screenplay["scenes"]}
     shots_by_scene: dict[str, list[dict]] = defaultdict(list)
     for shot in plan.shots:
         shots_by_scene[shot["scene_id"]].append(shot)
@@ -108,7 +107,9 @@ def plan_to_movie_project(
                 camera=shot.get("shot_size", "medium"),
                 lens=shot.get("lens", "50mm"),
                 movement=shot.get("camera_movement", "static"),
-                lighting=shot.get("lighting_intent", "motivated naturalistic light"),
+                lighting=shot.get(
+                    "lighting_intent", "motivated naturalistic light"
+                ),
                 action=shot.get("purpose") or scene_data.get("purpose", ""),
                 dialogue="",
                 duration=float(shot["duration_seconds"]),
@@ -117,7 +118,9 @@ def plan_to_movie_project(
         ]
         raw_location = scene_data.get("location") or last_location_name
         if raw_location == "previous location":
-            location_name = locations[-1].name if locations else "primary story location"
+            location_name = (
+                locations[-1].name if locations else "primary story location"
+            )
         else:
             location_name = raw_location
         scene = Scene(
@@ -158,8 +161,6 @@ def write_production_artifacts(
     output_dir: str | Path,
 ) -> dict[str, Path]:
     """Write the plan, canonical assets and compiled Film Package."""
-    import json
-
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     project, package = compile_drama_plan(plan)
@@ -169,7 +170,10 @@ def write_production_artifacts(
         json.dumps(plan.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    asset_path = save_asset_registry(project.asset_registry, destination / "assets.json")
+    asset_path = save_asset_registry(
+        project.asset_registry,
+        destination / "assets.json",
+    )
     film_path = destination / "film-package.json"
     save_film_package(package, film_path)
     return {
