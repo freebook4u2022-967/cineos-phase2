@@ -27,6 +27,13 @@ from .temporal_identity import (
     TemporalIdentityMemory,
     apply_temporal_identity_memory,
 )
+from .trainable_model import (
+    NativeTrainableModel,
+    NativeTrainingLoop,
+    SGDOptimizer,
+    TrainableParameterSet,
+    TrainingStepResult,
+)
 from .training import (
     CHECKPOINT_MANIFEST_SCHEMA,
     DATASET_MANIFEST_SCHEMA,
@@ -73,11 +80,16 @@ __all__ = [
     "NativeImageResearchBackend",
     "NativeImageResearchResult",
     "NativePixelFrame",
+    "NativeTrainableModel",
+    "NativeTrainingLoop",
     "NativeTrainingSample",
     "ProceduralLatentComponents",
     "RerenderDecision",
+    "SGDOptimizer",
     "TemporalIdentityMemory",
     "TrainableLatentComponents",
+    "TrainableParameterSet",
+    "TrainingStepResult",
     "VisualContinuityMemory",
     "VisualContinuityObservation",
     "VisualQCReport",
