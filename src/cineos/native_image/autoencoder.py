@@ -29,12 +29,41 @@ def load_p6_ppm(path: str | Path):
     return tensor, width, height
 
 
+def save_p6_ppm(pixels, width: int, height: int, path: str | Path) -> Path:
+    """Save a normalized RGB tensor as a dependency-free binary P6 PPM."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    values = pixels.detach().cpu().reshape(-1).clamp(0.0, 1.0)
+    rgb = bytes(int(float(value) * 255) for value in values)
+    expected = width * height * 3
+    if len(rgb) != expected:
+        raise ValueError("pixel vector does not match requested PPM dimensions")
+    header = f"P6\n{width} {height}\n255\n".encode("ascii")
+    destination.write_bytes(header + rgb)
+    return destination
+
+
 @dataclass(frozen=True, slots=True)
 class AutoencoderStepResult:
     step: int
     total_loss: float
     reconstruction_loss: float
     kl_loss: float
+
+
+@dataclass(frozen=True, slots=True)
+class ReconstructionMetrics:
+    mse: float
+    mae: float
+    psnr: float
+
+
+@dataclass(frozen=True, slots=True)
+class ReconstructionExport:
+    original_path: str
+    reconstructed_path: str
+    checkpoint_path: str
+    metrics: ReconstructionMetrics
 
 
 @dataclass(slots=True)
@@ -133,3 +162,97 @@ class TorchPixelAutoencoder:
             result = self.train_pixels(pixels)
         assert result is not None
         return result
+
+    def save_checkpoint(self, path: str | Path) -> Path:
+        torch = _load_torch()
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "schema": "cineos-pixel-autoencoder/0.1",
+                "width": self.width,
+                "height": self.height,
+                "latent_dim": self.latent_dim,
+                "hidden_dim": self.hidden_dim,
+                "learning_rate": self.learning_rate,
+                "beta": self.beta,
+                "step": self.step,
+                "encoder": self.encoder.state_dict(),
+                "mean_head": self.mean_head.state_dict(),
+                "logvar_head": self.logvar_head.state_dict(),
+                "decoder": self.decoder.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+            },
+            destination,
+        )
+        return destination
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        device: str = "cpu",
+    ) -> TorchPixelAutoencoder:
+        torch = _load_torch()
+        payload = torch.load(path, map_location=device)
+        if payload.get("schema") != "cineos-pixel-autoencoder/0.1":
+            raise ValueError("unsupported autoencoder checkpoint schema")
+        model = cls(
+            width=int(payload["width"]),
+            height=int(payload["height"]),
+            latent_dim=int(payload["latent_dim"]),
+            hidden_dim=int(payload["hidden_dim"]),
+            device=device,
+            learning_rate=float(payload["learning_rate"]),
+            beta=float(payload["beta"]),
+        )
+        model.encoder.load_state_dict(payload["encoder"])
+        model.mean_head.load_state_dict(payload["mean_head"])
+        model.logvar_head.load_state_dict(payload["logvar_head"])
+        model.decoder.load_state_dict(payload["decoder"])
+        model.optimizer.load_state_dict(payload["optimizer"])
+        model.step = int(payload["step"])
+        return model
+
+    def reconstruction_metrics(self, pixels) -> ReconstructionMetrics:
+        import math
+
+        torch = _load_torch()
+        target = pixels.to(self.device_object)
+        with torch.no_grad():
+            reconstructed, _, _ = self.reconstruct(target, deterministic=True)
+            mse = float(torch.nn.functional.mse_loss(reconstructed, target).item())
+            mae = float(torch.nn.functional.l1_loss(reconstructed, target).item())
+        psnr = float("inf") if mse == 0.0 else 10.0 * math.log10(1.0 / mse)
+        return ReconstructionMetrics(mse=mse, mae=mae, psnr=psnr)
+
+    def export_reconstruction(
+        self,
+        source_path: str | Path,
+        output_dir: str | Path,
+        *,
+        checkpoint_path: str | Path,
+    ) -> ReconstructionExport:
+        pixels, width, height = load_p6_ppm(source_path)
+        if (width, height) != (self.width, self.height):
+            raise ValueError("PPM dimensions do not match configured autoencoder")
+        torch = _load_torch()
+        with torch.no_grad():
+            reconstructed, _, _ = self.reconstruct(pixels, deterministic=True)
+        destination = Path(output_dir)
+        destination.mkdir(parents=True, exist_ok=True)
+        original = save_p6_ppm(pixels, width, height, destination / "original.ppm")
+        rebuilt = save_p6_ppm(
+            reconstructed,
+            width,
+            height,
+            destination / "reconstructed.ppm",
+        )
+        checkpoint = self.save_checkpoint(checkpoint_path)
+        return ReconstructionExport(
+            original_path=str(original),
+            reconstructed_path=str(rebuilt),
+            checkpoint_path=str(checkpoint),
+            metrics=self.reconstruction_metrics(pixels),
+        )
