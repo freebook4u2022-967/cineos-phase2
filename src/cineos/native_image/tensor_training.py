@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .tensor_model import (
-    CineosTensorModel,
-    LinearTensorLayer,
-    Tensor,
-)
+from .tensor_model import CineosTensorModel, LinearTensorLayer, Tensor
 
 
 SUPPORTED_DEVICES = {"cpu", "cuda", "mps"}
