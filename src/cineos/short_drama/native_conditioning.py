@@ -62,6 +62,8 @@ def build_character_consistency_conditioning(
     )
 
 
-def character_conditioning_payload(conditioning: CharacterConditioning) -> dict[str, Any]:
+def character_conditioning_payload(
+    conditioning: CharacterConditioning,
+) -> dict[str, Any]:
     """Return a JSON-safe native-renderer payload."""
     return asdict(conditioning)
