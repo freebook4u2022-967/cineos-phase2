@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping
 
 
 VISUAL_QC_AXES = (
@@ -92,7 +92,9 @@ class MultiAxisVisualQCGate:
 
     def evaluate(self, observation: VisualContinuityObservation) -> VisualQCReport:
         failed = tuple(
-            axis for axis, score in observation.scores.items() if score < self.reject_score
+            axis
+            for axis, score in observation.scores.items()
+            if score < self.reject_score
         )
         warnings = tuple(
             axis
