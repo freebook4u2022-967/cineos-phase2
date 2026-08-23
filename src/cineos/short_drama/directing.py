@@ -29,7 +29,9 @@ class DirectorDecisionEngine:
                     "camera_movement": movement,
                     "performance": self._performance_for(beat),
                     "lighting_intent": self._lighting_for(beat, tone),
-                    "blocking_rule": "movement must be motivated by a change in objective",
+                    "blocking_rule": (
+                        "movement must be motivated by a change in objective"
+                    ),
                 }
             )
         return {
@@ -52,5 +54,8 @@ class DirectorDecisionEngine:
     @staticmethod
     def _lighting_for(beat: str, tone: str) -> str:
         if beat in {"reversal", "climax"}:
-            return f"heighten contrast while preserving motivated sources; tone={tone}"
+            return (
+                "heighten contrast while preserving motivated sources; "
+                f"tone={tone}"
+            )
         return f"naturalistic motivated light; tone={tone}"
