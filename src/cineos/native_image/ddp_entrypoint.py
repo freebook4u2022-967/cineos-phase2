@@ -35,15 +35,24 @@ class SyntheticFlowDataset:
         return len(self.identity)
 
     def __getitem__(self, index: int):
-        return (
-            self.identity[index],
-            self.scene[index],
-            self.source[index],
-            self.target[index],
-        )
+        return self.identity[index], self.scene[index], self.source[index], self.target[index]
 
 
-def run_ddp_training(config: DDPTrainConfig, checkpoint: str | Path) -> str | None:
+def _load_resume(torch, path: Path, model, optimizer, device) -> tuple[int, int]:
+    if not path.exists():
+        return 0, 0
+    payload = torch.load(path, map_location=device)
+    model.load_state_dict(payload["model"])
+    optimizer.load_state_dict(payload["optimizer"])
+    return int(payload.get("steps", 0)), int(payload.get("sampler_epoch", 0))
+
+
+def run_ddp_training(
+    config: DDPTrainConfig,
+    checkpoint: str | Path,
+    *,
+    resume: bool = False,
+) -> str | None:
     torch = _load_torch()
     rank = int(os.environ.get("RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -66,13 +75,25 @@ def run_ddp_training(config: DDPTrainConfig, checkpoint: str | Path) -> str | No
                 device=str(device),
             )
         )
-        ddp = runtime.wrap_model(model.module, device_id=local_rank if torch.cuda.is_available() else None)
+        ddp = runtime.wrap_model(
+            model.module, device_id=local_rank if torch.cuda.is_available() else None
+        )
         optimizer = torch.optim.AdamW(ddp.parameters(), lr=config.learning_rate)
-        dataset = SyntheticFlowDataset(torch, config)
-        sampler = runtime.distributed_sampler(dataset, shuffle=False)
-        loader = torch.utils.data.DataLoader(dataset, batch_size=config.batch_size, sampler=sampler)
+        checkpoint_path = Path(checkpoint)
+        completed_steps, sampler_epoch = (0, 0)
+        if resume:
+            completed_steps, sampler_epoch = _load_resume(
+                torch, checkpoint_path, ddp.module, optimizer, device
+            )
 
-        completed_steps = 0
+        dataset = SyntheticFlowDataset(torch, config)
+        sampler = runtime.distributed_sampler(dataset, shuffle=True)
+        sampler.set_epoch(sampler_epoch)
+        loader = torch.utils.data.DataLoader(
+            dataset, batch_size=config.batch_size, sampler=sampler
+        )
+
+        target_steps = completed_steps + config.steps
         for identity, scene, source, target in loader:
             identity = identity.to(device)
             scene = scene.to(device)
@@ -87,24 +108,25 @@ def run_ddp_training(config: DDPTrainConfig, checkpoint: str | Path) -> str | No
             loss.backward()
             optimizer.step()
             completed_steps += 1
-            if completed_steps >= config.steps:
+            if completed_steps >= target_steps:
                 break
 
+        sampler_epoch += 1
         runtime.barrier()
         if runtime.is_rank_zero():
-            destination = Path(checkpoint)
-            destination.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
                 {
-                    "schema": "cineos-ddp-smoke/0.1",
+                    "schema": "cineos-ddp-smoke/0.2",
                     "model": ddp.module.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "world_size": world_size,
                     "steps": completed_steps,
+                    "sampler_epoch": sampler_epoch,
                 },
-                destination,
+                checkpoint_path,
             )
-            return str(destination)
+            return str(checkpoint_path)
         return None
     finally:
         runtime.shutdown()
@@ -114,8 +136,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="CINEOS DDP smoke training")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--steps", type=int, default=2)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
-    run_ddp_training(DDPTrainConfig(steps=args.steps), args.checkpoint)
+    run_ddp_training(
+        DDPTrainConfig(steps=args.steps), args.checkpoint, resume=args.resume
+    )
 
 
 if __name__ == "__main__":
