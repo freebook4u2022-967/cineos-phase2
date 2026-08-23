@@ -11,6 +11,7 @@ from cineos.cli.errors import ExitCode
 from cineos.cli.main import main as core_main
 from cineos.cli.output import Output
 
+from .character_approval import approve_character_files
 from .integration import write_production_artifacts
 from .models import DramaBrief
 from .orchestrator import ShortDramaOrchestrator
@@ -30,6 +31,7 @@ def _drama_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     drama = commands.add_parser("drama", help="create CINEOS short-drama projects")
     drama_commands = drama.add_subparsers(dest="drama_command", required=True)
+
     create = drama_commands.add_parser(
         "create",
         help="turn one premise into a drama plan and Film Package",
@@ -45,7 +47,66 @@ def _drama_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="emit machine-readable JSON output",
     )
+
+    character = drama_commands.add_parser(
+        "character",
+        help="approve character identity references for CineDNA",
+    )
+    character_commands = character.add_subparsers(
+        dest="character_command", required=True
+    )
+    approve = character_commands.add_parser(
+        "approve",
+        help="approve a reference and build CineDNA from explicit identity data",
+    )
+    approve.add_argument("character")
+    approve.add_argument("--assets", required=True, type=Path)
+    approve.add_argument("--reference", required=True)
+    approve.add_argument("--identity", required=True, type=Path)
+    approve.add_argument("--profiles", required=True, type=Path)
+    approve.add_argument("--view", default="front", dest="view_type")
+    approve.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="emit machine-readable JSON output",
+    )
     return parser
+
+
+def _run_create(args: argparse.Namespace, output: Output) -> None:
+    brief = DramaBrief(
+        premise=args.premise,
+        duration_seconds=args.duration_seconds,
+        genre=args.genre,
+        tone=args.tone,
+    )
+    plan = ShortDramaOrchestrator().plan(brief)
+    artifacts = write_production_artifacts(plan, args.output_dir)
+    output.success(
+        "CINEOS Short Drama project created",
+        premise=brief.premise,
+        duration_seconds=brief.duration_seconds,
+        genre=brief.genre,
+        drama_package=str(artifacts["drama_package"]),
+        asset_registry=str(artifacts["asset_registry"]),
+        film_package=str(artifacts["film_package"]),
+        continuity_status=plan.continuity["status"],
+    )
+
+
+def _run_character(args: argparse.Namespace, output: Output) -> None:
+    if args.character_command != "approve":
+        raise ValueError(f"unsupported character command: {args.character_command}")
+    result = approve_character_files(
+        args.assets,
+        args.character,
+        args.reference,
+        args.identity,
+        profiles_path=args.profiles,
+        view_type=args.view_type,
+    )
+    output.success("CINEOS character identity approved", **result)
 
 
 def _run_drama(argv: Sequence[str]) -> int:
@@ -56,29 +117,17 @@ def _run_drama(argv: Sequence[str]) -> int:
 
     output = Output(json_mode=args.json)
     try:
-        brief = DramaBrief(
-            premise=args.premise,
-            duration_seconds=args.duration_seconds,
-            genre=args.genre,
-            tone=args.tone,
-        )
-        plan = ShortDramaOrchestrator().plan(brief)
-        artifacts = write_production_artifacts(plan, args.output_dir)
-        output.success(
-            "CINEOS Short Drama project created",
-            premise=brief.premise,
-            duration_seconds=brief.duration_seconds,
-            genre=brief.genre,
-            drama_package=str(artifacts["drama_package"]),
-            asset_registry=str(artifacts["asset_registry"]),
-            film_package=str(artifacts["film_package"]),
-            continuity_status=plan.continuity["status"],
-        )
+        if args.drama_command == "create":
+            _run_create(args, output)
+        elif args.drama_command == "character":
+            _run_character(args, output)
+        else:
+            raise ValueError(f"unsupported drama command: {args.drama_command}")
     except Exception as error:
         output.error(
-            f"short-drama creation failed: {error}",
+            f"short-drama command failed: {error}",
             code=int(ExitCode.EXECUTION),
-            hint="Check the premise and output directory, then try again.",
+            hint="Check the command inputs and project files, then try again.",
         )
         return int(ExitCode.EXECUTION)
     return int(ExitCode.SUCCESS)
