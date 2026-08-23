@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from .neural_backend import NeuralModelConfig, TorchCineosFlowModel, _load_torch
+from .real_dataset import RealManifestTorchDataset
 from .torch_distributed import DistributedRuntimeConfig, TorchDistributedRuntime
+from .training import NativeDatasetManifest, NativeTrainingSample
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +41,29 @@ class SyntheticFlowDataset:
         return self.identity[index], self.scene[index], self.source[index], self.target[index]
 
 
+def load_dataset_manifest(path: str | Path) -> NativeDatasetManifest:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    samples = [
+        NativeTrainingSample(
+            sample_id=item["sample_id"],
+            image_path=item["image_path"],
+            character_reference_paths=tuple(item["character_reference_paths"]),
+            caption=item["caption"],
+            scene_description=item.get("scene_description", ""),
+            identity_tags=tuple(item.get("identity_tags", ())),
+            continuity_tags=tuple(item.get("continuity_tags", ())),
+            metadata=dict(item.get("metadata", {})),
+        )
+        for item in payload.get("samples", ())
+    ]
+    return NativeDatasetManifest(
+        name=payload["name"],
+        version=payload["version"],
+        samples=samples,
+        schema=payload.get("schema", "cineos-native-training-dataset/0.1"),
+    )
+
+
 def _load_resume(torch, path: Path, model, optimizer, device) -> tuple[int, int]:
     if not path.exists():
         return 0, 0
@@ -52,6 +78,8 @@ def run_ddp_training(
     checkpoint: str | Path,
     *,
     resume: bool = False,
+    manifest: str | Path | None = None,
+    dataset_root: str | Path | None = None,
 ) -> str | None:
     torch = _load_torch()
     rank = int(os.environ.get("RANK", "0"))
@@ -66,15 +94,14 @@ def run_ddp_training(
         device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
         if torch.cuda.is_available():
             torch.cuda.set_device(local_rank)
-        model = TorchCineosFlowModel(
-            NeuralModelConfig(
-                feature_dim=config.feature_dim,
-                embedding_dim=config.embedding_dim,
-                latent_dim=config.latent_dim,
-                hidden_dim=config.hidden_dim,
-                device=str(device),
-            )
+        model_config = NeuralModelConfig(
+            feature_dim=config.feature_dim,
+            embedding_dim=config.embedding_dim,
+            latent_dim=config.latent_dim,
+            hidden_dim=config.hidden_dim,
+            device=str(device),
         )
+        model = TorchCineosFlowModel(model_config)
         ddp = runtime.wrap_model(
             model.module, device_id=local_rank if torch.cuda.is_available() else None
         )
@@ -86,7 +113,16 @@ def run_ddp_training(
                 torch, checkpoint_path, ddp.module, optimizer, device
             )
 
-        dataset = SyntheticFlowDataset(torch, config)
+        if manifest is not None:
+            if dataset_root is None:
+                raise ValueError("--dataset-root is required when --manifest is used")
+            dataset = RealManifestTorchDataset(
+                load_dataset_manifest(manifest), dataset_root, model_config
+            )
+            real_mode = True
+        else:
+            dataset = SyntheticFlowDataset(torch, config)
+            real_mode = False
         sampler = runtime.distributed_sampler(dataset, shuffle=True)
         sampler.set_epoch(sampler_epoch)
         loader = torch.utils.data.DataLoader(
@@ -94,7 +130,8 @@ def run_ddp_training(
         )
 
         target_steps = completed_steps + config.steps
-        for identity, scene, source, target in loader:
+        for batch in loader:
+            identity, scene, source, target = batch[:4]
             identity = identity.to(device)
             scene = scene.to(device)
             source = source.to(device)
@@ -117,7 +154,9 @@ def run_ddp_training(
             checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
                 {
-                    "schema": "cineos-ddp-smoke/0.2",
+                    "schema": "cineos-ddp-training/0.3",
+                    "dataset_mode": "real" if real_mode else "synthetic",
+                    "manifest": str(manifest) if manifest is not None else None,
                     "model": ddp.module.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "world_size": world_size,
@@ -133,13 +172,19 @@ def run_ddp_training(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="CINEOS DDP smoke training")
+    parser = argparse.ArgumentParser(description="CINEOS distributed training")
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--steps", type=int, default=2)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--manifest")
+    parser.add_argument("--dataset-root")
     args = parser.parse_args()
     run_ddp_training(
-        DDPTrainConfig(steps=args.steps), args.checkpoint, resume=args.resume
+        DDPTrainConfig(steps=args.steps),
+        args.checkpoint,
+        resume=args.resume,
+        manifest=args.manifest,
+        dataset_root=args.dataset_root,
     )
 
 
