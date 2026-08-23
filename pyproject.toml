@@ -25,6 +25,7 @@ cineos-studio = "cineos.studio.app:main"
 [project.optional-dependencies]
 studio = ["PySide6>=6.7,<7"]
 hardware = ["psutil>=5.9,<8"]
+neural = ["torch>=2.4,<3"]
 dev = [
   "black>=24.4,<26",
   "pytest>=8.2,<9",
