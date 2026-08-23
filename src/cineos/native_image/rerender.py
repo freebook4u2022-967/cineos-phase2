@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from .temporal_identity import (
     IdentityObservation,
@@ -64,8 +64,14 @@ class AutomaticRerenderController:
     ) -> RerenderDecision:
         if not 1 <= attempt <= self.max_attempts:
             raise ValueError("attempt must be within configured rerender budget")
-        if any(item.shot_id != visual_observation.shot_id for item in identity_observations):
-            raise ValueError("identity and visual observations must belong to the same shot")
+        mismatched = any(
+            item.shot_id != visual_observation.shot_id
+            for item in identity_observations
+        )
+        if mismatched:
+            raise ValueError(
+                "identity and visual observations must belong to the same shot"
+            )
 
         identity_reports = tuple(
             self.identity_gate.evaluate(memory, item, update_memory=False)
@@ -81,14 +87,18 @@ class AutomaticRerenderController:
         directives = list(build_rerender_directives(visual_report))
         for report in identity_reports:
             if report.should_rerender:
-                directives.append(f"restore approved identity for {report.character_uuid}")
+                directives.append(
+                    f"restore approved identity for {report.character_uuid}"
+                )
         directives = list(dict.fromkeys(directives))
 
         if rejected and attempt < self.max_attempts:
             decision = "rerender"
         elif rejected:
             decision = "reject"
-            directives.append("rerender budget exhausted; require human or higher-tier review")
+            directives.append(
+                "rerender budget exhausted; require human or higher-tier review"
+            )
         elif warnings:
             decision = "warn"
         else:
