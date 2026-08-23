@@ -6,6 +6,12 @@ from .conditioning import (
     NativeImageConditioningPlan,
     compile_native_image_plan,
 )
+from .frame_runtime import (
+    NativeFrameAttempt,
+    NativeFrameGenerationResult,
+    NativeFrameObserver,
+    NativeFrameRuntime,
+)
 from .rerender import AutomaticRerenderController, RerenderDecision, correction_payload
 from .temporal_identity import (
     IdentityObservation,
@@ -33,6 +39,10 @@ __all__ = [
     "IdentityQCReport",
     "IdentityVisualQCGate",
     "MultiAxisVisualQCGate",
+    "NativeFrameAttempt",
+    "NativeFrameGenerationResult",
+    "NativeFrameObserver",
+    "NativeFrameRuntime",
     "NativeImageConditioningPlan",
     "NativeImageResearchBackend",
     "NativeImageResearchResult",
