@@ -1,5 +1,11 @@
-from cineos.native_image.rerender import AutomaticRerenderController, correction_payload
-from cineos.native_image.temporal_identity import IdentityObservation, TemporalIdentityMemory
+from cineos.native_image.rerender import (
+    AutomaticRerenderController,
+    correction_payload,
+)
+from cineos.native_image.temporal_identity import (
+    IdentityObservation,
+    TemporalIdentityMemory,
+)
 from cineos.native_image.visual_qc import VisualContinuityObservation
 
 
