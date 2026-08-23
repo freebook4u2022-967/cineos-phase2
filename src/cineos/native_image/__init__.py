@@ -6,6 +6,7 @@ from .conditioning import (
     NativeImageConditioningPlan,
     compile_native_image_plan,
 )
+from .rerender import AutomaticRerenderController, RerenderDecision, correction_payload
 from .temporal_identity import (
     IdentityObservation,
     IdentityObservationError,
@@ -26,6 +27,7 @@ from .visual_qc import (
 __all__ = [
     "NATIVE_IMAGE_PLAN_SCHEMA",
     "VISUAL_QC_AXES",
+    "AutomaticRerenderController",
     "IdentityObservation",
     "IdentityObservationError",
     "IdentityQCReport",
@@ -34,6 +36,7 @@ __all__ = [
     "NativeImageConditioningPlan",
     "NativeImageResearchBackend",
     "NativeImageResearchResult",
+    "RerenderDecision",
     "TemporalIdentityMemory",
     "VisualContinuityMemory",
     "VisualContinuityObservation",
@@ -41,4 +44,5 @@ __all__ = [
     "apply_temporal_identity_memory",
     "build_rerender_directives",
     "compile_native_image_plan",
+    "correction_payload",
 ]
