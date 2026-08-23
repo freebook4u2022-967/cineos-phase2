@@ -43,7 +43,9 @@ class SceneStateEngine:
         state.environment.update(deepcopy(scene.get("environment_changes", {})))
         return state
 
-    def build_timeline(self, characters: list[CharacterProfile], scenes: list[dict]) -> list[SceneState]:
+    def build_timeline(
+        self, characters: list[CharacterProfile], scenes: list[dict]
+    ) -> list[SceneState]:
         timeline = [self.initialize(characters)]
         for scene in scenes:
             timeline.append(self.advance(timeline[-1], scene))
