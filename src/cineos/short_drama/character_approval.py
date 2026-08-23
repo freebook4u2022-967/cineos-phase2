@@ -11,12 +11,10 @@ from cineos.assets import AssetRegistry
 from cineos.assets import Character as CanonicalCharacter
 from cineos.assets.storage import load as load_asset_registry
 from cineos.assets.storage import save as save_asset_registry
-from cineos.cinedna import CineDNABuilder, CineDNARegistry
+from cineos.cinedna import CharacterDNA, CineDNABuilder, CineDNARegistry
 
 
-def _resolve_character(
-    registry: AssetRegistry, identifier: str
-) -> CanonicalCharacter:
+def _resolve_character(registry: AssetRegistry, identifier: str) -> CanonicalCharacter:
     """Resolve a canonical character by UUID or case-insensitive display name."""
     try:
         asset = registry.retrieve(UUID(identifier))
@@ -44,7 +42,7 @@ def approve_character_reference(
     *,
     view_type: str = "front",
     notes: str = "approved identity reference",
-) -> tuple[CanonicalCharacter, object]:
+) -> tuple[CanonicalCharacter, CharacterDNA]:
     """Approve one reference and build a validated CineDNA profile.
 
     Identity descriptors are explicit user/project data. The workflow never
@@ -113,7 +111,7 @@ def approve_character_files(
         if profile_file.exists()
         else CineDNARegistry()
     )
-    profiles.register(profile)  # type: ignore[arg-type]
+    profiles.register(profile)
     profiles.save(profile_file)
     return {
         "character_id": str(character.asset_id),
