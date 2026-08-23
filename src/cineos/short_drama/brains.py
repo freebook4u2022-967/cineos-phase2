@@ -19,24 +19,37 @@ class DramaBrain:
 
     def run(self, brief: DramaBrief) -> dict:
         premise = brief.premise.strip()
-        hook = f"Open on the most emotionally disruptive consequence of: {premise}"
-        stakes = "The protagonist must act before the situation becomes irreversible."
-        reversal = "New evidence changes the meaning of what the protagonist believed."
-        climax = "The protagonist makes a costly choice that resolves the central question."
-        resolution = "End on a visual consequence that answers the premise but leaves emotional residue."
         return {
             "premise": premise,
             "genre": brief.genre,
             "tone": brief.tone,
             "target_duration_seconds": brief.duration_seconds,
             "theme": self._theme_for(brief.genre),
-            "hook": hook,
-            "stakes": stakes,
-            "twist": reversal,
-            "climax": climax,
-            "resolution": resolution,
+            "hook": (
+                "Open on the most emotionally disruptive consequence of: "
+                f"{premise}"
+            ),
+            "stakes": (
+                "The protagonist must act before the situation becomes irreversible."
+            ),
+            "twist": (
+                "New evidence changes the meaning of what the protagonist believed."
+            ),
+            "climax": (
+                "The protagonist makes a costly choice that resolves the central question."
+            ),
+            "resolution": (
+                "End on a visual consequence that answers the premise but leaves "
+                "emotional residue."
+            ),
             "structure": list(self.STRUCTURE),
-            "emotional_curve": ["curiosity", "unease", "shock", "pressure", "aftershock"],
+            "emotional_curve": [
+                "curiosity",
+                "unease",
+                "shock",
+                "pressure",
+                "aftershock",
+            ],
         }
 
     @staticmethod
@@ -80,10 +93,14 @@ class CharacterBrain:
                     character_id="char-counterpart",
                     name=names[1] if len(names) > 1 else "Counterpart",
                     role="counterpart",
-                    motivation="force the protagonist to confront the hidden truth",
+                    motivation=(
+                        "force the protagonist to confront the hidden truth"
+                    ),
                     fear="being misunderstood or erased",
                     secret=story["twist"],
-                    relationships={"char-protagonist": "emotionally consequential"},
+                    relationships={
+                        "char-protagonist": "emotionally consequential"
+                    },
                     knowledge=["information withheld from the protagonist"],
                     emotion="unreadable",
                     physical_state="story-dependent",
@@ -95,9 +112,17 @@ class CharacterBrain:
 
     @staticmethod
     def _extract_names(text: str) -> list[str]:
-        # Conservative extraction: preserve capitalized multi-letter words while
-        # filtering sentence-openers and common dramatic nouns.
-        blocked = {"A", "An", "The", "His", "Her", "Man", "Woman", "Wife", "Husband"}
+        blocked = {
+            "A",
+            "An",
+            "The",
+            "His",
+            "Her",
+            "Man",
+            "Woman",
+            "Wife",
+            "Husband",
+        }
         return [
             token
             for token in re.findall(r"\b[A-Z][a-z]{2,}\b", text)
@@ -107,5 +132,15 @@ class CharacterBrain:
     @staticmethod
     def _implies_second_character(text: str) -> bool:
         lowered = text.lower()
-        markers = ("wife", "husband", "friend", "daughter", "son", "mother", "father", "stranger", "message from")
+        markers = (
+            "wife",
+            "husband",
+            "friend",
+            "daughter",
+            "son",
+            "mother",
+            "father",
+            "stranger",
+            "message from",
+        )
         return any(marker in lowered for marker in markers)
