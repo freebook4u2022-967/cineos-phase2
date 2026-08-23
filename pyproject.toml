@@ -19,7 +19,7 @@ classifiers = [
 dependencies = []
 
 [project.scripts]
-cineos = "cineos.cli.main:main"
+cineos = "cineos.short_drama.entrypoint:main"
 cineos-studio = "cineos.studio.app:main"
 
 [project.optional-dependencies]
