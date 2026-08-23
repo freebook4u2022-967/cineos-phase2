@@ -18,6 +18,12 @@ from .latent_model import (
     ProceduralLatentComponents,
     TrainableLatentComponents,
 )
+from .neural_backend import (
+    NeuralModelConfig,
+    TorchCineosFlowModel,
+    TorchFlowTrainingRunner,
+    torch_available,
+)
 from .rerender import AutomaticRerenderController, RerenderDecision, correction_payload
 from .temporal_identity import (
     IdentityObservation,
@@ -96,6 +102,7 @@ __all__ = [
     "NativeTrainableModel",
     "NativeTrainingLoop",
     "NativeTrainingSample",
+    "NeuralModelConfig",
     "ProceduralLatentComponents",
     "RerenderDecision",
     "SGDOptimizer",
@@ -103,6 +110,8 @@ __all__ = [
     "Tensor",
     "TensorBatchTrainer",
     "TensorSGDOptimizer",
+    "TorchCineosFlowModel",
+    "TorchFlowTrainingRunner",
     "TrainableLatentComponents",
     "TrainableParameterSet",
     "TrainingStepResult",
@@ -115,4 +124,5 @@ __all__ = [
     "correction_payload",
     "flow_matching_objective",
     "move_tensor",
+    "torch_available",
 ]
