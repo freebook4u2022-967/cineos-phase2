@@ -32,6 +32,10 @@ class CharacterProfile:
     wardrobe: str = "continuity-default"
     props: list[str] = field(default_factory=list)
 
+    def to_dict(self) -> dict:
+        """Return a JSON-safe character profile snapshot."""
+        return asdict(self)
+
 
 @dataclass
 class SceneState:
