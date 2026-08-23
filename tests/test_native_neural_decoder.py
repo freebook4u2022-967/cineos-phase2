@@ -1,7 +1,14 @@
 import pytest
 
-from cineos.native_image.neural_backend import NeuralModelConfig, _load_torch, torch_available
-from cineos.native_image.neural_decoder import TorchLatentRGBDecoder, save_latent_comparison
+from cineos.native_image.neural_backend import (
+    NeuralModelConfig,
+    _load_torch,
+    torch_available,
+)
+from cineos.native_image.neural_decoder import (
+    TorchLatentRGBDecoder,
+    save_latent_comparison,
+)
 
 
 def _config():
