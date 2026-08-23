@@ -11,13 +11,14 @@ from cineos.cli.errors import ExitCode
 from cineos.cli.main import main as core_main
 from cineos.cli.output import Output
 
+from .integration import write_production_artifacts
 from .models import DramaBrief
 from .orchestrator import ShortDramaOrchestrator
-from .integration import write_production_artifacts
 
 
 def _is_drama_command(argv: Sequence[str]) -> bool:
-    return "drama" in argv and next((item for item in argv if not item.startswith("-")), None) == "drama"
+    first_value = next((item for item in argv if not item.startswith("-")), None)
+    return "drama" in argv and first_value == "drama"
 
 
 def _drama_parser() -> argparse.ArgumentParser:
