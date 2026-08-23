@@ -4,8 +4,8 @@ from cineos.assets.storage import load as load_asset_registry
 from cineos.cinedna import CineDNARegistry
 from cineos.short_drama import DramaBrief, ShortDramaOrchestrator
 from cineos.short_drama.character_approval import approve_character_files
-from cineos.short_drama.integration import write_production_artifacts
 from cineos.short_drama.entrypoint import main
+from cineos.short_drama.integration import write_production_artifacts
 
 
 def _project(tmp_path):
@@ -35,7 +35,9 @@ def _identity(path):
                     "silhouette_constraints": ["preserve approved body silhouette"],
                 },
                 "constraints": {
-                    "identity_lock": True,
+                    "immutable_facial_traits": ["approved facial identity"],
+                    "immutable_body_traits": ["approved body silhouette"],
+                    "forbidden_changes": ["identity drift"],
                 },
             }
         ),
