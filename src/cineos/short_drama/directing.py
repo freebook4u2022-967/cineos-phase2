@@ -55,7 +55,6 @@ class DirectorDecisionEngine:
     def _lighting_for(beat: str, tone: str) -> str:
         if beat in {"reversal", "climax"}:
             return (
-                "heighten contrast while preserving motivated sources; "
-                f"tone={tone}"
+                "heighten contrast while preserving motivated sources; " f"tone={tone}"
             )
         return f"naturalistic motivated light; tone={tone}"
