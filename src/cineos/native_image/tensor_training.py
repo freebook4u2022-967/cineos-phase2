@@ -1,7 +1,5 @@
 """Tensor training primitives for the CINEOS native learned-model path."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 from .tensor_model import CineosTensorModel, LinearTensorLayer, Tensor
