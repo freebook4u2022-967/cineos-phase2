@@ -1,13 +1,10 @@
 """Training contracts for future CINEOS-owned learned frame models."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
-
 
 DATASET_MANIFEST_SCHEMA = "cineos-native-training-dataset/0.1"
 CHECKPOINT_MANIFEST_SCHEMA = "cineos-native-model-checkpoint/0.1"
