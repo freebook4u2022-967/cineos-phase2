@@ -41,7 +41,9 @@ class NativeImageConditioningPlan:
         return self.content_hash
 
 
-def compile_native_image_plan(request: NativeShotRequest) -> NativeImageConditioningPlan:
+def compile_native_image_plan(
+    request: NativeShotRequest,
+) -> NativeImageConditioningPlan:
     """Compile a native shot request into model-agnostic image conditioning tokens."""
     if not request.content_hash:
         request.refresh_hash()
@@ -54,7 +56,9 @@ def compile_native_image_plan(request: NativeShotRequest) -> NativeImageConditio
     for character in request.characters:
         refs = list(character.get("approved_reference_ids", []))
         if not refs:
-            raise ValueError("character identity conditioning requires approved references")
+            raise ValueError(
+                "character identity conditioning requires approved references"
+            )
         overrides = dict(character.get("scene_specific_overrides", {}))
         identities.append(
             {
