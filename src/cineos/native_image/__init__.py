@@ -27,6 +27,17 @@ from .temporal_identity import (
     TemporalIdentityMemory,
     apply_temporal_identity_memory,
 )
+from .training import (
+    CHECKPOINT_MANIFEST_SCHEMA,
+    DATASET_MANIFEST_SCHEMA,
+    LearnedIdentityEncoder,
+    LearnedLatentSampler,
+    LearnedRGBDecoder,
+    LearnedSceneEncoder,
+    NativeCheckpointManifest,
+    NativeDatasetManifest,
+    NativeTrainingSample,
+)
 from .visual_qc import (
     VISUAL_QC_AXES,
     MultiAxisVisualQCGate,
@@ -37,6 +48,8 @@ from .visual_qc import (
 )
 
 __all__ = [
+    "CHECKPOINT_MANIFEST_SCHEMA",
+    "DATASET_MANIFEST_SCHEMA",
     "NATIVE_IMAGE_PLAN_SCHEMA",
     "VISUAL_QC_AXES",
     "AutomaticRerenderController",
@@ -45,7 +58,13 @@ __all__ = [
     "IdentityObservationError",
     "IdentityQCReport",
     "IdentityVisualQCGate",
+    "LearnedIdentityEncoder",
+    "LearnedLatentSampler",
+    "LearnedRGBDecoder",
+    "LearnedSceneEncoder",
     "MultiAxisVisualQCGate",
+    "NativeCheckpointManifest",
+    "NativeDatasetManifest",
     "NativeFrameAttempt",
     "NativeFrameGenerationResult",
     "NativeFrameObserver",
@@ -54,6 +73,7 @@ __all__ = [
     "NativeImageResearchBackend",
     "NativeImageResearchResult",
     "NativePixelFrame",
+    "NativeTrainingSample",
     "ProceduralLatentComponents",
     "RerenderDecision",
     "TemporalIdentityMemory",
