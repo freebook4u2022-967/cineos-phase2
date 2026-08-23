@@ -12,6 +12,7 @@ from cineos.assets import Character as CanonicalCharacter
 from cineos.assets.storage import load as load_asset_registry
 from cineos.assets.storage import save as save_asset_registry
 from cineos.cinedna import CharacterDNA, CineDNABuilder, CineDNARegistry
+from cineos.cinedna.exceptions import ProfileNotFoundError
 
 _REFERENCE_WEIGHTS = {
     "front": 100,
@@ -95,6 +96,16 @@ def _identity_lock_package(
     }
 
 
+def _next_profile_version(version: str) -> str:
+    parts = version.split(".")
+    if len(parts) == 1 and parts[0].isdigit():
+        return f"{parts[0]}.1"
+    if parts and parts[-1].isdigit():
+        parts[-1] = str(int(parts[-1]) + 1)
+        return ".".join(parts)
+    return f"{version}.1"
+
+
 def approve_character_reference(
     registry: AssetRegistry,
     character_identifier: str,
@@ -167,7 +178,7 @@ def approve_character_files(
     profiles_path: str | Path,
     view_type: str = "front",
 ) -> dict[str, str]:
-    """Persist an approved reference, canonical asset update and CineDNA profile."""
+    """Persist reference approval and version CineDNA only when identity changes."""
     assets_path = Path(asset_registry_path)
     identity_file = Path(identity_path)
     identity = json.loads(identity_file.read_text(encoding="utf-8"))
@@ -175,6 +186,56 @@ def approve_character_files(
         raise ValueError("identity JSON must contain an object")
 
     registry = load_asset_registry(assets_path)
+    existing_character = _resolve_character(registry, character_identifier)
+    duplicate = next(
+        (
+            reference
+            for reference in existing_character.references
+            if reference.file_path == reference_path
+            and reference.view_type == view_type
+            and reference.approval_status == "approved"
+        ),
+        None,
+    )
+
+    profile_file = Path(profiles_path)
+    profiles = (
+        CineDNARegistry.load(profile_file)
+        if profile_file.exists()
+        else CineDNARegistry()
+    )
+    previous_profile = None
+    try:
+        previous_profile = profiles.retrieve(existing_character.asset_id)
+    except ProfileNotFoundError:
+        pass
+
+    if duplicate is not None and previous_profile is not None:
+        lock = existing_character.metadata.get("identity_lock", {})
+        return {
+            "character_id": str(existing_character.asset_id),
+            "character_name": existing_character.name,
+            "reference_id": str(duplicate.reference_id),
+            "approved_reference_count": str(
+                len(
+                    [
+                        item
+                        for item in existing_character.references
+                        if item.approval_status == "approved"
+                    ]
+                )
+            ),
+            "primary_reference_id": str(lock.get("primary_reference_id", "")),
+            "cinedna_profile": str(profile_file),
+            "asset_registry": str(assets_path),
+        }
+
+    if previous_profile is not None:
+        identity = dict(identity)
+        identity["profile_version"] = _next_profile_version(
+            previous_profile.profile_version
+        )
+
     character, profile = approve_character_reference(
         registry,
         character_identifier,
@@ -183,13 +244,6 @@ def approve_character_files(
         view_type=view_type,
     )
     save_asset_registry(registry, assets_path)
-
-    profile_file = Path(profiles_path)
-    profiles = (
-        CineDNARegistry.load(profile_file)
-        if profile_file.exists()
-        else CineDNARegistry()
-    )
     profiles.register(profile)
     profiles.save(profile_file)
     return {
