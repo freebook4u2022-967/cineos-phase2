@@ -24,9 +24,7 @@ class ShortDramaOrchestrator:
         characters = self.character_brain.run(brief, story)
         screenplay = self.screenwriter.run(story)
         direction = self.director.run(screenplay, brief.tone)
-        shots = self.shot_planner.run(
-            screenplay, brief.duration_seconds, direction
-        )
+        shots = self.shot_planner.run(screenplay, brief.duration_seconds, direction)
         scene_states = self.state_engine.build_timeline(
             characters, screenplay["scenes"]
         )
