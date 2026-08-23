@@ -1,6 +1,6 @@
 """Tensor training primitives for the CINEOS native learned-model path."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass  # noqa: I001
 
 from .tensor_model import CineosTensorModel, LinearTensorLayer, Tensor
 
