@@ -36,7 +36,8 @@ class DramaBrain:
                 "New evidence changes the meaning of what the protagonist believed."
             ),
             "climax": (
-                "The protagonist makes a costly choice that resolves the central question."
+                "The protagonist makes a costly choice that resolves the central "
+                "question."
             ),
             "resolution": (
                 "End on a visual consequence that answers the premise but leaves "
