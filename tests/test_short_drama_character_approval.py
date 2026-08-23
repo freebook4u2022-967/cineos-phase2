@@ -71,6 +71,64 @@ def test_approval_promotes_pending_character_to_valid_cinedna(tmp_path):
     assert profile.face_profile.reference_asset_ids == profile.approved_reference_ids
 
 
+def test_multi_reference_approval_builds_ranked_identity_lock(tmp_path):
+    artifacts = _project(tmp_path)
+    identity = _identity(tmp_path / "identity.json")
+    profiles = tmp_path / "cinedna.json"
+
+    approve_character_files(
+        artifacts["asset_registry"],
+        "Protagonist",
+        "references/protagonist-full.png",
+        identity,
+        profiles_path=profiles,
+        view_type="full-body",
+    )
+    result = approve_character_files(
+        artifacts["asset_registry"],
+        "Protagonist",
+        "references/protagonist-front.png",
+        identity,
+        profiles_path=profiles,
+        view_type="front",
+    )
+
+    assets = load_asset_registry(artifacts["asset_registry"])
+    character = assets.retrieve(result["character_id"])
+    lock = character.metadata["identity_lock"]
+    assert lock["schema"] == "cineos-character-identity-lock/0.1"
+    assert lock["reference_strategy"] == "ranked-multi-reference"
+    assert len(lock["references"]) == 2
+    assert lock["references"][0]["view_type"] == "front"
+    assert lock["references"][1]["view_type"] == "full-body"
+    assert lock["forbidden_changes"] == ["identity drift"]
+    assert result["approved_reference_count"] == "2"
+
+
+def test_duplicate_reference_approval_is_idempotent(tmp_path):
+    artifacts = _project(tmp_path)
+    identity = _identity(tmp_path / "identity.json")
+    profiles = tmp_path / "cinedna.json"
+
+    for _ in range(2):
+        approve_character_files(
+            artifacts["asset_registry"],
+            "Protagonist",
+            "references/protagonist-front.png",
+            identity,
+            profiles_path=profiles,
+        )
+
+    assets = load_asset_registry(artifacts["asset_registry"])
+    character = next(iter(assets.list(kind="character")))
+    approved = [
+        reference
+        for reference in character.references
+        if reference.approval_status == "approved"
+    ]
+    assert len(approved) == 1
+
+
 def test_character_approval_requires_explicit_face_and_body(tmp_path):
     artifacts = _project(tmp_path)
     identity = tmp_path / "identity.json"
