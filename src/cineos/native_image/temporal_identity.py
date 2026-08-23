@@ -101,8 +101,7 @@ class IdentityVisualQCGate:
     ) -> None:
         if not 0.0 <= warning_drift <= reject_drift <= 1.0:
             raise ValueError(
-                "identity drift thresholds must satisfy "
-                "0 <= warning <= reject <= 1"
+                "identity drift thresholds must satisfy 0 <= warning <= reject <= 1"
             )
         self.warning_drift = warning_drift
         self.reject_drift = reject_drift
