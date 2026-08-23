@@ -7,6 +7,15 @@ from cineos.native_image.neural_data import ApprovedManifestPreprocessor
 from cineos.native_image.training import NativeDatasetManifest, NativeTrainingSample
 
 
+def _config() -> NeuralModelConfig:
+    return NeuralModelConfig(
+        feature_dim=4,
+        embedding_dim=8,
+        latent_dim=6,
+        hidden_dim=12,
+    )
+
+
 def _sample() -> NativeTrainingSample:
     return NativeTrainingSample(
         sample_id="approved-001",
@@ -24,8 +33,7 @@ def test_approved_manifest_preprocessor_reads_only_declared_dataset_files(tmp_pa
     (tmp_path / "references").mkdir()
     (tmp_path / "frames" / "shot.ppm").write_bytes(b"P6 frame bytes")
     (tmp_path / "references" / "hero.ppm").write_bytes(b"P6 hero bytes")
-    config = NeuralModelConfig(feature_dim=4, embedding_dim=8, latent_dim=6, hidden_dim=12)
-    prepared = ApprovedManifestPreprocessor(config, tmp_path).prepare(_sample())
+    prepared = ApprovedManifestPreprocessor(_config(), tmp_path).prepare(_sample())
 
     assert prepared.sample_id == "approved-001"
     assert len(prepared.identity_features) == 4
@@ -43,9 +51,8 @@ def test_preprocessor_rejects_paths_outside_dataset_root(tmp_path):
         caption="bad path",
         scene_description="",
     )
-    config = NeuralModelConfig(feature_dim=4, embedding_dim=8, latent_dim=6, hidden_dim=12)
     with pytest.raises(ValueError, match="escapes configured dataset root"):
-        ApprovedManifestPreprocessor(config, tmp_path).prepare(sample)
+        ApprovedManifestPreprocessor(_config(), tmp_path).prepare(sample)
 
 
 def test_manifest_preparation_is_deterministic(tmp_path):
@@ -54,7 +61,8 @@ def test_manifest_preparation_is_deterministic(tmp_path):
     (tmp_path / "frames" / "shot.ppm").write_bytes(b"frame")
     (tmp_path / "references" / "hero.ppm").write_bytes(b"hero")
     manifest = NativeDatasetManifest("demo", "1", [_sample()])
-    config = NeuralModelConfig(feature_dim=4, embedding_dim=8, latent_dim=6, hidden_dim=12)
-    preprocessor = ApprovedManifestPreprocessor(config, Path(tmp_path))
+    preprocessor = ApprovedManifestPreprocessor(_config(), Path(tmp_path))
 
-    assert preprocessor.prepare_dataset(manifest) == preprocessor.prepare_dataset(manifest)
+    first = preprocessor.prepare_dataset(manifest)
+    second = preprocessor.prepare_dataset(manifest)
+    assert first == second
