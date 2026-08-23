@@ -33,7 +33,11 @@ class ScreenwriterAgent:
                     "scene_id": f"scene-{index:03d}",
                     "beat": beat,
                     "purpose": purpose,
-                    "location": "primary story location" if index == 1 else "previous location",
+                    "location": (
+                        "primary story location"
+                        if index == 1
+                        else "previous location"
+                    ),
                     "time_of_day": "continuous",
                     "weather": "continuous",
                     "dialogue_intent": self._dialogue_intent(beat),
@@ -101,8 +105,12 @@ class ShotPlanner:
                     "shot_size": decision.get("shot_size", "medium"),
                     "lens": decision.get("lens", "50mm"),
                     "camera_movement": decision.get("camera_movement", "static"),
-                    "performance": decision.get("performance", "play the objective truthfully"),
-                    "lighting_intent": decision.get("lighting_intent", "motivated naturalistic light"),
+                    "performance": decision.get(
+                        "performance", "play the objective truthfully"
+                    ),
+                    "lighting_intent": decision.get(
+                        "lighting_intent", "motivated naturalistic light"
+                    ),
                     "status": "planned",
                 }
             )
