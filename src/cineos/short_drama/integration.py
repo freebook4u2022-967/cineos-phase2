@@ -109,9 +109,7 @@ def plan_to_movie_project(
                 camera=shot.get("shot_size", "medium"),
                 lens=shot.get("lens", "50mm"),
                 movement=shot.get("camera_movement", "static"),
-                lighting=shot.get(
-                    "lighting_intent", "motivated naturalistic light"
-                ),
+                lighting=shot.get("lighting_intent", "motivated naturalistic light"),
                 action=shot.get("purpose") or scene_data.get("purpose", ""),
                 dialogue="",
                 duration=float(shot["duration_seconds"]),
