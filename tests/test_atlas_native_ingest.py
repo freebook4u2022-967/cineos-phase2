@@ -2,7 +2,13 @@ from typing import Any
 
 import pytest
 
-from cineos.atlas import BaseRenderer, Range, RendererCapabilities, RendererSession, Resolution
+from cineos.atlas import (
+    BaseRenderer,
+    Range,
+    RendererCapabilities,
+    RendererSession,
+    Resolution,
+)
 from cineos.atlas.capabilities import CapabilityError
 from cineos.atlas.native_ingest import NativeRequestError, ingest_native_request
 from cineos.atlas.native_request import compile_native_shot_request
