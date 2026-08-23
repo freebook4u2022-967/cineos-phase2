@@ -46,8 +46,12 @@ def test_latent_model_produces_real_rgb_frame():
 
 def test_latent_frame_is_deterministic_for_same_seed():
     plan = _plan()
-    first_backend = NativeImageResearchBackend(CineosLatentFrameModel(max_dimension=64))
-    second_backend = NativeImageResearchBackend(CineosLatentFrameModel(max_dimension=64))
+    first_backend = NativeImageResearchBackend(
+        CineosLatentFrameModel(max_dimension=64)
+    )
+    second_backend = NativeImageResearchBackend(
+        CineosLatentFrameModel(max_dimension=64)
+    )
     first = first_backend.render(plan)
     second = second_backend.render(plan)
 
