@@ -34,9 +34,7 @@ class ScreenwriterAgent:
                     "beat": beat,
                     "purpose": purpose,
                     "location": (
-                        "primary story location"
-                        if index == 1
-                        else "previous location"
+                        "primary story location" if index == 1 else "previous location"
                     ),
                     "time_of_day": "continuous",
                     "weather": "continuous",
