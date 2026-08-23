@@ -110,8 +110,9 @@ def test_duplicate_reference_approval_is_idempotent(tmp_path):
     identity = _identity(tmp_path / "identity.json")
     profiles = tmp_path / "cinedna.json"
 
+    result = None
     for _ in range(2):
-        approve_character_files(
+        result = approve_character_files(
             artifacts["asset_registry"],
             "Protagonist",
             "references/protagonist-front.png",
@@ -119,8 +120,9 @@ def test_duplicate_reference_approval_is_idempotent(tmp_path):
             profiles_path=profiles,
         )
 
+    assert result is not None
     assets = load_asset_registry(artifacts["asset_registry"])
-    character = next(iter(assets.list(kind="character")))
+    character = assets.retrieve(result["character_id"])
     approved = [
         reference
         for reference in character.references
