@@ -69,7 +69,8 @@ class NativeTrainableModel:
         return ((total % 2001) / 1000.0) - 1.0
 
     def features(self, sample: NativeTrainingSample) -> tuple[float, float]:
-        identity_text = "|".join(sample.character_reference_paths + sample.identity_tags)
+        identity_parts = sample.character_reference_paths + sample.identity_tags
+        identity_text = "|".join(identity_parts)
         scene_text = "|".join(
             (sample.caption, sample.scene_description, *sample.continuity_tags)
         )
@@ -130,7 +131,9 @@ class NativeTrainingLoop:
         self.history.append(result)
         return result
 
-    def train_epoch(self, dataset: NativeDatasetManifest) -> tuple[TrainingStepResult, ...]:
+    def train_epoch(
+        self, dataset: NativeDatasetManifest
+    ) -> tuple[TrainingStepResult, ...]:
         if not dataset.samples:
             raise ValueError("cannot train on an empty dataset")
         return tuple(self.train_sample(sample) for sample in dataset.samples)
@@ -151,7 +154,7 @@ class NativeTrainingLoop:
         return destination
 
     @classmethod
-    def load_checkpoint(cls, path: str | Path) -> "NativeTrainingLoop":
+    def load_checkpoint(cls, path: str | Path) -> NativeTrainingLoop:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         if payload.get("schema") != "cineos-native-trainable-checkpoint/0.1":
             raise ValueError("unsupported trainable checkpoint schema")
