@@ -46,17 +46,18 @@ def test_latent_model_produces_real_rgb_frame():
 
 def test_latent_frame_is_deterministic_for_same_seed():
     plan = _plan()
-    first = NativeImageResearchBackend(CineosLatentFrameModel(max_dimension=64)).render(plan)
-    second = NativeImageResearchBackend(CineosLatentFrameModel(max_dimension=64)).render(plan)
+    first_backend = NativeImageResearchBackend(CineosLatentFrameModel(max_dimension=64))
+    second_backend = NativeImageResearchBackend(CineosLatentFrameModel(max_dimension=64))
+    first = first_backend.render(plan)
+    second = second_backend.render(plan)
 
     assert first.image.latent == second.image.latent
     assert first.image.rgb == second.image.rgb
 
 
 def test_native_pixel_frame_writes_dependency_free_ppm(tmp_path):
-    result = NativeImageResearchBackend(CineosLatentFrameModel(max_dimension=32)).render(
-        _plan()
-    )
+    backend = NativeImageResearchBackend(CineosLatentFrameModel(max_dimension=32))
+    result = backend.render(_plan())
     destination = result.image.save_ppm(tmp_path / "frame.ppm")
     payload = destination.read_bytes()
 
