@@ -7,9 +7,11 @@ from collections import defaultdict
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from cineos.assets import AssetRegistry, Character as CanonicalCharacter
+from cineos.assets import AssetRegistry
+from cineos.assets import Character as CanonicalCharacter
 from cineos.assets.storage import save as save_asset_registry
-from cineos.compiler import FilmPackage, compile as compile_film_package
+from cineos.compiler import FilmPackage
+from cineos.compiler import compile as compile_film_package
 from cineos.compiler import save as save_film_package
 from cineos.core import Character, Environment, MovieProject, Scene, Shot, Timeline
 
