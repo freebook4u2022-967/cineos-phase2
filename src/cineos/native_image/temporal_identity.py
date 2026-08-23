@@ -25,13 +25,17 @@ class IdentityObservation:
 
     def __post_init__(self) -> None:
         if not self.character_uuid or not self.shot_id:
-            raise IdentityObservationError("identity observation requires character and shot IDs")
+            raise IdentityObservationError(
+                "identity observation requires character and shot IDs"
+            )
         if not self.embedding:
             raise IdentityObservationError("identity observation requires an embedding")
         if any(not math.isfinite(value) for value in self.embedding):
             raise IdentityObservationError("identity embedding values must be finite")
         if not 0.0 <= self.confidence <= 1.0:
-            raise IdentityObservationError("identity confidence must be between 0 and 1")
+            raise IdentityObservationError(
+                "identity confidence must be between 0 and 1"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +83,9 @@ def _cosine_similarity(first: tuple[float, ...], second: tuple[float, ...]) -> f
     first_norm = math.sqrt(sum(value * value for value in first))
     second_norm = math.sqrt(sum(value * value for value in second))
     if first_norm == 0.0 or second_norm == 0.0:
-        raise IdentityObservationError("identity embeddings must have non-zero magnitude")
+        raise IdentityObservationError(
+            "identity embeddings must have non-zero magnitude"
+        )
     cosine = dot / (first_norm * second_norm)
     return max(-1.0, min(1.0, cosine))
 
@@ -87,9 +93,17 @@ def _cosine_similarity(first: tuple[float, ...], second: tuple[float, ...]) -> f
 class IdentityVisualQCGate:
     """Accept, warn, or reject generated identity evidence before carry-forward."""
 
-    def __init__(self, *, warning_drift: float = 0.15, reject_drift: float = 0.30) -> None:
+    def __init__(
+        self,
+        *,
+        warning_drift: float = 0.15,
+        reject_drift: float = 0.30,
+    ) -> None:
         if not 0.0 <= warning_drift <= reject_drift <= 1.0:
-            raise ValueError("identity drift thresholds must satisfy 0 <= warning <= reject <= 1")
+            raise ValueError(
+                "identity drift thresholds must satisfy "
+                "0 <= warning <= reject <= 1"
+            )
         self.warning_drift = warning_drift
         self.reject_drift = reject_drift
 
