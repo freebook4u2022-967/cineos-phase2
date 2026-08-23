@@ -21,7 +21,9 @@ class Tensor:
     def __post_init__(self) -> None:
         size = math.prod(self.shape)
         if size != len(self.values):
-            raise ValueError(f"tensor shape expects {size} values, got {len(self.values)}")
+            raise ValueError(
+                f"tensor shape expects {size} values, got {len(self.values)}"
+            )
         if not self.shape or any(dimension <= 0 for dimension in self.shape):
             raise ValueError("tensor dimensions must be positive")
 
