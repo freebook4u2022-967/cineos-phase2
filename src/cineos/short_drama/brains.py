@@ -26,8 +26,7 @@ class DramaBrain:
             "target_duration_seconds": brief.duration_seconds,
             "theme": self._theme_for(brief.genre),
             "hook": (
-                "Open on the most emotionally disruptive consequence of: "
-                f"{premise}"
+                "Open on the most emotionally disruptive consequence of: " f"{premise}"
             ),
             "stakes": (
                 "The protagonist must act before the situation becomes irreversible."
@@ -94,14 +93,10 @@ class CharacterBrain:
                     character_id="char-counterpart",
                     name=names[1] if len(names) > 1 else "Counterpart",
                     role="counterpart",
-                    motivation=(
-                        "force the protagonist to confront the hidden truth"
-                    ),
+                    motivation=("force the protagonist to confront the hidden truth"),
                     fear="being misunderstood or erased",
                     secret=story["twist"],
-                    relationships={
-                        "char-protagonist": "emotionally consequential"
-                    },
+                    relationships={"char-protagonist": "emotionally consequential"},
                     knowledge=["information withheld from the protagonist"],
                     emotion="unreadable",
                     physical_state="story-dependent",
