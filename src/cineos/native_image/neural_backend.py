@@ -8,9 +8,9 @@ checkpoint-backed flow-matching training.
 from __future__ import annotations
 
 import importlib.util
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 
 def torch_available() -> bool:
@@ -38,7 +38,12 @@ class NeuralModelConfig:
 class TorchCineosFlowModel:
     """GPU-capable identity/scene conditioned flow network using real autograd."""
 
-    def __init__(self, config: NeuralModelConfig | None = None, *, device: str = "cpu"):
+    def __init__(
+        self,
+        config: NeuralModelConfig | None = None,
+        *,
+        device: str = "cpu",
+    ) -> None:
         torch = _load_torch()
         nn = torch.nn
         self.config = config or NeuralModelConfig()
@@ -53,9 +58,7 @@ class TorchCineosFlowModel:
             nn.SiLU(),
             nn.Linear(self.config.embedding_dim, self.config.embedding_dim),
         ).to(self.device)
-        flow_input_dim = (
-            self.config.latent_dim + (2 * self.config.embedding_dim) + 1
-        )
+        flow_input_dim = self.config.latent_dim + (2 * self.config.embedding_dim) + 1
         self.flow_network = nn.Sequential(
             nn.Linear(flow_input_dim, self.config.hidden_dim),
             nn.SiLU(),
@@ -148,7 +151,7 @@ class TorchFlowTrainingRunner:
                 "schema": "cineos-torch-flow-checkpoint/0.1",
                 "step": self.step,
                 "learning_rate": self.learning_rate,
-                "config": self.model.config.__dict__,
+                "config": asdict(self.model.config),
                 "model": self.model.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
             },
@@ -157,7 +160,12 @@ class TorchFlowTrainingRunner:
         return destination
 
     @classmethod
-    def load_checkpoint(cls, path: str | Path, *, device: str = "cpu"):
+    def load_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        device: str = "cpu",
+    ) -> Self:
         torch = _load_torch()
         payload = torch.load(Path(path), map_location=device, weights_only=False)
         if payload.get("schema") != "cineos-torch-flow-checkpoint/0.1":
