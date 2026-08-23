@@ -1,6 +1,6 @@
 """Renderer-independent data contracts for short-drama planning."""
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 
 @dataclass(frozen=True)
@@ -18,10 +18,42 @@ class DramaBrief:
 
 
 @dataclass
+class CharacterProfile:
+    character_id: str
+    name: str
+    role: str
+    motivation: str
+    fear: str
+    secret: str
+    relationships: dict[str, str] = field(default_factory=dict)
+    knowledge: list[str] = field(default_factory=list)
+    emotion: str = "neutral"
+    physical_state: str = "uninjured"
+    wardrobe: str = "continuity-default"
+    props: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SceneState:
+    scene_index: int
+    location: str
+    time_of_day: str
+    weather: str
+    characters: dict[str, dict] = field(default_factory=dict)
+    environment: dict = field(default_factory=dict)
+
+
+@dataclass
 class DramaPlan:
     brief: DramaBrief
     story: dict = field(default_factory=dict)
+    characters: list[CharacterProfile] = field(default_factory=list)
     screenplay: dict = field(default_factory=dict)
     direction: dict = field(default_factory=dict)
     shots: list[dict] = field(default_factory=list)
     continuity: dict = field(default_factory=dict)
+    scene_states: list[SceneState] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Return a stable JSON-safe representation of the drama plan."""
+        return asdict(self)
