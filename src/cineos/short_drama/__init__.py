@@ -2,6 +2,7 @@
 
 from .agents import ContinuitySupervisor, ScreenwriterAgent, ShotPlanner
 from .brains import CharacterBrain, DramaBrain
+from .character_approval import approve_character_files, approve_character_reference
 from .directing import DirectorDecisionEngine
 from .integration import (
     compile_drama_plan,
@@ -25,6 +26,8 @@ __all__ = [
     "ScreenwriterAgent",
     "ShortDramaOrchestrator",
     "ShotPlanner",
+    "approve_character_files",
+    "approve_character_reference",
     "compile_drama_plan",
     "plan_to_movie_project",
     "write_production_artifacts",
