@@ -61,7 +61,9 @@ def validate_native_request(request: NativeShotRequest) -> None:
     for character in request.characters:
         refs = set(character.get("approved_reference_ids", []))
         if not refs:
-            raise NativeRequestError("character conditioning has no approved references")
+            raise NativeRequestError(
+                "character conditioning has no approved references"
+            )
         if not refs.issubset(approved):
             raise NativeRequestError(
                 "character conditioning references are outside request approval set"
