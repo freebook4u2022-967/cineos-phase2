@@ -51,7 +51,9 @@ class NativeShotRequest:
 def compile_native_shot_request(package: ConditioningPackage) -> NativeShotRequest:
     """Compile an existing CINEOS ConditioningPackage into a native shot request."""
     if not package.character_conditioning and not package.approved_reference_ids:
-        raise ValueError("native shot request requires approved conditioning references")
+        raise ValueError(
+            "native shot request requires approved conditioning references"
+        )
 
     request = NativeShotRequest(
         shot_id=package.shot_id,
