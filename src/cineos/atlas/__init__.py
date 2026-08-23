@@ -9,6 +9,13 @@ from .capabilities import (
     RendererCapabilities,
     Resolution,
 )
+from .native_ingest import (
+    NativeRenderReceipt,
+    NativeRequestError,
+    ingest_native_request,
+    validate_native_request,
+)
+from .native_request import NATIVE_SHOT_SCHEMA, NativeShotRequest, compile_native_shot_request
 from .registry import RendererFactory, RendererRegistry
 from .runtime import (
     AtlasRuntime,
@@ -24,6 +31,10 @@ __all__ = [
     "BaseRenderer",
     "AtlasRuntime",
     "CapabilityError",
+    "NATIVE_SHOT_SCHEMA",
+    "NativeRenderReceipt",
+    "NativeRequestError",
+    "NativeShotRequest",
     "NegotiatedCapabilities",
     "Range",
     "RendererAdapter",
@@ -39,4 +50,7 @@ __all__ = [
     "RuntimeStateError",
     "RuntimeTask",
     "TaskHandler",
+    "compile_native_shot_request",
+    "ingest_native_request",
+    "validate_native_request",
 ]
