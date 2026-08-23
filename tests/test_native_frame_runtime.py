@@ -1,9 +1,9 @@
+from cineos.atlas.native_request import NativeShotRequest
 from cineos.native_image import NativeImageResearchBackend, compile_native_image_plan
 from cineos.native_image.frame_runtime import NativeFrameRuntime
 from cineos.native_image.rerender import AutomaticRerenderController
 from cineos.native_image.temporal_identity import IdentityObservation
 from cineos.native_image.visual_qc import VisualContinuityObservation
-from cineos.atlas.native_request import NativeShotRequest
 
 
 class StubModel:
