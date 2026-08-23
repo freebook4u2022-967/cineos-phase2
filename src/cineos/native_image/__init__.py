@@ -27,6 +27,15 @@ from .temporal_identity import (
     TemporalIdentityMemory,
     apply_temporal_identity_memory,
 )
+from .tensor_model import CineosTensorModel, LinearTensorLayer, Tensor
+from .tensor_training import (
+    FlowMatchingBatch,
+    FlowMatchingResult,
+    TensorBatchTrainer,
+    TensorSGDOptimizer,
+    flow_matching_objective,
+    move_tensor,
+)
 from .trainable_model import (
     NativeTrainableModel,
     NativeTrainingLoop,
@@ -61,6 +70,9 @@ __all__ = [
     "VISUAL_QC_AXES",
     "AutomaticRerenderController",
     "CineosLatentFrameModel",
+    "CineosTensorModel",
+    "FlowMatchingBatch",
+    "FlowMatchingResult",
     "IdentityObservation",
     "IdentityObservationError",
     "IdentityQCReport",
@@ -69,6 +81,7 @@ __all__ = [
     "LearnedLatentSampler",
     "LearnedRGBDecoder",
     "LearnedSceneEncoder",
+    "LinearTensorLayer",
     "MultiAxisVisualQCGate",
     "NativeCheckpointManifest",
     "NativeDatasetManifest",
@@ -87,6 +100,9 @@ __all__ = [
     "RerenderDecision",
     "SGDOptimizer",
     "TemporalIdentityMemory",
+    "Tensor",
+    "TensorBatchTrainer",
+    "TensorSGDOptimizer",
     "TrainableLatentComponents",
     "TrainableParameterSet",
     "TrainingStepResult",
@@ -97,4 +113,6 @@ __all__ = [
     "build_rerender_directives",
     "compile_native_image_plan",
     "correction_payload",
+    "flow_matching_objective",
+    "move_tensor",
 ]
