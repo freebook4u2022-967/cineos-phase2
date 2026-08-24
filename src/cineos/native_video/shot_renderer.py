@@ -36,7 +36,7 @@ def _vector(text: str, size: int, *, device: str) -> Tensor:
     values: list[float] = []
     counter = 0
     while len(values) < size:
-        digest = hashlib.sha256(f"{text}\n{counter}".encode("utf-8")).digest()
+        digest = hashlib.sha256(f"{text}\n{counter}".encode()).digest()
         for byte in digest:
             values.append((float(byte) / 127.5) - 1.0)
             if len(values) == size:
@@ -115,7 +115,9 @@ class CINEOSNativeTemporalShotRenderer:
     continuity memory.
     """
 
-    runtime: NativeTemporalRuntime = field(default_factory=NativeTemporalRuntime.default)
+    runtime: NativeTemporalRuntime = field(
+        default_factory=NativeTemporalRuntime.default
+    )
     width: int = 320
     height: int = 180
     fps: int = 8
@@ -130,7 +132,9 @@ class CINEOSNativeTemporalShotRenderer:
         if self.max_frames <= 0:
             raise ValueError("max_frames must be positive")
 
-    def _conditioning(self, planned: Any, state: TemporalSequenceState) -> tuple[Tensor, Tensor]:
+    def _conditioning(
+        self, planned: Any, state: TemporalSequenceState
+    ) -> tuple[Tensor, Tensor]:
         payload = dict(getattr(planned, "payload", {}) or {})
         identity_source = "|".join(
             str(value)
@@ -152,8 +156,14 @@ class CINEOSNativeTemporalShotRenderer:
             )
         )
         return (
-            _vector(identity_source, self.runtime.model.identity_dim, device=state.hidden.device),
-            _vector(scene_source, self.runtime.model.scene_dim, device=state.hidden.device),
+            _vector(
+                identity_source,
+                self.runtime.model.identity_dim,
+                device=state.hidden.device,
+            ),
+            _vector(
+                scene_source, self.runtime.model.scene_dim, device=state.hidden.device
+            ),
         )
 
     def render(
@@ -238,8 +248,7 @@ class CINEOSNativeTemporalShotRenderer:
             )
             if completed.returncode != 0:
                 raise NativeShotRenderError(
-                    "FFmpeg failed to encode native frames: "
-                    + completed.stderr.strip()
+                    "FFmpeg failed to encode native frames: " + completed.stderr.strip()
                 )
 
         if not destination.is_file() or destination.stat().st_size <= 0:
