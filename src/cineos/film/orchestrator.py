@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event
 from time import monotonic
-from typing import Any, Callable
+from typing import Any
 
 from .assembly import assemble
 from .build import BuildStatus, FilmBuild
