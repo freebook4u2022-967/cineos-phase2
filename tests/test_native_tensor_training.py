@@ -5,6 +5,7 @@ from cineos.native_image.tensor_training import (
     FlowMatchingBatch,
     TensorBatchTrainer,
     TensorSGDOptimizer,
+    flow_matching_gradients,
     flow_matching_objective,
     move_tensor,
 )
@@ -34,6 +35,25 @@ def test_flow_matching_objective_returns_velocity_loss():
     assert result.interpolated_latent.values == pytest.approx((-0.25,) * 16)
 
 
+def test_flow_matching_gradients_cover_all_trainable_layers():
+    model = CineosTensorModel.initialized()
+    result, identity_gradients, scene_gradients, latent_gradients = (
+        flow_matching_gradients(
+            model,
+            _features(),
+            _features(0.2),
+            _latent(-0.5),
+            _latent(0.5),
+            0.25,
+        )
+    )
+    assert result.loss > 0.0
+    assert len(identity_gradients.weights) == len(model.identity_encoder.weights)
+    assert len(scene_gradients.weights) == len(model.scene_encoder.weights)
+    assert len(latent_gradients.weights) == len(model.latent_network.weights)
+    assert any(abs(value) > 0.0 for value in latent_gradients.weights)
+
+
 def test_tensor_batch_training_updates_model_weights():
     model = CineosTensorModel.initialized()
     trainer = TensorBatchTrainer(model, TensorSGDOptimizer(learning_rate=0.01))
@@ -49,6 +69,37 @@ def test_tensor_batch_training_updates_model_weights():
     assert loss >= 0.0
     assert trainer.step == 1
     assert tuple(model.latent_network.weights) != before
+
+
+def test_repeated_analytic_training_reduces_flow_loss():
+    model = CineosTensorModel.initialized()
+    trainer = TensorBatchTrainer(model, TensorSGDOptimizer(learning_rate=0.02))
+    batch = FlowMatchingBatch(
+        identity_features=(_features(),),
+        scene_features=(_features(0.2),),
+        source_latents=(_latent(-0.5),),
+        target_latents=(_latent(0.5),),
+        times=(0.25,),
+    )
+    before = flow_matching_objective(
+        model,
+        batch.identity_features[0],
+        batch.scene_features[0],
+        batch.source_latents[0],
+        batch.target_latents[0],
+        batch.times[0],
+    ).loss
+    for _ in range(40):
+        trainer.train_batch(batch)
+    after = flow_matching_objective(
+        model,
+        batch.identity_features[0],
+        batch.scene_features[0],
+        batch.source_latents[0],
+        batch.target_latents[0],
+        batch.times[0],
+    ).loss
+    assert after < before
 
 
 def test_logical_device_abstraction_validates_devices():
