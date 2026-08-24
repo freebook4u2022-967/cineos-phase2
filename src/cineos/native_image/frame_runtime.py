@@ -55,7 +55,13 @@ class NativeFrameGenerationResult:
 
 
 class NativeFrameRuntime:
-    """Generate one frame, run QC, and automatically rerender when required."""
+    """Generate one frame, run QC, and automatically rerender when required.
+
+    Observers may expose an ``accept_frame(result, plan)`` method when they own
+    transactional continuity state derived from generated pixels. That method is
+    invoked only after all identity and visual gates have accepted the candidate,
+    so rejected attempts can never become the next-frame baseline.
+    """
 
     def __init__(
         self,
@@ -96,6 +102,9 @@ class NativeFrameRuntime:
             )
 
             if decision.accepted:
+                accept_frame = getattr(self.observer, "accept_frame", None)
+                if callable(accept_frame):
+                    accept_frame(result, plan)
                 return NativeFrameGenerationResult(
                     shot_id=plan.shot_id,
                     accepted=True,
