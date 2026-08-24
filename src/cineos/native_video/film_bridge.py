@@ -30,6 +30,21 @@ class NativeFilmContinuityBridge:
     def default(cls, *, device: str = "cpu") -> NativeFilmContinuityBridge:
         return cls(model=NativeTemporalModel.initialized(), device=device)
 
+    def orchestrator_kwargs(self) -> dict[str, Any]:
+        """Return the complete hook bundle expected by ``FilmOrchestrator``.
+
+        Keeping this binding in the native-video layer avoids model-specific
+        imports in the film layer while making the production integration a single
+        explicit operation rather than a fragile collection of ad-hoc callbacks.
+        """
+        return {
+            "checkpoint_state_provider": self.snapshot,
+            "checkpoint_state_restorer": self.restore,
+            "shot_attempt_start": self.start_attempt,
+            "shot_attempt_accepted": self.accept_attempt,
+            "shot_attempt_rejected": self.reject_attempt,
+        }
+
     def _policy_for(self, planned: Any) -> SceneTransitionPolicy:
         payload = dict(getattr(planned, "payload", {}) or {})
         if bool(payload.get("hard_cut", False)) or bool(
@@ -40,14 +55,13 @@ class NativeFilmContinuityBridge:
         preserve_reference = payload.get("preserve_latent_reference")
         if hidden_carry is None and preserve_reference is None:
             return SceneTransitionPolicy()
+        default = SceneTransitionPolicy()
         return SceneTransitionPolicy(
             hidden_carry=(
-                SceneTransitionPolicy().hidden_carry
-                if hidden_carry is None
-                else float(hidden_carry)
+                default.hidden_carry if hidden_carry is None else float(hidden_carry)
             ),
             preserve_latent_reference=(
-                SceneTransitionPolicy().preserve_latent_reference
+                default.preserve_latent_reference
                 if preserve_reference is None
                 else bool(preserve_reference)
             ),
