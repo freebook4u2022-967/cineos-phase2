@@ -7,6 +7,12 @@ from .runtime import (
     TemporalGenerationResult,
     TemporalRetryPolicy,
 )
+from .scene_memory import (
+    SCENE_MEMORY_SCHEMA,
+    SceneContinuityAnchor,
+    SceneContinuityMemory,
+    SceneTransitionPolicy,
+)
 from .temporal_model import (
     NativeTemporalModel,
     TemporalFrameInput,
@@ -23,6 +29,10 @@ __all__ = [
     "MotionDampingRetryPolicy",
     "NativeTemporalModel",
     "NativeTemporalRuntime",
+    "SCENE_MEMORY_SCHEMA",
+    "SceneContinuityAnchor",
+    "SceneContinuityMemory",
+    "SceneTransitionPolicy",
     "TemporalContinuityGate",
     "TemporalFrameInput",
     "TemporalFrameOutput",
