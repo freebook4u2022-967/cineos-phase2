@@ -9,6 +9,7 @@ from typing import Any
 
 from .assembly import assemble
 from .build import BuildStatus, FilmBuild
+from .checkpoint import save_checkpoint
 from .exceptions import BuildCancelled, FilmBuildError
 from .planner import plan_shots
 from .shot_state import ShotState
@@ -46,20 +47,24 @@ class FilmOrchestrator:
         *,
         dry_run: bool = False,
         resume: bool = False,
+        checkpoint_path: str | Path | None = None,
     ) -> FilmBuild:
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
+        checkpoint = Path(checkpoint_path) if checkpoint_path is not None else None
         plan = plan_shots(package)
         existing = {state.shot_id: state for state in build.shot_states}
         build.shot_states = [
             existing.get(item.shot_id, ShotState(item.shot_id)) for item in plan
         ]
+        self._checkpoint(build, checkpoint)
         if dry_run:
             build.metadata["dry_run"] = {
                 "shot_count": len(plan),
                 "output_dir": str(root),
                 "renderer_compatible": True,
             }
+            self._checkpoint(build, checkpoint)
             return build
         try:
             for item, state in zip(plan, build.shot_states, strict=True):
@@ -72,8 +77,9 @@ class FilmOrchestrator:
                         state.selected_output or "", state.output_hash
                     )
                 ):
+                    self._checkpoint(build, checkpoint)
                     continue
-                self._render_shot(item, state, root, build)
+                self._render_shot(item, state, root, build, checkpoint)
                 if not state.approved:
                     build.failures.append(f"{item.shot_id}: {state.failure_reason}")
                     build.transition(
@@ -81,8 +87,10 @@ class FilmOrchestrator:
                         if self.manual_review_on_failure
                         else BuildStatus.FAILED
                     )
+                    self._checkpoint(build, checkpoint)
                     return build
             build.transition(BuildStatus.ASSEMBLING)
+            self._checkpoint(build, checkpoint)
             movie = assemble(
                 [
                     state.selected_output
@@ -98,15 +106,28 @@ class FilmOrchestrator:
                 if build.warnings
                 else BuildStatus.COMPLETED
             )
+            self._checkpoint(build, checkpoint)
         except BuildCancelled:
             build.transition(BuildStatus.CANCELLED)
+            self._checkpoint(build, checkpoint)
         except Exception as error:
             build.failures.append(str(error))
             build.transition(BuildStatus.FAILED)
+            self._checkpoint(build, checkpoint)
         return build
 
+    @staticmethod
+    def _checkpoint(build: FilmBuild, checkpoint: Path | None) -> None:
+        if checkpoint is not None:
+            save_checkpoint(build, checkpoint)
+
     def _render_shot(
-        self, planned: Any, state: ShotState, root: Path, build: FilmBuild
+        self,
+        planned: Any,
+        state: ShotState,
+        root: Path,
+        build: FilmBuild,
+        checkpoint: Path | None = None,
     ) -> None:
         attempts = self.max_recovery_attempts + 1
         for attempt in range(attempts):
@@ -114,6 +135,7 @@ class FilmOrchestrator:
                 BuildStatus.RECOVERING if attempt else BuildStatus.RENDERING
             )
             state.attempt_count += 1
+            self._checkpoint(build, checkpoint)
             started = monotonic()
             target = (
                 root
@@ -152,6 +174,7 @@ class FilmOrchestrator:
                             "output_hash": state.output_hash,
                         }
                     )
+                    self._checkpoint(build, checkpoint)
                     return
                 raise FilmBuildError("validator rejected output")
             except Exception as error:
@@ -174,7 +197,9 @@ class FilmOrchestrator:
                         "reason": str(error),
                     }
                 )
+                self._checkpoint(build, checkpoint)
             finally:
                 state.timing_metrics[f"attempt_{state.attempt_count}_seconds"] = (
                     monotonic() - started
                 )
+                self._checkpoint(build, checkpoint)
