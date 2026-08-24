@@ -1,6 +1,9 @@
 """Deterministic timeline planning."""
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -9,6 +12,7 @@ class PlannedShot:
     scene_id: str
     duration: float
     index: int
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 def plan_shots(package) -> list[PlannedShot]:
@@ -22,7 +26,11 @@ def plan_shots(package) -> list[PlannedShot]:
         order = [item["shot_id"] for item in package.shot_manifest]
     return [
         PlannedShot(
-            item, str(by_id[item]["scene_id"]), float(by_id[item]["duration"]), index
+            item,
+            str(by_id[item]["scene_id"]),
+            float(by_id[item]["duration"]),
+            index,
+            dict(by_id[item]),
         )
         for index, item in enumerate(order)
     ]
