@@ -1,6 +1,6 @@
 """Tensor training primitives for the CINEOS native learned-model path."""
 
-from dataclasses import dataclass  # noqa: I001
+from dataclasses import dataclass
 
 from .tensor_model import CineosTensorModel, LinearTensorLayer, Tensor
 
@@ -47,6 +47,32 @@ class FlowMatchingResult:
     predicted_velocity: Tensor
     target_velocity: Tensor
     interpolated_latent: Tensor
+
+
+@dataclass(slots=True)
+class LinearGradients:
+    """Explicit gradients for one owned linear+tanh layer."""
+
+    weights: list[float]
+    bias: list[float]
+
+    @classmethod
+    def zeros(cls, layer: LinearTensorLayer) -> "LinearGradients":
+        return cls([0.0] * len(layer.weights), [0.0] * len(layer.bias))
+
+    def add_(self, other: "LinearGradients") -> None:
+        if len(self.weights) != len(other.weights) or len(self.bias) != len(other.bias):
+            raise ValueError("gradient shapes must match")
+        for index, value in enumerate(other.weights):
+            self.weights[index] += value
+        for index, value in enumerate(other.bias):
+            self.bias[index] += value
+
+    def scale_(self, factor: float) -> None:
+        for index in range(len(self.weights)):
+            self.weights[index] *= factor
+        for index in range(len(self.bias)):
+            self.bias[index] *= factor
 
 
 def interpolate_latents(source: Tensor, target: Tensor, time: float) -> Tensor:
@@ -104,6 +130,86 @@ def flow_matching_objective(
     )
 
 
+def _backprop_linear_tanh(
+    layer: LinearTensorLayer,
+    inputs: tuple[float, ...],
+    outputs: tuple[float, ...],
+    output_gradients: tuple[float, ...],
+) -> tuple[LinearGradients, tuple[float, ...]]:
+    """Backpropagate through the owned ``tanh(Wx+b)`` primitive."""
+    if len(inputs) != layer.input_dim:
+        raise ValueError("backprop input dimension does not match layer")
+    if len(outputs) != layer.output_dim or len(output_gradients) != layer.output_dim:
+        raise ValueError("backprop output dimension does not match layer")
+
+    gradients = LinearGradients.zeros(layer)
+    input_gradients = [0.0] * layer.input_dim
+    for row in range(layer.output_dim):
+        local = output_gradients[row] * (1.0 - (outputs[row] ** 2))
+        gradients.bias[row] = local
+        offset = row * layer.input_dim
+        for column, input_value in enumerate(inputs):
+            weight_index = offset + column
+            gradients.weights[weight_index] = local * input_value
+            input_gradients[column] += layer.weights[weight_index] * local
+    return gradients, tuple(input_gradients)
+
+
+def flow_matching_gradients(
+    model: CineosTensorModel,
+    identity_features: Tensor,
+    scene_features: Tensor,
+    source: Tensor,
+    target: Tensor,
+    time: float,
+) -> tuple[FlowMatchingResult, LinearGradients, LinearGradients, LinearGradients]:
+    """Return the objective and exact analytic gradients for all trainable layers."""
+    result = flow_matching_objective(
+        model,
+        identity_features,
+        scene_features,
+        source,
+        target,
+        time,
+    )
+    identity_embedding = model.encode_identity_tensor(identity_features)
+    scene_embedding = model.encode_scene_tensor(scene_features)
+    conditioning = model.predict_latent_tensor(identity_embedding, scene_embedding)
+
+    output_scale = 2.0 / len(result.predicted_velocity.values)
+    conditioning_gradients = tuple(
+        output_scale * (predicted - expected)
+        for predicted, expected in zip(
+            result.predicted_velocity.values,
+            result.target_velocity.values,
+        )
+    )
+    combined = identity_embedding.values + scene_embedding.values
+    latent_gradients, combined_gradients = _backprop_linear_tanh(
+        model.latent_network,
+        combined,
+        conditioning.values,
+        conditioning_gradients,
+    )
+
+    identity_dim = len(identity_embedding.values)
+    identity_output_gradients = combined_gradients[:identity_dim]
+    scene_output_gradients = combined_gradients[identity_dim:]
+    identity_gradients, _ = _backprop_linear_tanh(
+        model.identity_encoder,
+        identity_features.values,
+        identity_embedding.values,
+        identity_output_gradients,
+    )
+    scene_gradients, _ = _backprop_linear_tanh(
+        model.scene_encoder,
+        scene_features.values,
+        scene_embedding.values,
+        scene_output_gradients,
+    )
+    return result, identity_gradients, scene_gradients, latent_gradients
+
+
 @dataclass(slots=True)
 class TensorSGDOptimizer:
     learning_rate: float = 0.001
@@ -112,12 +218,23 @@ class TensorSGDOptimizer:
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
 
+    def step(self, layer: LinearTensorLayer, gradients: LinearGradients) -> None:
+        if len(layer.weights) != len(gradients.weights) or len(layer.bias) != len(
+            gradients.bias
+        ):
+            raise ValueError("optimizer gradient shape does not match layer")
+        for index, gradient in enumerate(gradients.weights):
+            layer.weights[index] -= self.learning_rate * gradient
+        for index, gradient in enumerate(gradients.bias):
+            layer.bias[index] -= self.learning_rate * gradient
+
     def step_linear(self, layer: LinearTensorLayer, gradient_scale: float) -> None:
-        """Apply a deterministic surrogate gradient update to one tensor layer."""
-        for index in range(len(layer.weights)):
-            layer.weights[index] -= self.learning_rate * gradient_scale
-        for index in range(len(layer.bias)):
-            layer.bias[index] -= self.learning_rate * gradient_scale
+        """Backward-compatible scalar update retained for older callers."""
+        gradients = LinearGradients(
+            [gradient_scale] * len(layer.weights),
+            [gradient_scale] * len(layer.bias),
+        )
+        self.step(layer, gradients)
 
 
 @dataclass(slots=True)
@@ -127,7 +244,11 @@ class TensorBatchTrainer:
     step: int = 0
 
     def train_batch(self, batch: FlowMatchingBatch) -> float:
+        identity_gradients = LinearGradients.zeros(self.model.identity_encoder)
+        scene_gradients = LinearGradients.zeros(self.model.scene_encoder)
+        latent_gradients = LinearGradients.zeros(self.model.latent_network)
         losses = []
+
         for identity, scene, source, target, time in zip(
             batch.identity_features,
             batch.scene_features,
@@ -135,20 +256,27 @@ class TensorBatchTrainer:
             batch.target_latents,
             batch.times,
         ):
-            result = flow_matching_objective(
-                self.model,
-                identity,
-                scene,
-                source,
-                target,
-                time,
+            result, identity_gradient, scene_gradient, latent_gradient = (
+                flow_matching_gradients(
+                    self.model,
+                    identity,
+                    scene,
+                    source,
+                    target,
+                    time,
+                )
             )
             losses.append(result.loss)
+            identity_gradients.add_(identity_gradient)
+            scene_gradients.add_(scene_gradient)
+            latent_gradients.add_(latent_gradient)
 
-        mean_loss = sum(losses) / len(losses)
-        gradient_scale = min(1.0, mean_loss)
-        self.optimizer.step_linear(self.model.identity_encoder, gradient_scale)
-        self.optimizer.step_linear(self.model.scene_encoder, gradient_scale)
-        self.optimizer.step_linear(self.model.latent_network, gradient_scale)
+        batch_scale = 1.0 / len(losses)
+        identity_gradients.scale_(batch_scale)
+        scene_gradients.scale_(batch_scale)
+        latent_gradients.scale_(batch_scale)
+        self.optimizer.step(self.model.identity_encoder, identity_gradients)
+        self.optimizer.step(self.model.scene_encoder, scene_gradients)
+        self.optimizer.step(self.model.latent_network, latent_gradients)
         self.step += 1
-        return mean_loss
+        return sum(losses) / len(losses)
