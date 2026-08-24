@@ -34,6 +34,7 @@ def test_temporal_model_advances_sequence_and_tracks_continuity() -> None:
     assert state.last_frame_index == 1
     assert state.last_latent == second.latent
     assert state.metadata["frames_generated"] == 2
+    assert state.metadata["accepted_candidates"] == 2
 
 
 def test_temporal_model_rejects_out_of_order_frames() -> None:
@@ -56,6 +57,7 @@ def test_temporal_state_snapshot_restore_is_resumable() -> None:
     assert restored.last_frame_index == 1
     assert resumed.frame_index == 1
     assert restored.metadata["frames_generated"] == 2
+    assert restored.metadata["accepted_candidates"] == 2
 
 
 def test_temporal_model_rejects_cross_shot_state() -> None:
@@ -64,3 +66,46 @@ def test_temporal_model_rejects_cross_shot_state() -> None:
 
     with pytest.raises(ValueError, match="same shot"):
         model.step(_frame(0, shot_id="shot-002"), state)
+
+
+def test_rejected_candidate_does_not_advance_temporal_state() -> None:
+    model = NativeTemporalModel.initialized()
+    state = model.initial_state("shot-001")
+    before = state.snapshot()
+
+    rejected = model.propose(_frame(0), state)
+
+    assert rejected.frame_index == 0
+    assert state.snapshot() == before
+    assert state.last_frame_index == -1
+    assert "frames_generated" not in state.metadata
+
+
+def test_candidate_is_committed_only_after_qc_acceptance() -> None:
+    model = NativeTemporalModel.initialized()
+    state = model.initial_state("shot-001")
+
+    first_candidate = model.propose(_frame(0), state)
+    retry_candidate = model.propose(_frame(0), state)
+
+    assert first_candidate == retry_candidate
+    assert state.last_frame_index == -1
+
+    model.commit(retry_candidate, state)
+
+    assert state.last_frame_index == 0
+    assert state.last_latent == retry_candidate.latent
+    assert state.metadata["frames_generated"] == 1
+    assert state.metadata["accepted_candidates"] == 1
+
+
+def test_stale_candidate_cannot_overwrite_accepted_state() -> None:
+    model = NativeTemporalModel.initialized()
+    state = model.initial_state("shot-001")
+
+    stale = model.propose(_frame(0), state)
+    accepted = model.propose(_frame(0), state)
+    model.commit(accepted, state)
+
+    with pytest.raises(ValueError, match="expected candidate frame_index 1"):
+        model.commit(stale, state)
