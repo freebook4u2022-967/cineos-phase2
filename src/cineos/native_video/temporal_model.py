@@ -220,7 +220,9 @@ class NativeTemporalModel:
     ) -> None:
         """Atomically accept a previously proposed candidate into sequence state."""
         if candidate.shot_id != state.shot_id:
-            raise ValueError("candidate and temporal state must belong to the same shot")
+            raise ValueError(
+                "candidate and temporal state must belong to the same shot"
+            )
         expected_index = state.last_frame_index + 1
         if candidate.frame_index != expected_index:
             raise ValueError(
@@ -240,9 +242,9 @@ class NativeTemporalModel:
         state.last_latent = candidate.latent
         state.last_frame_index = candidate.frame_index
         state.metadata["frames_generated"] = candidate.frame_index + 1
-        state.metadata["accepted_candidates"] = int(
-            state.metadata.get("accepted_candidates", 0)
-        ) + 1
+        state.metadata["accepted_candidates"] = (
+            int(state.metadata.get("accepted_candidates", 0)) + 1
+        )
 
     def step(
         self,
