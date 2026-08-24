@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -24,7 +24,7 @@ def test_stale_running_job_is_requeued_for_another_worker(tmp_path):
     job = TrainingJobOrchestrator(store).submit("lease-2")
     manager = WorkerLeaseManager(store, timeout_seconds=30)
     running, _ = manager.acquire(job, "dead-worker")
-    old = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    old = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     stale = replace(running, heartbeat_at=old)
     store.save(stale)
     recovered = manager.recover_stale(stale)

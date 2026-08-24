@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
-
 
 JOB_STATES = {"queued", "running", "completed", "failed", "cancelled"}
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +50,9 @@ class TrainingJobStore:
     def save(self, job: TrainingJob) -> Path:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-        temporary.write_text(json.dumps(asdict(job), indent=2, sort_keys=True), encoding="utf-8")
+        temporary.write_text(
+            json.dumps(asdict(job), indent=2, sort_keys=True), encoding="utf-8"
+        )
         os.replace(temporary, self.path)
         return self.path
 

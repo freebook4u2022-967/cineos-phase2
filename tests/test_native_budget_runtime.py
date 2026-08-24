@@ -2,7 +2,10 @@ from cineos.native_image.budget_runtime import BudgetAwareEvolutionRuntime
 from cineos.native_image.checkpoint_gate import CheckpointBenchmarkGate, CheckpointScore
 from cineos.native_image.evolution_controller import MultiGenerationEvolutionController
 from cineos.native_image.evolution_search import EvolutionConfig
-from cineos.native_image.evolution_state import EvolutionResumeState, EvolutionStateStore
+from cineos.native_image.evolution_state import (
+    EvolutionResumeState,
+    EvolutionStateStore,
+)
 from cineos.native_image.model_tournament import TournamentCandidate
 from cineos.native_image.training_budget import (
     ExperimentBudgetController,
@@ -23,7 +26,9 @@ def test_budget_runtime_records_candidate_and_gpu_usage(tmp_path):
     store = EvolutionStateStore(tmp_path / "resume.json")
     runtime = BudgetAwareEvolutionRuntime(
         MultiGenerationEvolutionController(CheckpointBenchmarkGate(), 2),
-        ExperimentBudgetController(TrainingBudget(max_generations=2, max_gpu_hours=2.0)),
+        ExperimentBudgetController(
+            TrainingBudget(max_generations=2, max_gpu_hours=2.0)
+        ),
     )
     seed = EvolutionConfig(1e-3, 16, 64, 8, 1.0, 1.0)
     result = runtime.run(seed, _trainer, tmp_path / "work", store, run_id="budget-1")

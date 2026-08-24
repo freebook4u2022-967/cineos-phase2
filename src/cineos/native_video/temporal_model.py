@@ -91,7 +91,9 @@ class TemporalSequenceState:
         latent_shape = payload.get("last_latent_shape")
         last_latent: Tensor | None = None
         if latent_values is not None or latent_shape is not None:
-            if not isinstance(latent_values, list) or not isinstance(latent_shape, list):
+            if not isinstance(latent_values, list) or not isinstance(
+                latent_shape, list
+            ):
                 raise ValueError("temporal state payload has incomplete latent data")
             last_latent = Tensor(
                 tuple(float(value) for value in latent_values),
@@ -157,7 +159,9 @@ class NativeTemporalModel:
             decoder=LinearTensorLayer.initialized(hidden_dim, latent_dim),
         )
 
-    def initial_state(self, shot_id: str, *, device: str = "cpu") -> TemporalSequenceState:
+    def initial_state(
+        self, shot_id: str, *, device: str = "cpu"
+    ) -> TemporalSequenceState:
         if not shot_id:
             raise ValueError("temporal sequence requires a shot_id")
         return TemporalSequenceState(
@@ -194,12 +198,7 @@ class NativeTemporalModel:
             + frame.scene.values
             + frame.motion.values
             + state.hidden.values,
-            (
-                self.identity_dim
-                + self.scene_dim
-                + self.motion_dim
-                + self.hidden_dim,
-            ),
+            (self.identity_dim + self.scene_dim + self.motion_dim + self.hidden_dim,),
             frame.identity.device,
         )
         hidden = self.recurrent.forward(fused)

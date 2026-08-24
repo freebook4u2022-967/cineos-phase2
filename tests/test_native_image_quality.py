@@ -8,7 +8,9 @@ def _ppm(width, height, rgb):
 def test_quality_rejects_low_resolution(tmp_path):
     path = tmp_path / "small.ppm"
     path.write_bytes(_ppm(8, 8, (120, 120, 120)))
-    assessment = ImageQualityInspector(ImageQualityPolicy(minimum_width=16, minimum_height=16)).assess(path)
+    assessment = ImageQualityInspector(
+        ImageQualityPolicy(minimum_width=16, minimum_height=16)
+    ).assess(path)
     assert assessment.approved is False
     assert "resolution below minimum" in assessment.reasons
 
@@ -16,7 +18,9 @@ def test_quality_rejects_low_resolution(tmp_path):
 def test_quality_rejects_extreme_exposure(tmp_path):
     dark = tmp_path / "dark.ppm"
     dark.write_bytes(_ppm(16, 16, (0, 0, 0)))
-    assessment = ImageQualityInspector(ImageQualityPolicy(minimum_width=8, minimum_height=8, minimum_blur_score=0.0)).assess(dark)
+    assessment = ImageQualityInspector(
+        ImageQualityPolicy(minimum_width=8, minimum_height=8, minimum_blur_score=0.0)
+    ).assess(dark)
     assert "underexposed" in assessment.reasons[0]
 
 
@@ -25,14 +29,18 @@ def test_quality_report_finds_near_duplicates(tmp_path):
     second = tmp_path / "b.ppm"
     first.write_bytes(_ppm(16, 16, (120, 100, 80)))
     second.write_bytes(_ppm(16, 16, (120, 100, 80)))
-    report = ImageQualityInspector(ImageQualityPolicy(minimum_width=8, minimum_height=8, minimum_blur_score=0.0)).report((first, second))
+    report = ImageQualityInspector(
+        ImageQualityPolicy(minimum_width=8, minimum_height=8, minimum_blur_score=0.0)
+    ).report((first, second))
     assert report.near_duplicate_pairs == ((str(first), str(second)),)
 
 
 def test_quality_report_can_be_saved(tmp_path):
     path = tmp_path / "frame.ppm"
     path.write_bytes(_ppm(16, 16, (120, 100, 80)))
-    inspector = ImageQualityInspector(ImageQualityPolicy(minimum_width=8, minimum_height=8, minimum_blur_score=0.0))
+    inspector = ImageQualityInspector(
+        ImageQualityPolicy(minimum_width=8, minimum_height=8, minimum_blur_score=0.0)
+    )
     report = inspector.report((path,))
     output = report.save(tmp_path / "quality.json")
     assert output.exists()

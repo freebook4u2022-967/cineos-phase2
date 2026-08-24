@@ -4,7 +4,14 @@ from cineos.short_drama.continuity_ledger import ContinuityLedger
 from cineos.short_drama.models import SceneState
 
 
-def _scene(index: int, *, wardrobe: str = "black coat", physical_state: str = "uninjured", props=None, environment=None):
+def _scene(
+    index: int,
+    *,
+    wardrobe: str = "black coat",
+    physical_state: str = "uninjured",
+    props=None,
+    environment=None,
+):
     return SceneState(
         scene_index=index,
         location="warehouse",

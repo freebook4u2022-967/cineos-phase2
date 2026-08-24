@@ -1,7 +1,9 @@
-from pathlib import Path
-
 from cineos.film.audio import mux_primary_audio
-from cineos.film.first_film import DirectorCharacter, FastTrackAutoDirector, FirstFilmRunner
+from cineos.film.first_film import (
+    DirectorCharacter,
+    FastTrackAutoDirector,
+    FirstFilmRunner,
+)
 
 
 class _Renderer:

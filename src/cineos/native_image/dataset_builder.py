@@ -29,7 +29,9 @@ class DatasetBuildResult:
 
 
 class RealTrainingDatasetBuilder:
-    def __init__(self, dataset_root: str | Path, policy: DatasetQualityPolicy | None = None) -> None:
+    def __init__(
+        self, dataset_root: str | Path, policy: DatasetQualityPolicy | None = None
+    ) -> None:
         self.root = Path(dataset_root)
         self.policy = policy or DatasetQualityPolicy()
 
@@ -52,13 +54,18 @@ class RealTrainingDatasetBuilder:
             manifest.add(sample)
         return DatasetBuildResult(manifest, tuple(rejected))
 
-    def _validate(self, sample: NativeTrainingSample, seen_hashes: set[str]) -> str | None:
+    def _validate(
+        self, sample: NativeTrainingSample, seen_hashes: set[str]
+    ) -> str | None:
         image = self.root / sample.image_path
         if not image.is_file():
             return "training image missing"
         if image.stat().st_size < self.policy.minimum_bytes:
             return "training image too small"
-        if any(not (self.root / path).is_file() for path in sample.character_reference_paths):
+        if any(
+            not (self.root / path).is_file()
+            for path in sample.character_reference_paths
+        ):
             return "character reference missing"
         if self.policy.require_identity_tags and not sample.identity_tags:
             return "identity metadata missing"

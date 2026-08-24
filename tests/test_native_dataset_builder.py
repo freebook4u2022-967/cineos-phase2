@@ -19,7 +19,9 @@ def test_builder_accepts_valid_sample(tmp_path):
     (tmp_path / "frames").mkdir()
     (tmp_path / "refs/arif.ppm").write_bytes(b"reference-image-data")
     (tmp_path / "frames/a.ppm").write_bytes(b"unique-training-image-a")
-    result = RealTrainingDatasetBuilder(tmp_path).build("set", "1", [_sample("a", "frames/a.ppm")])
+    result = RealTrainingDatasetBuilder(tmp_path).build(
+        "set", "1", [_sample("a", "frames/a.ppm")]
+    )
     assert len(result.manifest.samples) == 1
     assert result.rejected == ()
 
@@ -53,6 +55,8 @@ def test_builder_rejects_missing_continuity_metadata(tmp_path):
 def test_builder_rejects_missing_character_reference(tmp_path):
     (tmp_path / "frames").mkdir()
     (tmp_path / "frames/a.ppm").write_bytes(b"unique-training-image-a")
-    result = RealTrainingDatasetBuilder(tmp_path).build("set", "1", [_sample("a", "frames/a.ppm")])
+    result = RealTrainingDatasetBuilder(tmp_path).build(
+        "set", "1", [_sample("a", "frames/a.ppm")]
+    )
     assert result.manifest.samples == []
     assert result.rejected[0].reason == "character reference missing"

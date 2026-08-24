@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .checkpoint_gate import CheckpointBenchmarkGate, CheckpointScore
 from .evolution_search import EvolutionConfig, mutate_config
@@ -15,7 +15,6 @@ from .evolution_state import (
     recover_interrupted_candidates,
 )
 from .model_tournament import AutomatedModelTournament, TournamentCandidate
-
 
 EvolutionTrainer = Callable[[EvolutionConfig, Path], TournamentCandidate]
 
@@ -148,7 +147,9 @@ class MultiGenerationEvolutionController:
                 )
                 state_store.save(state)
             elif existing_ids != set(config_by_id):
-                raise ValueError("resume candidate set does not match deterministic generation")
+                raise ValueError(
+                    "resume candidate set does not match deterministic generation"
+                )
 
             completed = []
             generation_dir = destination / f"generation-{generation}"
@@ -158,7 +159,9 @@ class MultiGenerationEvolutionController:
                     raise RuntimeError("candidate progress missing from resume state")
                 if progress.status == "completed":
                     if progress.score is None or progress.checkpoint_path is None:
-                        raise RuntimeError("completed candidate has incomplete resume data")
+                        raise RuntimeError(
+                            "completed candidate has incomplete resume data"
+                        )
                     completed.append(
                         TournamentCandidate(
                             config.candidate_id,

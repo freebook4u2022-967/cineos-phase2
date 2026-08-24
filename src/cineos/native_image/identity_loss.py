@@ -29,7 +29,9 @@ class TorchIdentityConsistencyLoss:
     def __call__(self, predicted, anchor):
         torch = self.torch
         if predicted.shape != anchor.shape:
-            raise ValueError("predicted and anchor identity embeddings must have equal shapes")
+            raise ValueError(
+                "predicted and anchor identity embeddings must have equal shapes"
+            )
         predicted = torch.nn.functional.normalize(predicted, dim=-1)
         anchor = torch.nn.functional.normalize(anchor, dim=-1)
         similarity = (predicted * anchor).sum(dim=-1)

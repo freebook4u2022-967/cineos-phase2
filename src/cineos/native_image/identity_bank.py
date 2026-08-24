@@ -34,7 +34,9 @@ class CharacterIdentityEmbeddingBank:
             raise ValueError("identity embedding must not be zero")
         return tuple(value / norm for value in values)
 
-    def build_character(self, character_id: str, reference_vectors) -> CharacterIdentityEmbedding:
+    def build_character(
+        self, character_id: str, reference_vectors
+    ) -> CharacterIdentityEmbedding:
         if not character_id.strip():
             raise ValueError("character_id must not be empty")
         vectors = tuple(self._normalize(vector) for vector in reference_vectors)

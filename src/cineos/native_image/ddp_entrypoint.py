@@ -33,16 +33,29 @@ class DDPTrainConfig:
 class SyntheticFlowDataset:
     def __init__(self, torch, config: DDPTrainConfig) -> None:
         generator = torch.Generator().manual_seed(1234)
-        self.identity = torch.randn(config.samples, config.feature_dim, generator=generator)
-        self.scene = torch.randn(config.samples, config.feature_dim, generator=generator)
-        self.source = torch.randn(config.samples, config.latent_dim, generator=generator)
-        self.target = torch.randn(config.samples, config.latent_dim, generator=generator)
+        self.identity = torch.randn(
+            config.samples, config.feature_dim, generator=generator
+        )
+        self.scene = torch.randn(
+            config.samples, config.feature_dim, generator=generator
+        )
+        self.source = torch.randn(
+            config.samples, config.latent_dim, generator=generator
+        )
+        self.target = torch.randn(
+            config.samples, config.latent_dim, generator=generator
+        )
 
     def __len__(self) -> int:
         return len(self.identity)
 
     def __getitem__(self, index: int):
-        return self.identity[index], self.scene[index], self.source[index], self.target[index]
+        return (
+            self.identity[index],
+            self.scene[index],
+            self.source[index],
+            self.target[index],
+        )
 
 
 def load_dataset_manifest(path: str | Path) -> NativeDatasetManifest:
@@ -96,7 +109,9 @@ def load_identity_anchors(path: str | Path) -> dict[str, tuple[float, ...]]:
     return anchors
 
 
-def validate_identity_coverage(dataset, anchors: dict[str, tuple[float, ...]]) -> dict[str, int]:
+def validate_identity_coverage(
+    dataset, anchors: dict[str, tuple[float, ...]]
+) -> dict[str, int]:
     """Validate anchor coverage for every real training record before training starts.
 
     Identity supervision must fail fast rather than discovering a missing
@@ -107,20 +122,28 @@ def validate_identity_coverage(dataset, anchors: dict[str, tuple[float, ...]]) -
     for record in dataset.records:
         character_id = str(record.character_id)
         counts[character_id] = counts.get(character_id, 0) + 1
-    missing = sorted(character_id for character_id in counts if character_id not in anchors)
+    missing = sorted(
+        character_id for character_id in counts if character_id not in anchors
+    )
     if missing:
         raise ValueError(f"identity anchors missing for: {', '.join(missing)}")
     return counts
 
 
 def _anchors_for_batch(torch, character_ids, anchors, device):
-    missing = sorted({character_id for character_id in character_ids if character_id not in anchors})
+    missing = sorted(
+        {character_id for character_id in character_ids if character_id not in anchors}
+    )
     if missing:
         raise ValueError(f"identity anchors missing for: {', '.join(missing)}")
-    return torch.tensor([anchors[item] for item in character_ids], dtype=torch.float32, device=device)
+    return torch.tensor(
+        [anchors[item] for item in character_ids], dtype=torch.float32, device=device
+    )
 
 
-def _load_resume(torch, path: Path, model, projection, optimizer, device) -> tuple[int, int]:
+def _load_resume(
+    torch, path: Path, model, projection, optimizer, device
+) -> tuple[int, int]:
     if not path.exists():
         return 0, 0
     payload = torch.load(path, map_location=device)
@@ -150,7 +173,9 @@ def run_ddp_training(
     )
     runtime.initialize()
     try:
-        device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+        device = torch.device(
+            f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu"
+        )
         if torch.cuda.is_available():
             torch.cuda.set_device(local_rank)
         model_config = NeuralModelConfig(
@@ -165,13 +190,17 @@ def run_ddp_training(
             model.module, device_id=local_rank if torch.cuda.is_available() else None
         )
 
-        anchors = load_identity_anchors(identity_bank) if identity_bank is not None else None
+        anchors = (
+            load_identity_anchors(identity_bank) if identity_bank is not None else None
+        )
         projection_ddp = None
         identity_loss = None
         parameters = list(ddp.parameters())
         if anchors is not None:
             identity_dim = len(next(iter(anchors.values())))
-            projection = TorchIdentityProjection(config.latent_dim, identity_dim, str(device))
+            projection = TorchIdentityProjection(
+                config.latent_dim, identity_dim, str(device)
+            )
             projection_ddp = runtime.wrap_model(
                 projection.module,
                 device_id=local_rank if torch.cuda.is_available() else None,
@@ -206,7 +235,9 @@ def run_ddp_training(
                 identity_sample_counts = validate_identity_coverage(dataset, anchors)
         else:
             if anchors is not None:
-                raise ValueError("--identity-bank requires --manifest real dataset mode")
+                raise ValueError(
+                    "--identity-bank requires --manifest real dataset mode"
+                )
             dataset = SyntheticFlowDataset(torch, config)
             real_mode = False
         sampler = runtime.distributed_sampler(dataset, shuffle=True)
@@ -232,9 +263,15 @@ def run_ddp_training(
             flow_loss = torch.nn.functional.mse_loss(predicted, target_velocity)
             loss = flow_loss
             identity_component = None
-            if anchors is not None and projection_ddp is not None and identity_loss is not None:
+            if (
+                anchors is not None
+                and projection_ddp is not None
+                and identity_loss is not None
+            ):
                 character_ids = tuple(batch[4])
-                anchor_tensor = _anchors_for_batch(torch, character_ids, anchors, device)
+                anchor_tensor = _anchors_for_batch(
+                    torch, character_ids, anchors, device
+                )
                 predicted_identity = projection_ddp(predicted)
                 identity_component = identity_loss(predicted_identity, anchor_tensor)
                 loss = loss + identity_component
@@ -242,7 +279,9 @@ def run_ddp_training(
             optimizer.step()
             last_flow_loss = float(flow_loss.detach().cpu())
             last_identity_loss = (
-                float(identity_component.detach().cpu()) if identity_component is not None else None
+                float(identity_component.detach().cpu())
+                if identity_component is not None
+                else None
             )
             completed_steps += 1
             if completed_steps >= target_steps:
@@ -257,11 +296,15 @@ def run_ddp_training(
                     "schema": "cineos-ddp-training/0.5",
                     "dataset_mode": "real" if real_mode else "synthetic",
                     "manifest": str(manifest) if manifest is not None else None,
-                    "identity_bank": str(identity_bank) if identity_bank is not None else None,
+                    "identity_bank": (
+                        str(identity_bank) if identity_bank is not None else None
+                    ),
                     "identity_sample_counts": identity_sample_counts,
                     "model": ddp.module.state_dict(),
                     "identity_projection": (
-                        projection_ddp.module.state_dict() if projection_ddp is not None else None
+                        projection_ddp.module.state_dict()
+                        if projection_ddp is not None
+                        else None
                     ),
                     "optimizer": optimizer.state_dict(),
                     "world_size": world_size,

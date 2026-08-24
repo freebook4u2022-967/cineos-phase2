@@ -8,8 +8,8 @@ serializable and suitable for resumable production jobs.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
-from typing import Iterable
 
 from .models import SceneState
 
@@ -69,7 +69,11 @@ class ContinuityLedger:
                     continue
                 old_value = before.get(key)
                 new_value = current.get(key)
-                if old_value is not None and new_value is not None and old_value != new_value:
+                if (
+                    old_value is not None
+                    and new_value is not None
+                    and old_value != new_value
+                ):
                     violations.append(
                         ContinuityViolation(
                             scene_index=proposed.scene_index,
@@ -85,7 +89,11 @@ class ContinuityLedger:
             if key in allowed_environment:
                 continue
             old_value = previous.environment.get(key)
-            if old_value is not None and new_value is not None and old_value != new_value:
+            if (
+                old_value is not None
+                and new_value is not None
+                and old_value != new_value
+            ):
                 violations.append(
                     ContinuityViolation(
                         scene_index=proposed.scene_index,
@@ -121,7 +129,7 @@ class ContinuityLedger:
         return {"version": 1, "scenes": [asdict(scene) for scene in self.scenes]}
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "ContinuityLedger":
+    def from_dict(cls, payload: dict) -> ContinuityLedger:
         """Restore a ledger from a versioned production checkpoint."""
         version = payload.get("version", 1)
         if version != 1:
@@ -130,6 +138,8 @@ class ContinuityLedger:
         ledger = cls()
         for scene in scenes:
             if ledger.scenes and scene.scene_index <= ledger.scenes[-1].scene_index:
-                raise ValueError("checkpoint scene_index values must increase monotonically")
+                raise ValueError(
+                    "checkpoint scene_index values must increase monotonically"
+                )
             ledger.scenes.append(scene)
         return ledger

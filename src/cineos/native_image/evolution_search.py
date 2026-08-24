@@ -43,7 +43,9 @@ class EvolutionSearchSpace:
     reconstruction_weights: tuple[float, ...]
     flow_weights: tuple[float, ...]
 
-    def candidates(self, *, max_candidates: int | None = None) -> tuple[EvolutionConfig, ...]:
+    def candidates(
+        self, *, max_candidates: int | None = None
+    ) -> tuple[EvolutionConfig, ...]:
         configs = tuple(
             EvolutionConfig(*values)
             for values in itertools.product(

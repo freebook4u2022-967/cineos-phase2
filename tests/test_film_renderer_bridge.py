@@ -1,4 +1,3 @@
-from pathlib import Path
 from types import SimpleNamespace
 
 from cineos.film.planner import plan_shots

@@ -49,7 +49,10 @@ def test_tensor_checkpoint_roundtrip_preserves_training_state(tmp_path):
     assert restored_checkpoint.schema == TENSOR_CHECKPOINT_SCHEMA
     assert restored.step == 2
     assert restored.optimizer.learning_rate == pytest.approx(0.02)
-    assert restored.model.identity_encoder.weights == trainer.model.identity_encoder.weights
+    assert (
+        restored.model.identity_encoder.weights
+        == trainer.model.identity_encoder.weights
+    )
     assert restored.model.scene_encoder.weights == trainer.model.scene_encoder.weights
     assert restored.model.latent_network.weights == trainer.model.latent_network.weights
 

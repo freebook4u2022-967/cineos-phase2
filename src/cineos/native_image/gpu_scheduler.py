@@ -87,8 +87,12 @@ class GPUJobScheduler:
             return (-preferred, worker.current_load, -worker.vram_gb, worker.worker_id)
 
         selected = sorted(eligible, key=rank)[0]
-        reason = "preferred GPU selected" if (
-            requirements.preferred_gpu_type is not None
-            and selected.gpu_type == requirements.preferred_gpu_type
-        ) else "lowest-load eligible GPU selected"
+        reason = (
+            "preferred GPU selected"
+            if (
+                requirements.preferred_gpu_type is not None
+                and selected.gpu_type == requirements.preferred_gpu_type
+            )
+            else "lowest-load eligible GPU selected"
+        )
         return GPUSchedulingDecision(selected, reason)

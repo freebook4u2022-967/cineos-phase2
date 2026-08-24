@@ -14,7 +14,9 @@ from cineos.native_image.neural_backend import _load_torch, torch_available
 def test_load_identity_anchors_normalizes_vectors(tmp_path):
     path = tmp_path / "identity-bank.json"
     path.write_text(
-        json.dumps({"characters": {"arif": [3.0, 4.0], "hana": {"vector": [0.0, 2.0]}}}),
+        json.dumps(
+            {"characters": {"arif": [3.0, 4.0], "hana": {"vector": [0.0, 2.0]}}}
+        ),
         encoding="utf-8",
     )
     anchors = load_identity_anchors(path)
@@ -49,7 +51,10 @@ def test_validate_identity_coverage_counts_real_training_records():
 
 def test_validate_identity_coverage_fails_before_training_for_missing_anchor():
     dataset = SimpleNamespace(
-        records=(SimpleNamespace(character_id="arif"), SimpleNamespace(character_id="hana"))
+        records=(
+            SimpleNamespace(character_id="arif"),
+            SimpleNamespace(character_id="hana"),
+        )
     )
     with pytest.raises(ValueError, match="hana"):
         validate_identity_coverage(dataset, {"arif": (1.0, 0.0)})

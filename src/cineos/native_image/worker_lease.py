@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .training_jobs import TrainingJob, TrainingJobStore, _now
 
@@ -31,10 +31,10 @@ class WorkerLeaseManager:
     def is_stale(self, job: TrainingJob, *, now: datetime | None = None) -> bool:
         if job.state != "running" or job.heartbeat_at is None:
             return False
-        current = now or datetime.now(timezone.utc)
+        current = now or datetime.now(UTC)
         heartbeat = datetime.fromisoformat(job.heartbeat_at)
         if heartbeat.tzinfo is None:
-            heartbeat = heartbeat.replace(tzinfo=timezone.utc)
+            heartbeat = heartbeat.replace(tzinfo=UTC)
         return current - heartbeat > timedelta(seconds=self.timeout_seconds)
 
     def recover_stale(self, job: TrainingJob) -> TrainingJob:
@@ -50,10 +50,12 @@ class WorkerLeaseManager:
         self.store.save(recovered)
         return recovered
 
-    def acquire(self, job: TrainingJob, worker_id: str) -> tuple[TrainingJob, WorkerLease]:
+    def acquire(
+        self, job: TrainingJob, worker_id: str
+    ) -> tuple[TrainingJob, WorkerLease]:
         if job.state not in {"queued", "failed"}:
             raise ValueError("only queued or failed jobs may acquire a worker lease")
-        acquired = datetime.now(timezone.utc)
+        acquired = datetime.now(UTC)
         expires = acquired + timedelta(seconds=self.timeout_seconds)
         leased = replace(
             job,
@@ -65,10 +67,12 @@ class WorkerLeaseManager:
         self.store.save(leased)
         return leased, WorkerLease(worker_id, acquired.isoformat(), expires.isoformat())
 
-    def renew(self, job: TrainingJob, lease: WorkerLease) -> tuple[TrainingJob, WorkerLease]:
+    def renew(
+        self, job: TrainingJob, lease: WorkerLease
+    ) -> tuple[TrainingJob, WorkerLease]:
         if job.state != "running":
             raise ValueError("only running jobs may renew a worker lease")
-        renewed_at = datetime.now(timezone.utc)
+        renewed_at = datetime.now(UTC)
         renewed = replace(
             job,
             heartbeat_at=renewed_at.isoformat(),

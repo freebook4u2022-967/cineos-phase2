@@ -69,7 +69,7 @@ class TensorTrainingCheckpoint:
             raise TensorCheckpointError("trainer step must be non-negative")
 
     @classmethod
-    def capture(cls, trainer: TensorBatchTrainer) -> "TensorTrainingCheckpoint":
+    def capture(cls, trainer: TensorBatchTrainer) -> TensorTrainingCheckpoint:
         if not isinstance(trainer, TensorBatchTrainer):
             raise TypeError("trainer must be a TensorBatchTrainer")
         return cls(
@@ -129,7 +129,7 @@ class TensorTrainingCheckpoint:
         payload: dict[str, Any],
         *,
         verify_hash: bool = True,
-    ) -> "TensorTrainingCheckpoint":
+    ) -> TensorTrainingCheckpoint:
         if not isinstance(payload, dict):
             raise TensorCheckpointError("checkpoint root must be an object")
         if payload.get("schema") != TENSOR_CHECKPOINT_SCHEMA:
@@ -138,8 +138,12 @@ class TensorTrainingCheckpoint:
             )
         model_payload = payload.get("model")
         optimizer_payload = payload.get("optimizer")
-        if not isinstance(model_payload, dict) or not isinstance(optimizer_payload, dict):
-            raise TensorCheckpointError("checkpoint model and optimizer must be objects")
+        if not isinstance(model_payload, dict) or not isinstance(
+            optimizer_payload, dict
+        ):
+            raise TensorCheckpointError(
+                "checkpoint model and optimizer must be objects"
+            )
         try:
             checkpoint = cls(
                 model=CineosTensorModel(
@@ -173,7 +177,7 @@ class TensorTrainingCheckpoint:
         path: str | Path,
         *,
         verify_hash: bool = True,
-    ) -> "TensorTrainingCheckpoint":
+    ) -> TensorTrainingCheckpoint:
         try:
             payload = json.loads(Path(path).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:

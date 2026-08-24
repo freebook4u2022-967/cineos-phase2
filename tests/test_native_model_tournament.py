@@ -1,5 +1,8 @@
 from cineos.native_image.checkpoint_gate import CheckpointBenchmarkGate, CheckpointScore
-from cineos.native_image.model_tournament import AutomatedModelTournament, TournamentCandidate
+from cineos.native_image.model_tournament import (
+    AutomatedModelTournament,
+    TournamentCandidate,
+)
 
 
 def _trainer(candidate_id, directory):

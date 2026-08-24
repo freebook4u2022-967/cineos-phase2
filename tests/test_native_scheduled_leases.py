@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from cineos.native_image.gpu_scheduler import (
     GPUJobRequirements,
@@ -44,7 +44,7 @@ def test_second_job_uses_other_gpu_when_first_is_reserved(tmp_path):
 def test_stale_worker_releases_capacity_and_job_is_rescheduled(tmp_path):
     runtime, jobs = _runtime(tmp_path)
     scheduled = runtime.dispatch(jobs.submit("job-1"), GPUJobRequirements(40))
-    old = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    old = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     stale_job = replace(scheduled.job, heartbeat_at=old)
     stale = replace(scheduled, job=stale_job)
     runtime.pool.set_available("gpu-a", False)

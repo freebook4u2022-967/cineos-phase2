@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -132,7 +131,11 @@ class ImageQualityInspector:
         reasons = []
         if width < self.policy.minimum_width or height < self.policy.minimum_height:
             reasons.append("resolution below minimum")
-        if not self.policy.minimum_aspect_ratio <= metrics.aspect_ratio <= self.policy.maximum_aspect_ratio:
+        if (
+            not self.policy.minimum_aspect_ratio
+            <= metrics.aspect_ratio
+            <= self.policy.maximum_aspect_ratio
+        ):
             reasons.append("aspect ratio outside policy")
         if metrics.blur_score < self.policy.minimum_blur_score:
             reasons.append("image appears too blurry")
@@ -140,14 +143,21 @@ class ImageQualityInspector:
             reasons.append("image appears underexposed")
         if metrics.mean_luma > self.policy.maximum_mean_luma:
             reasons.append("image appears overexposed")
-        return ImageQualityAssessment(str(image_path), not reasons, metrics, tuple(reasons))
+        return ImageQualityAssessment(
+            str(image_path), not reasons, metrics, tuple(reasons)
+        )
 
     def report(self, paths: tuple[str | Path, ...]) -> DatasetQualityReport:
         assessed = tuple(self.assess(path) for path in paths)
         near_duplicates = []
         for index, first in enumerate(assessed):
             for second in assessed[index + 1 :]:
-                if _hamming(first.metrics.perceptual_hash, second.metrics.perceptual_hash) <= self.policy.near_duplicate_hamming_distance:
+                if (
+                    _hamming(
+                        first.metrics.perceptual_hash, second.metrics.perceptual_hash
+                    )
+                    <= self.policy.near_duplicate_hamming_distance
+                ):
                     near_duplicates.append((first.path, second.path))
         return DatasetQualityReport(
             assessed=assessed,

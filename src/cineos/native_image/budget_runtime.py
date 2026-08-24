@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .checkpoint_gate import CheckpointScore
 from .evolution_controller import EvolutionRunResult, MultiGenerationEvolutionController
@@ -12,7 +12,6 @@ from .evolution_search import EvolutionConfig
 from .evolution_state import EvolutionStateStore
 from .model_tournament import TournamentCandidate
 from .training_budget import ExperimentBudgetController, ResourceUsage
-
 
 MeasuredTrainer = Callable[[EvolutionConfig, Path], tuple[TournamentCandidate, float]]
 

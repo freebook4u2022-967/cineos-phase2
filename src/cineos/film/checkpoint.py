@@ -65,12 +65,15 @@ def save_checkpoint(build: FilmBuild, path: str | Path) -> Path:
     """Atomically persist a build checkpoint and return its final path."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(
-        checkpoint_payload(build),
-        sort_keys=True,
-        indent=2,
-        ensure_ascii=False,
-    ) + "\n"
+    encoded = (
+        json.dumps(
+            checkpoint_payload(build),
+            sort_keys=True,
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
 
     fd, temp_name = tempfile.mkstemp(
         prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent)

@@ -22,7 +22,9 @@ def test_evolution_state_round_trips_all_safe_resume_fields(tmp_path):
         best_score=_score("best"),
         usage=ResourceUsage(2, 6, 4.5, 1),
         candidates=(
-            CandidateProgress("candidate-a", "completed", "a.pt", _score("candidate-a")),
+            CandidateProgress(
+                "candidate-a", "completed", "a.pt", _score("candidate-a")
+            ),
         ),
         completed_generations=(1, 2),
     )

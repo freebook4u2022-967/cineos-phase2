@@ -61,7 +61,9 @@ class EvolutionResumeState:
         return self
 
     def next_pending_candidate(self) -> CandidateProgress | None:
-        return next((item for item in self.candidates if item.status == "pending"), None)
+        return next(
+            (item for item in self.candidates if item.status == "pending"), None
+        )
 
 
 class EvolutionStateStore:
@@ -121,7 +123,9 @@ class EvolutionStateStore:
             run_id=payload["run_id"],
             current_generation=int(payload["current_generation"]),
             current_config=(
-                EvolutionConfig(**current_config) if current_config is not None else None
+                EvolutionConfig(**current_config)
+                if current_config is not None
+                else None
             ),
             best_score=(
                 CheckpointScore(**best_score) if best_score is not None else None

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from .training import NativeDatasetManifest
 
-
 REQUIRED_IDENTITY_VIEWS = frozenset({"front", "side", "three_quarter", "full_body"})
 REQUIRED_VARIATIONS = frozenset({"expression", "lighting", "costume"})
 
@@ -30,7 +29,9 @@ class IdentityCoverageReport:
     def mean_coverage_score(self) -> float:
         if not self.characters:
             return 0.0
-        return sum(item.coverage_score for item in self.characters) / len(self.characters)
+        return sum(item.coverage_score for item in self.characters) / len(
+            self.characters
+        )
 
 
 class IdentityCoverageAnalyzer:
@@ -52,7 +53,9 @@ class IdentityCoverageAnalyzer:
                 )
                 bucket["samples"] = int(bucket["samples"]) + 1
                 bucket["views"].update(sample.metadata.get("identity_views", ()))
-                bucket["variations"].update(sample.metadata.get("identity_variations", ()))
+                bucket["variations"].update(
+                    sample.metadata.get("identity_variations", ())
+                )
 
         results = []
         for character_id, bucket in sorted(buckets.items()):
@@ -60,8 +63,12 @@ class IdentityCoverageAnalyzer:
             variations = set(bucket["variations"])
             missing_views = REQUIRED_IDENTITY_VIEWS - views
             missing_variations = REQUIRED_VARIATIONS - variations
-            view_score = len(REQUIRED_IDENTITY_VIEWS & views) / len(REQUIRED_IDENTITY_VIEWS)
-            variation_score = len(REQUIRED_VARIATIONS & variations) / len(REQUIRED_VARIATIONS)
+            view_score = len(REQUIRED_IDENTITY_VIEWS & views) / len(
+                REQUIRED_IDENTITY_VIEWS
+            )
+            variation_score = len(REQUIRED_VARIATIONS & variations) / len(
+                REQUIRED_VARIATIONS
+            )
             reference_score = min(1.0, int(bucket["samples"]) / 4.0)
             score = 0.50 * view_score + 0.30 * variation_score + 0.20 * reference_score
             results.append(

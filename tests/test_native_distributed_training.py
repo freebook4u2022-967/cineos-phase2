@@ -29,7 +29,11 @@ def test_distributed_plan_rejects_insufficient_gpu_group():
 
 def test_dataset_shards_cover_samples_without_overlap():
     shards = DistributedTrainingCoordinator().shard_dataset(10, 3)
-    assert [(item.start_index, item.end_index) for item in shards] == [(0, 4), (4, 7), (7, 10)]
+    assert [(item.start_index, item.end_index) for item in shards] == [
+        (0, 4),
+        (4, 7),
+        (7, 10),
+    ]
 
 
 def test_gradient_average_matches_data_parallel_reduction():

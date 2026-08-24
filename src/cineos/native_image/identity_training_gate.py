@@ -44,7 +44,10 @@ class IdentityTrainingGate:
                 continue
             shots = tuple(
                 [f"capture {view} reference" for view in character.missing_views]
-                + [f"capture {variation} variation" for variation in character.missing_variations]
+                + [
+                    f"capture {variation} variation"
+                    for variation in character.missing_variations
+                ]
             )
             recommendations.append(
                 CharacterCollectionRecommendation(

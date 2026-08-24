@@ -47,7 +47,9 @@ def test_real_manifest_dataset_produces_training_tensors(tmp_path):
     if not torch_available():
         pytest.skip("PyTorch optional dependency is not installed")
     _prepare_files(tmp_path)
-    config = NeuralModelConfig(feature_dim=4, embedding_dim=8, latent_dim=6, hidden_dim=12)
+    config = NeuralModelConfig(
+        feature_dim=4, embedding_dim=8, latent_dim=6, hidden_dim=12
+    )
     dataset = RealManifestTorchDataset(_manifest(), tmp_path, config)
     identity, scene, source, target, sample_id = dataset[0]
     assert identity.shape == (4,)
@@ -61,7 +63,9 @@ def test_distributed_loader_partitions_real_manifest_by_rank(tmp_path):
     if not torch_available():
         pytest.skip("PyTorch optional dependency is not installed")
     _prepare_files(tmp_path)
-    config = NeuralModelConfig(feature_dim=4, embedding_dim=8, latent_dim=6, hidden_dim=12)
+    config = NeuralModelConfig(
+        feature_dim=4, embedding_dim=8, latent_dim=6, hidden_dim=12
+    )
     dataset = RealManifestTorchDataset(_manifest(), tmp_path, config)
     _, sampler0 = build_distributed_real_loader(
         dataset, rank=0, world_size=2, batch_size=1, shuffle=False

@@ -112,9 +112,7 @@ class ProceduralLatentComponents:
         values = []
         for index in range(len(identity)):
             mixed = (
-                (identity[index] * 0.6)
-                + (scene[index] * 0.4)
-                + rng.uniform(-0.1, 0.1)
+                (identity[index] * 0.6) + (scene[index] * 0.4) + rng.uniform(-0.1, 0.1)
             )
             values.append(math.tanh(mixed))
         return tuple(values)
@@ -137,9 +135,7 @@ class ProceduralLatentComponents:
                 nx = x / max(1, width - 1)
                 ny = y / max(1, height - 1)
                 base = latent[(x + y) % len(latent)]
-                pixels[position] = int(
-                    255 * ((math.sin(base + nx * 3.0) + 1.0) / 2.0)
-                )
+                pixels[position] = int(255 * ((math.sin(base + nx * 3.0) + 1.0) / 2.0))
                 pixels[position + 1] = int(
                     255 * ((math.sin(base + ny * 4.0 + 1.2) + 1.0) / 2.0)
                 )

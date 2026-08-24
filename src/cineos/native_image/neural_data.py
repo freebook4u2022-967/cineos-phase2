@@ -50,8 +50,7 @@ class ApprovedManifestPreprocessor:
     def prepare(self, sample: NativeTrainingSample) -> PreparedNeuralSample:
         image_bytes = self._read_required_file(sample.image_path)
         reference_bytes = b"".join(
-            self._read_required_file(path)
-            for path in sample.character_reference_paths
+            self._read_required_file(path) for path in sample.character_reference_paths
         )
         identity_payload = reference_bytes + "|".join(sample.identity_tags).encode()
         scene_payload = "|".join(

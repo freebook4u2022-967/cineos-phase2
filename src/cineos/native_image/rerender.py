@@ -65,8 +65,7 @@ class AutomaticRerenderController:
         if not 1 <= attempt <= self.max_attempts:
             raise ValueError("attempt must be within configured rerender budget")
         mismatched = any(
-            item.shot_id != visual_observation.shot_id
-            for item in identity_observations
+            item.shot_id != visual_observation.shot_id for item in identity_observations
         )
         if mismatched:
             raise ValueError(
