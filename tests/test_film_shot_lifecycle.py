@@ -9,7 +9,7 @@ from cineos.film.shot_state import ShotState
 
 class _Renderer:
     def render(self, planned, target):
-        target.write_bytes(f"attempt:{target.name}".encode("utf-8"))
+        target.write_bytes(f"attempt:{target.name}".encode())
         return target
 
 
