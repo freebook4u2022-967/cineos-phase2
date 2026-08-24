@@ -223,9 +223,7 @@ class FilmOrchestrator:
                 )
                 if approved:
                     if self.shot_attempt_accepted is not None:
-                        self.shot_attempt_accepted(
-                            planned, scene_index, attempt_number
-                        )
+                        self.shot_attempt_accepted(planned, scene_index, attempt_number)
                     state.validation_status = "approved"
                     state.selected_output = str(path)
                     state.output_hash = file_hash(path)
@@ -243,9 +241,7 @@ class FilmOrchestrator:
             except Exception as error:
                 if self.shot_attempt_rejected is not None:
                     try:
-                        self.shot_attempt_rejected(
-                            planned, scene_index, attempt_number
-                        )
+                        self.shot_attempt_rejected(planned, scene_index, attempt_number)
                     except Exception as rollback_error:
                         error = FilmBuildError(
                             f"{error}; runtime rollback failed: {rollback_error}"
