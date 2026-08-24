@@ -60,7 +60,11 @@ class MotionDampingRetryPolicy:
         *,
         attempt: int,
     ) -> TemporalFrameInput:
-        if report.shot_id != frame.shot_id or report.frame_index != frame.frame_index:
+        report_matches_frame = (
+            report.shot_id == frame.shot_id
+            and report.frame_index == frame.frame_index
+        )
+        if not report_matches_frame:
             raise ValueError("retry report must describe the rejected frame")
         if attempt <= 0:
             raise ValueError("retry attempt must be positive")
@@ -161,7 +165,7 @@ class NativeTemporalRuntime:
                 raise TemporalGenerationError(report, attempts)
 
             request = self.retry_policy.adapt(
-                request,
+                frame,
                 report,
                 attempt=attempts,
             )
