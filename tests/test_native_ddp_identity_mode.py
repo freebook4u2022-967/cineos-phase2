@@ -3,7 +3,7 @@ import json
 import pytest
 
 from cineos.native_image.ddp_entrypoint import _anchors_for_batch, load_identity_anchors
-from cineos.native_image.neural_backend import _load_torch
+from cineos.native_image.neural_backend import _load_torch, torch_available
 
 
 def test_load_identity_anchors_normalizes_vectors(tmp_path):
@@ -28,6 +28,8 @@ def test_load_identity_anchors_rejects_dimension_mismatch(tmp_path):
 
 
 def test_anchors_for_batch_preserves_character_order():
+    if not torch_available():
+        pytest.skip("PyTorch optional neural extra not installed")
     torch = _load_torch()
     anchors = {"arif": (1.0, 0.0), "hana": (0.0, 1.0)}
     batch = _anchors_for_batch(torch, ("hana", "arif"), anchors, torch.device("cpu"))
@@ -35,6 +37,8 @@ def test_anchors_for_batch_preserves_character_order():
 
 
 def test_anchors_for_batch_rejects_missing_character():
+    if not torch_available():
+        pytest.skip("PyTorch optional neural extra not installed")
     torch = _load_torch()
     with pytest.raises(ValueError, match="hana"):
         _anchors_for_batch(torch, ("hana",), {"arif": (1.0, 0.0)}, torch.device("cpu"))
