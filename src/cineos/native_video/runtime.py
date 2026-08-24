@@ -61,8 +61,7 @@ class MotionDampingRetryPolicy:
         attempt: int,
     ) -> TemporalFrameInput:
         report_matches_frame = (
-            report.shot_id == frame.shot_id
-            and report.frame_index == frame.frame_index
+            report.shot_id == frame.shot_id and report.frame_index == frame.frame_index
         )
         if not report_matches_frame:
             raise ValueError("retry report must describe the rejected frame")
