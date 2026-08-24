@@ -20,7 +20,7 @@ def test_neural_backend_dependency_contract():
         )
         assert model.device.type == "cpu"
     else:
-        with pytest.raises(RuntimeError, match="cineos\[neural\]"):
+        with pytest.raises(RuntimeError, match=r"cineos\[neural\]"):
             TorchCineosFlowModel()
 
 
