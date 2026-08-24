@@ -64,7 +64,8 @@ class TemporalContinuityGate:
         expected_index = state.last_frame_index + 1
         if candidate.frame_index != expected_index:
             raise ValueError(
-                f"expected candidate frame_index {expected_index}, got {candidate.frame_index}"
+                "expected candidate frame_index "
+                f"{expected_index}, got {candidate.frame_index}"
             )
         if candidate.continuity_delta < 0:
             raise ValueError("continuity_delta must be non-negative")
@@ -79,7 +80,8 @@ class TemporalContinuityGate:
                 threshold=self.policy.reject_delta,
                 directives=(
                     "reduce temporal latent jump while preserving approved identity",
-                    "preserve last accepted camera, scene and wardrobe continuity state",
+                    "preserve last accepted camera, scene and wardrobe "
+                    "continuity state",
                     "do not commit rejected recurrent state",
                 ),
             )
