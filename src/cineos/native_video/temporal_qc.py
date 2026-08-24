@@ -58,7 +58,9 @@ class TemporalContinuityGate:
         state: TemporalSequenceState,
     ) -> TemporalQCReport:
         if candidate.shot_id != state.shot_id:
-            raise ValueError("candidate and temporal state must belong to the same shot")
+            raise ValueError(
+                "candidate and temporal state must belong to the same shot"
+            )
         expected_index = state.last_frame_index + 1
         if candidate.frame_index != expected_index:
             raise ValueError(

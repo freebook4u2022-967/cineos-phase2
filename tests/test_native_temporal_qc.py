@@ -1,5 +1,8 @@
 from cineos.native_image.tensor_model import Tensor
-from cineos.native_video.temporal_model import TemporalFrameOutput, TemporalSequenceState
+from cineos.native_video.temporal_model import (
+    TemporalFrameOutput,
+    TemporalSequenceState,
+)
 from cineos.native_video.temporal_qc import TemporalContinuityGate, TemporalQCPolicy
 
 
