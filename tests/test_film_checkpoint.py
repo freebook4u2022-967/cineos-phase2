@@ -9,6 +9,7 @@ from cineos.film.checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
     CheckpointError,
     load_checkpoint,
+    load_checkpoint_runtime_state,
     save_checkpoint,
 )
 from cineos.film.shot_state import ShotState
@@ -57,6 +58,54 @@ def test_checkpoint_document_is_versioned(tmp_path):
     assert document["schema_version"] == CHECKPOINT_SCHEMA_VERSION
     assert document["build"]["renderer_id"] == "native-atlas"
     assert document["content_hash"]
+
+
+def test_checkpoint_round_trip_preserves_runtime_state(tmp_path):
+    runtime_state = {
+        "kind": "native-scene-continuity",
+        "memory": {
+            "schema": "cineos-scene-continuity-memory/0.1",
+            "anchors": [{"shot_id": "shot-1", "scene_index": 0}],
+        },
+    }
+    path = save_checkpoint(
+        _build(), tmp_path / "build.json", runtime_state=runtime_state
+    )
+
+    assert load_checkpoint_runtime_state(path) == runtime_state
+    assert load_checkpoint(path).content_hash == _build().content_hash
+
+
+def test_old_checkpoint_without_runtime_state_remains_compatible(tmp_path):
+    path = save_checkpoint(_build(), tmp_path / "build.json")
+
+    assert load_checkpoint_runtime_state(path) is None
+
+
+def test_checkpoint_detects_runtime_state_tampering(tmp_path):
+    path = save_checkpoint(
+        _build(),
+        tmp_path / "build.json",
+        runtime_state={"memory": {"anchors": [{"shot_id": "shot-1"}]}},
+    )
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["runtime_state"]["memory"]["anchors"][0]["shot_id"] = "poisoned"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(CheckpointError, match="runtime_state hash mismatch"):
+        load_checkpoint_runtime_state(path)
+
+
+def test_checkpoint_rejects_partial_runtime_state_pair(tmp_path):
+    path = save_checkpoint(
+        _build(), tmp_path / "build.json", runtime_state={"memory": {"anchors": []}}
+    )
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document.pop("runtime_state_hash")
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(CheckpointError, match="missing integrity hash"):
+        load_checkpoint_runtime_state(path)
 
 
 def test_checkpoint_rejects_unsupported_schema(tmp_path):
