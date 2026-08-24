@@ -177,7 +177,7 @@ class FirstFilmRunner:
                 "renderer",
                 "qc_retry",
                 "assembly",
-                "audio_mix",
+                "audio_mux",
             ],
             "runtime_checkpointing": checkpoint_path is not None,
         }
