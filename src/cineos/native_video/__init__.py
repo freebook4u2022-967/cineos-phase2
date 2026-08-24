@@ -1,6 +1,12 @@
 """CINEOS-owned native video temporal modeling contracts."""
 
 from .film_bridge import FILM_CONTINUITY_RUNTIME_KIND, NativeFilmContinuityBridge
+from .final_eval import (
+    FFmpegTemporalFilmEvaluator,
+    TemporalFilmEvalPolicy,
+    TemporalFilmEvalReport,
+    evaluate_sampled_frames,
+)
 from .renderer_binding import NativeFilmRendererBinding, NativeTemporalShotRenderer
 from .runtime import (
     MotionDampingRetryPolicy,
@@ -28,6 +34,7 @@ from .temporal_qc import (
 )
 
 __all__ = [
+    "FFmpegTemporalFilmEvaluator",
     "FILM_CONTINUITY_RUNTIME_KIND",
     "MotionDampingRetryPolicy",
     "NativeFilmContinuityBridge",
@@ -40,6 +47,8 @@ __all__ = [
     "SceneContinuityMemory",
     "SceneTransitionPolicy",
     "TemporalContinuityGate",
+    "TemporalFilmEvalPolicy",
+    "TemporalFilmEvalReport",
     "TemporalFrameInput",
     "TemporalFrameOutput",
     "TemporalGenerationError",
@@ -48,4 +57,5 @@ __all__ = [
     "TemporalQCReport",
     "TemporalRetryPolicy",
     "TemporalSequenceState",
+    "evaluate_sampled_frames",
 ]
