@@ -36,13 +36,16 @@ class NeuralModelConfig:
     image_size: int = 32
 
     def __post_init__(self) -> None:
-        if min(
-            self.feature_dim,
-            self.embedding_dim,
-            self.latent_dim,
-            self.hidden_dim,
-            self.image_size,
-        ) <= 0:
+        if (
+            min(
+                self.feature_dim,
+                self.embedding_dim,
+                self.latent_dim,
+                self.hidden_dim,
+                self.image_size,
+            )
+            <= 0
+        ):
             raise ValueError("neural model dimensions must be positive")
 
 
