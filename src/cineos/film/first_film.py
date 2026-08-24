@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .audio import AudioTrack, available_tracks, mux_primary_audio
+from .audio import AudioTrack, available_tracks, mux_audio_tracks
 from .build import BuildStatus, FilmBuild
 from .orchestrator import FilmOrchestrator
 
@@ -177,7 +177,7 @@ class FirstFilmRunner:
                 "renderer",
                 "qc_retry",
                 "assembly",
-                "audio_mux",
+                "audio_mix",
             ],
             "runtime_checkpointing": checkpoint_path is not None,
         }
@@ -202,7 +202,7 @@ class FirstFilmRunner:
             result.transition(BuildStatus.FAILED)
             return result
         usable_audio = available_tracks(audio_tracks)
-        final_with_audio = mux_primary_audio(
+        final_with_audio = mux_audio_tracks(
             video,
             usable_audio,
             root / "first-film.mp4",
@@ -213,6 +213,8 @@ class FirstFilmRunner:
             {
                 "silent_fallback": not bool(usable_audio),
                 "track_count": len(usable_audio),
+                "mix_mode": "timeline_multitrack" if usable_audio else "silent",
+                "kinds": [track.kind for track in usable_audio],
             },
         )
         return result
