@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .image_pixels import decode_rgb_image
 from .neural_backend import NeuralModelConfig, _load_torch
 
 
@@ -23,6 +24,13 @@ def _text_to_fixed_tensor(text: str, dimensions: int, *, device: Any):
     return _bytes_to_fixed_tensor(text.encode("utf-8"), dimensions, device=device)
 
 
+def _image_file_to_tensor(path: str | Path, config: NeuralModelConfig, *, device: Any):
+    """Decode real RGB pixels into the neural backend's deterministic input tensor."""
+    torch = _load_torch()
+    decoded = decode_rgb_image(path, image_size=config.image_size)
+    return torch.tensor(decoded.values, dtype=torch.float32, device=device)
+
+
 @dataclass(slots=True)
 class TorchImageLatentEncoder:
     """Small VAE-style image encoder producing mean/logvar latent parameters."""
@@ -34,7 +42,7 @@ class TorchImageLatentEncoder:
         torch = _load_torch()
         nn = torch.nn
         self.device_object = torch.device(self.device)
-        self.input_dim = max(64, self.config.feature_dim * 4)
+        self.input_dim = self.config.image_size * self.config.image_size * 3
         self.backbone = nn.Sequential(
             nn.Linear(self.input_dim, self.config.hidden_dim),
             nn.SiLU(),
@@ -48,17 +56,14 @@ class TorchImageLatentEncoder:
             self.config.latent_dim,
         ).to(self.device_object)
 
-    def encode_bytes(self, payload: bytes):
-        features = _bytes_to_fixed_tensor(
-            payload,
-            self.input_dim,
+    def encode_file(self, path: str | Path):
+        features = _image_file_to_tensor(
+            path,
+            self.config,
             device=self.device_object,
         )
         hidden = self.backbone(features)
         return self.mean_head(hidden), self.logvar_head(hidden)
-
-    def encode_file(self, path: str | Path):
-        return self.encode_bytes(Path(path).read_bytes())
 
     def sample(self, mean, logvar, *, deterministic: bool = False):
         torch = _load_torch()
@@ -70,7 +75,7 @@ class TorchImageLatentEncoder:
 
 @dataclass(slots=True)
 class TorchCharacterReferenceEncoder:
-    """Aggregate one or more approved character references into identity features."""
+    """Aggregate approved character image pixels into trainable identity features."""
 
     config: NeuralModelConfig
     device: str = "cpu"
@@ -79,7 +84,7 @@ class TorchCharacterReferenceEncoder:
         torch = _load_torch()
         nn = torch.nn
         self.device_object = torch.device(self.device)
-        self.input_dim = max(64, self.config.feature_dim * 4)
+        self.input_dim = self.config.image_size * self.config.image_size * 3
         self.network = nn.Sequential(
             nn.Linear(self.input_dim, self.config.hidden_dim),
             nn.SiLU(),
@@ -92,9 +97,9 @@ class TorchCharacterReferenceEncoder:
             raise ValueError("character reference encoder requires references")
         encoded = []
         for path in paths:
-            features = _bytes_to_fixed_tensor(
-                Path(path).read_bytes(),
-                self.input_dim,
+            features = _image_file_to_tensor(
+                path,
+                self.config,
                 device=self.device_object,
             )
             encoded.append(self.network(features))
