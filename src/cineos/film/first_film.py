@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .audio import AudioTrack, mux_primary_audio
+from .audio import AudioTrack, available_tracks, mux_primary_audio
 from .build import BuildStatus, FilmBuild
 from .orchestrator import FilmOrchestrator
 
@@ -168,10 +168,11 @@ class FirstFilmRunner:
             result.failures.append("final assembly did not produce final_mp4")
             result.transition(BuildStatus.FAILED)
             return result
-        final_with_audio = mux_primary_audio(video, audio_tracks, root / "first-film.mp4")
+        usable_audio = available_tracks(audio_tracks)
+        final_with_audio = mux_primary_audio(video, usable_audio, root / "first-film.mp4")
         result.output_files["final_mp4"] = str(final_with_audio)
         result.attach_audio(
-            str(audio_tracks[0].path) if audio_tracks and audio_tracks[0].path.is_file() else None,
-            {"silent_fallback": not bool(audio_tracks), "track_count": len(audio_tracks or [])},
+            str(usable_audio[0].path) if usable_audio else None,
+            {"silent_fallback": not bool(usable_audio), "track_count": len(usable_audio)},
         )
         return result
