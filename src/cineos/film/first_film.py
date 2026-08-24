@@ -8,7 +8,7 @@ single FilmBuild with an explicit final MP4 path.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -108,7 +108,14 @@ class FastTrackAutoDirector:
 
 
 class FirstFilmRunner:
-    """One-call Auto Director -> render -> QC/retry -> audio -> final MP4 runner."""
+    """One-call Auto Director -> render -> QC/retry -> audio -> final MP4 runner.
+
+    ``orchestrator_kwargs`` is the provider-neutral extension boundary for durable
+    runtime state and transactional shot lifecycle hooks. Native temporal video can
+    pass ``NativeFilmContinuityBridge.orchestrator_kwargs()`` here without coupling
+    the film layer to model-specific tensors or devices. The same boundary remains
+    available to future renderer generations and continuity implementations.
+    """
 
     def __init__(
         self,
@@ -117,14 +124,22 @@ class FirstFilmRunner:
         *,
         renderer_id: str = "atlas",
         max_recovery_attempts: int = 2,
+        orchestrator_kwargs: Mapping[str, Any] | None = None,
     ) -> None:
         self.renderer = renderer
         self.renderer_id = renderer_id
+        runtime_hooks = dict(orchestrator_kwargs or {})
+        reserved = {"max_recovery_attempts", "manual_review_on_failure"}
+        conflicts = sorted(reserved.intersection(runtime_hooks))
+        if conflicts:
+            joined = ", ".join(conflicts)
+            raise ValueError(f"orchestrator_kwargs cannot override runner policy: {joined}")
         self.orchestrator = FilmOrchestrator(
             renderer,
             validator,
             max_recovery_attempts=max_recovery_attempts,
             manual_review_on_failure=False,
+            **runtime_hooks,
         )
 
     def run(
@@ -138,6 +153,8 @@ class FirstFilmRunner:
         shot_duration: float = 4.0,
         audio_tracks: list[AudioTrack] | None = None,
         dry_run: bool = False,
+        resume: bool = False,
+        checkpoint_path: str | Path | None = None,
     ) -> FilmBuild:
         package = FastTrackAutoDirector(shot_duration=shot_duration).direct(
             premise, characters, package_id=package_id
@@ -160,8 +177,16 @@ class FirstFilmRunner:
                 "assembly",
                 "audio_mux",
             ],
+            "runtime_checkpointing": checkpoint_path is not None,
         }
-        result = self.orchestrator.run(package, build, output_dir, dry_run=dry_run)
+        result = self.orchestrator.run(
+            package,
+            build,
+            output_dir,
+            dry_run=dry_run,
+            resume=resume,
+            checkpoint_path=checkpoint_path,
+        )
         if dry_run or result.status not in {
             BuildStatus.COMPLETED,
             BuildStatus.COMPLETED_WITH_WARNINGS,
