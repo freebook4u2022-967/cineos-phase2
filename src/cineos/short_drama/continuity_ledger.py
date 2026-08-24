@@ -81,7 +81,10 @@ class ContinuityLedger:
                             key=key,
                             previous=old_value,
                             proposed=new_value,
-                            message=f"{character_id} changed {key} without an explicit transition",
+                            message=(
+                                f"{character_id} changed {key} without an "
+                                "explicit transition"
+                            ),
                         )
                     )
 
@@ -101,7 +104,10 @@ class ContinuityLedger:
                         key=key,
                         previous=old_value,
                         proposed=new_value,
-                        message=f"environment changed {key} without an explicit transition",
+                        message=(
+                            f"environment changed {key} without an "
+                            "explicit transition"
+                        ),
                     )
                 )
 
