@@ -18,15 +18,22 @@ from .validator import ShotValidator, file_hash, validate_reusable_output
 
 RuntimeStateProvider = Callable[[], dict[str, Any] | None]
 RuntimeStateRestorer = Callable[[dict[str, Any]], None]
+ShotAttemptCallback = Callable[[Any, int, int], None]
 
 
 class FilmOrchestrator:
     """Render in timeline order with explicit validation and bounded recovery.
 
-    The orchestrator stays renderer-neutral while exposing an optional runtime
-    checkpoint boundary. Native renderers can use it to persist scene/temporal
-    continuity memory alongside the durable ``FilmBuild`` without teaching the
-    film layer model-specific tensor semantics.
+    The orchestrator stays renderer-neutral while exposing optional runtime
+    checkpoint and shot-attempt lifecycle boundaries. Native renderers can use
+    these hooks to persist scene/temporal continuity memory alongside the durable
+    ``FilmBuild`` without teaching the film layer model-specific tensor semantics.
+
+    Attempt lifecycle callbacks are deliberately transactional: a runtime receives
+    ``shot_attempt_start`` before each render attempt, ``shot_attempt_accepted``
+    only after whole-shot validation succeeds, and ``shot_attempt_rejected`` for
+    any failed attempt. This prevents rejected whole-shot retries from advancing
+    long-range continuity state.
     """
 
     def __init__(
@@ -38,6 +45,9 @@ class FilmOrchestrator:
         manual_review_on_failure: bool = False,
         checkpoint_state_provider: RuntimeStateProvider | None = None,
         checkpoint_state_restorer: RuntimeStateRestorer | None = None,
+        shot_attempt_start: ShotAttemptCallback | None = None,
+        shot_attempt_accepted: ShotAttemptCallback | None = None,
+        shot_attempt_rejected: ShotAttemptCallback | None = None,
     ) -> None:
         self.renderer = renderer
         self.validator = validator or ShotValidator()
@@ -45,6 +55,9 @@ class FilmOrchestrator:
         self.manual_review_on_failure = manual_review_on_failure
         self.checkpoint_state_provider = checkpoint_state_provider
         self.checkpoint_state_restorer = checkpoint_state_restorer
+        self.shot_attempt_start = shot_attempt_start
+        self.shot_attempt_accepted = shot_attempt_accepted
+        self.shot_attempt_rejected = shot_attempt_rejected
         self.cancel_event = Event()
 
     def cancel(self) -> None:
@@ -78,6 +91,10 @@ class FilmOrchestrator:
                 self.checkpoint_state_restorer(runtime_state)
 
         plan = plan_shots(package)
+        scene_indices: dict[str, int] = {}
+        for item in plan:
+            scene_indices.setdefault(item.scene_id, len(scene_indices))
+
         existing = {state.shot_id: state for state in build.shot_states}
         build.shot_states = [
             existing.get(item.shot_id, ShotState(item.shot_id)) for item in plan
@@ -104,7 +121,14 @@ class FilmOrchestrator:
                 ):
                     self._checkpoint(build, checkpoint)
                     continue
-                self._render_shot(item, state, root, build, checkpoint)
+                self._render_shot(
+                    item,
+                    state,
+                    root,
+                    build,
+                    checkpoint,
+                    scene_index=scene_indices[item.scene_id],
+                )
                 if not state.approved:
                     build.failures.append(f"{item.shot_id}: {state.failure_reason}")
                     build.transition(
@@ -158,6 +182,8 @@ class FilmOrchestrator:
         root: Path,
         build: FilmBuild,
         checkpoint: Path | None = None,
+        *,
+        scene_index: int,
     ) -> None:
         attempts = self.max_recovery_attempts + 1
         for attempt in range(attempts):
@@ -165,12 +191,15 @@ class FilmOrchestrator:
                 BuildStatus.RECOVERING if attempt else BuildStatus.RENDERING
             )
             state.attempt_count += 1
+            attempt_number = state.attempt_count
+            if self.shot_attempt_start is not None:
+                self.shot_attempt_start(planned, scene_index, attempt_number)
             self._checkpoint(build, checkpoint)
             started = monotonic()
             target = (
                 root
                 / "shots"
-                / f"{planned.index:04d}-{planned.shot_id}-a{state.attempt_count}.mp4"
+                / f"{planned.index:04d}-{planned.shot_id}-a{attempt_number}.mp4"
             )
             target.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -188,18 +217,22 @@ class FilmOrchestrator:
                 build.validation_states.append(
                     {
                         "shot_id": planned.shot_id,
-                        "attempt": state.attempt_count,
+                        "attempt": attempt_number,
                         "approved": approved,
                     }
                 )
                 if approved:
+                    if self.shot_attempt_accepted is not None:
+                        self.shot_attempt_accepted(
+                            planned, scene_index, attempt_number
+                        )
                     state.validation_status = "approved"
                     state.selected_output = str(path)
                     state.output_hash = file_hash(path)
                     state.recovery_status = "recovered" if attempt else "not_required"
                     state.attempt_history.append(
                         {
-                            "attempt": state.attempt_count,
+                            "attempt": attempt_number,
                             "approved": True,
                             "output_hash": state.output_hash,
                         }
@@ -208,6 +241,15 @@ class FilmOrchestrator:
                     return
                 raise FilmBuildError("validator rejected output")
             except Exception as error:
+                if self.shot_attempt_rejected is not None:
+                    try:
+                        self.shot_attempt_rejected(
+                            planned, scene_index, attempt_number
+                        )
+                    except Exception as rollback_error:
+                        error = FilmBuildError(
+                            f"{error}; runtime rollback failed: {rollback_error}"
+                        )
                 state.failure_reason = str(error)
                 state.validation_status = "rejected"
                 state.recovery_status = (
@@ -215,7 +257,7 @@ class FilmOrchestrator:
                 )
                 state.attempt_history.append(
                     {
-                        "attempt": state.attempt_count,
+                        "attempt": attempt_number,
                         "approved": False,
                         "reason": str(error),
                     }
@@ -223,13 +265,13 @@ class FilmOrchestrator:
                 build.recovery_states.append(
                     {
                         "shot_id": planned.shot_id,
-                        "attempt": state.attempt_count,
+                        "attempt": attempt_number,
                         "reason": str(error),
                     }
                 )
                 self._checkpoint(build, checkpoint)
             finally:
-                state.timing_metrics[f"attempt_{state.attempt_count}_seconds"] = (
+                state.timing_metrics[f"attempt_{attempt_number}_seconds"] = (
                     monotonic() - started
                 )
                 self._checkpoint(build, checkpoint)
