@@ -96,6 +96,23 @@ def load_identity_anchors(path: str | Path) -> dict[str, tuple[float, ...]]:
     return anchors
 
 
+def validate_identity_coverage(dataset, anchors: dict[str, tuple[float, ...]]) -> dict[str, int]:
+    """Validate anchor coverage for every real training record before training starts.
+
+    Identity supervision must fail fast rather than discovering a missing
+    character anchor after DDP workers have initialized and consumed batches.
+    The returned counts are persisted in checkpoints for auditability.
+    """
+    counts: dict[str, int] = {}
+    for record in dataset.records:
+        character_id = str(record.character_id)
+        counts[character_id] = counts.get(character_id, 0) + 1
+    missing = sorted(character_id for character_id in counts if character_id not in anchors)
+    if missing:
+        raise ValueError(f"identity anchors missing for: {', '.join(missing)}")
+    return counts
+
+
 def _anchors_for_batch(torch, character_ids, anchors, device):
     missing = sorted({character_id for character_id in character_ids if character_id not in anchors})
     if missing:
@@ -177,6 +194,7 @@ def run_ddp_training(
                 device,
             )
 
+        identity_sample_counts = None
         if manifest is not None:
             if dataset_root is None:
                 raise ValueError("--dataset-root is required when --manifest is used")
@@ -184,6 +202,8 @@ def run_ddp_training(
                 load_dataset_manifest(manifest), dataset_root, model_config
             )
             real_mode = True
+            if anchors is not None:
+                identity_sample_counts = validate_identity_coverage(dataset, anchors)
         else:
             if anchors is not None:
                 raise ValueError("--identity-bank requires --manifest real dataset mode")
@@ -234,10 +254,11 @@ def run_ddp_training(
             checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
                 {
-                    "schema": "cineos-ddp-training/0.4",
+                    "schema": "cineos-ddp-training/0.5",
                     "dataset_mode": "real" if real_mode else "synthetic",
                     "manifest": str(manifest) if manifest is not None else None,
                     "identity_bank": str(identity_bank) if identity_bank is not None else None,
+                    "identity_sample_counts": identity_sample_counts,
                     "model": ddp.module.state_dict(),
                     "identity_projection": (
                         projection_ddp.module.state_dict() if projection_ddp is not None else None
