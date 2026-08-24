@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import shutil
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import pytest
+
+from cineos.native_image.tensor_model import Tensor
+from cineos.native_video.shot_renderer import (
+    CINEOSNativeTemporalShotRenderer,
+    NativeShotRenderError,
+    _latent_to_rgb,
+)
+from cineos.native_video.temporal_model import NativeTemporalModel
+
+
+@dataclass(frozen=True, slots=True)
+class Planned:
+    shot_id: str = "shot-001"
+    scene_id: str = "scene-001"
+    duration: float = 0.5
+    payload: dict[str, object] = field(
+        default_factory=lambda: {
+            "approved_reference_ids": ["ref-front", "ref-side"],
+            "cinedna_ids": ["hero-v1"],
+            "character_ids": ["hero"],
+            "prompt": "A restrained close-up with subtle breathing motion.",
+            "location_id": "room-a",
+            "continuity_key": "scene-001-night",
+        }
+    )
+
+
+def test_latent_decoder_produces_real_rgb_payload() -> None:
+    latent = Tensor((0.1, -0.2, 0.3, -0.4), (4,), "cpu")
+    rgb = _latent_to_rgb(latent, 8, 4)
+
+    assert len(rgb) == 8 * 4 * 3
+    assert len(set(rgb)) > 8
+
+
+def test_renderer_fails_closed_without_encoder(tmp_path: Path) -> None:
+    model = NativeTemporalModel.initialized()
+    renderer = CINEOSNativeTemporalShotRenderer(
+        width=16,
+        height=16,
+        fps=2,
+        ffmpeg_binary="cineos-ffmpeg-does-not-exist",
+    )
+    state = model.initial_state("shot-001")
+
+    with pytest.raises(NativeShotRenderError, match="not available"):
+        renderer.render(Planned(), tmp_path / "shot.mp4", temporal_state=state)
+
+    assert state.last_frame_index == -1
+    assert state.last_latent is None
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="FFmpeg is not installed")
+def test_renderer_generates_mp4_and_advances_only_native_temporal_state(
+    tmp_path: Path,
+) -> None:
+    renderer = CINEOSNativeTemporalShotRenderer(width=32, height=18, fps=4)
+    state = renderer.runtime.model.initial_state("shot-001")
+    target = tmp_path / "shot.mp4"
+
+    result = renderer.render(Planned(duration=0.5), target, temporal_state=state)
+
+    assert result == target
+    assert target.is_file()
+    assert target.stat().st_size > 0
+    assert state.last_frame_index == 1
+    assert state.last_latent is not None
+    assert state.metadata["frames_generated"] == 2
+    assert state.metadata["native_renderer"] == "cineos-temporal-pixel/0.1"
+    assert state.metadata["native_frame_count"] == 2
+
+
+def test_renderer_rejects_state_for_another_shot(tmp_path: Path) -> None:
+    renderer = CINEOSNativeTemporalShotRenderer(width=16, height=16, fps=2)
+    state = renderer.runtime.model.initial_state("other-shot")
+
+    with pytest.raises(ValueError, match="must belong"):
+        renderer.render(Planned(), tmp_path / "shot.mp4", temporal_state=state)
