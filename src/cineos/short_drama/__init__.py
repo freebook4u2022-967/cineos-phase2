@@ -3,6 +3,7 @@
 from .agents import ContinuitySupervisor, ScreenwriterAgent, ShotPlanner
 from .brains import CharacterBrain, DramaBrain
 from .character_approval import approve_character_files, approve_character_reference
+from .continuity_ledger import ContinuityLedger, ContinuityViolation
 from .directing import DirectorDecisionEngine
 from .integration import (
     compile_drama_plan,
@@ -16,7 +17,9 @@ from .state import SceneStateEngine
 __all__ = [
     "CharacterBrain",
     "CharacterProfile",
+    "ContinuityLedger",
     "ContinuitySupervisor",
+    "ContinuityViolation",
     "DirectorDecisionEngine",
     "DramaBrain",
     "DramaBrief",
