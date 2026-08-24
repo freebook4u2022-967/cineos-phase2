@@ -12,13 +12,18 @@ CHECKPOINT_MANIFEST_SCHEMA = "cineos-native-model-checkpoint/0.1"
 
 @dataclass(frozen=True, slots=True)
 class NativeTrainingSample:
-    """One supervised/multimodal frame-training example."""
+    """One supervised/multimodal frame-training example.
+
+    ``scene_description`` was added after the original dataset contract. Keep it
+    optional at the Python API boundary so older manifests and callers remain
+    loadable while new pipelines can provide richer scene conditioning.
+    """
 
     sample_id: str
     image_path: str
     character_reference_paths: tuple[str, ...]
     caption: str
-    scene_description: str
+    scene_description: str = ""
     identity_tags: tuple[str, ...] = ()
     continuity_tags: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -119,4 +124,4 @@ class LearnedLatentSampler(Protocol):
 
 
 class LearnedRGBDecoder(Protocol):
-    def decode(self, latent: Any, *, width: int, height: int) -> bytes: ...
+    def decode(self, latent: Any) -> Any: ...
