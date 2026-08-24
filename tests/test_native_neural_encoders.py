@@ -76,3 +76,46 @@ def test_image_encoder_uses_decoded_pixels_not_container_bytes(tmp_path):
 
     assert torch.allclose(low_mean, high_mean)
     assert torch.allclose(low_logvar, high_logvar)
+
+
+def test_scene_text_encoder_uses_stable_trainable_token_embeddings():
+    if not torch_available():
+        pytest.skip("CINEOS neural optional dependencies are not installed")
+
+    import torch
+
+    torch.manual_seed(7)
+    encoder = TorchSceneTextEncoder(
+        _config(),
+        vocabulary_size=257,
+        max_tokens=32,
+    )
+
+    first_ids = encoder.tokenize("Rainy port, same wardrobe")
+    repeated_ids = encoder.tokenize("Rainy port, same wardrobe")
+    changed_ids = encoder.tokenize("Sunny desert, torn wardrobe")
+
+    assert first_ids == repeated_ids
+    assert first_ids != changed_ids
+    assert len(first_ids) <= 32
+    assert all(0 <= token_id < 257 for token_id in first_ids)
+
+    rainy = encoder.encode("Hero turns", "Rainy port", ("same wardrobe",))
+    sunny = encoder.encode("Hero turns", "Sunny desert", ("same wardrobe",))
+    assert tuple(rainy.shape) == (4,)
+    assert not torch.allclose(rainy, sunny)
+
+    rainy.sum().backward()
+    gradient = encoder.embedding.weight.grad
+    assert gradient is not None
+    assert torch.count_nonzero(gradient).item() > 0
+
+
+def test_scene_text_encoder_rejects_invalid_tokenizer_configuration():
+    if not torch_available():
+        pytest.skip("CINEOS neural optional dependencies are not installed")
+
+    with pytest.raises(ValueError, match="vocabulary_size"):
+        TorchSceneTextEncoder(_config(), vocabulary_size=1)
+    with pytest.raises(ValueError, match="max_tokens"):
+        TorchSceneTextEncoder(_config(), max_tokens=0)
