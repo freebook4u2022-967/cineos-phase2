@@ -35,7 +35,7 @@ class IdentityCoverageReport:
 
 
 class IdentityCoverageAnalyzer:
-    """Measure whether each identity has enough reference diversity for continuity training.
+    """Measure reference diversity for continuity training.
 
     Metadata convention:
       identity_tags: character identifiers, e.g. ("arif",)
