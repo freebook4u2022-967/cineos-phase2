@@ -17,7 +17,11 @@ def _sha(byte: str) -> str:
     return byte * 64
 
 
-def _manifest(version: str, artifact: str = "a", contract: int = 1) -> NativeModelManifest:
+def _manifest(
+    version: str,
+    artifact: str = "a",
+    contract: int = 1,
+) -> NativeModelManifest:
     return NativeModelManifest(
         model_id="cineos-native-film",
         model_version=version,
@@ -42,7 +46,8 @@ def test_manifest_hash_is_deterministic_and_round_trips(tmp_path):
 
     assert loaded == manifest
     assert loaded.manifest_sha256 == manifest.manifest_sha256
-    assert json.loads(path.read_text())["manifest_sha256"] == manifest.manifest_sha256
+    stored = json.loads(path.read_text())
+    assert stored["manifest_sha256"] == manifest.manifest_sha256
 
 
 def test_manifest_rejects_tampering(tmp_path):
@@ -96,5 +101,8 @@ def test_registry_refuses_incompatible_activation(tmp_path):
         supported_component_contracts={"frame-model": 1},
     )
 
-    with pytest.raises(ModelManifestError, match="refusing incompatible model activation"):
+    with pytest.raises(
+        ModelManifestError,
+        match="refusing incompatible model activation",
+    ):
         registry.activate(_manifest("2.0.0", contract=2))
