@@ -6,10 +6,18 @@ from .temporal_model import (
     TemporalFrameOutput,
     TemporalSequenceState,
 )
+from .temporal_qc import (
+    TemporalContinuityGate,
+    TemporalQCPolicy,
+    TemporalQCReport,
+)
 
 __all__ = [
     "NativeTemporalModel",
+    "TemporalContinuityGate",
     "TemporalFrameInput",
     "TemporalFrameOutput",
+    "TemporalQCPolicy",
+    "TemporalQCReport",
     "TemporalSequenceState",
 ]
