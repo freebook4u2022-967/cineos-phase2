@@ -32,7 +32,7 @@ class LocalAIFilmRenderer:
 
     @staticmethod
     def _seed(shot_id: str, prompt: str) -> int:
-        digest = hashlib.sha256(f"{shot_id}\n{prompt}".encode("utf-8")).digest()
+        digest = hashlib.sha256(f"{shot_id}\n{prompt}".encode()).digest()
         return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
 
     def render(self, planned: Any, target: str | Path) -> Path:
