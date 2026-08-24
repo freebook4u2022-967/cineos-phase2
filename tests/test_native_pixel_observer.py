@@ -1,5 +1,8 @@
 from cineos.atlas.native_request import NativeShotRequest
-from cineos.native_image.backend import NativeImageResearchBackend, NativeImageResearchResult
+from cineos.native_image.backend import (
+    NativeImageResearchBackend,
+    NativeImageResearchResult,
+)
 from cineos.native_image.conditioning import compile_native_image_plan
 from cineos.native_image.frame_runtime import NativeFrameRuntime
 from cineos.native_image.neural_decoder import DecodedRGBFrame
@@ -16,7 +19,9 @@ def _solid_frame(value: int, *, width: int = 4, height: int = 4) -> DecodedRGBFr
     return DecodedRGBFrame(width, height, bytes([value, value, value] * width * height))
 
 
-def _result(frame: DecodedRGBFrame, shot_id: str = "shot-001") -> NativeImageResearchResult:
+def _result(
+    frame: DecodedRGBFrame, shot_id: str = "shot-001"
+) -> NativeImageResearchResult:
     return NativeImageResearchResult(
         shot_id=shot_id,
         plan_hash="plan-hash",
