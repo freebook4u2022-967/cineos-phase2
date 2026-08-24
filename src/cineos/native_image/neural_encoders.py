@@ -34,7 +34,9 @@ def _token_ids(text: str, *, vocabulary_size: int, max_tokens: int) -> tuple[int
     tokens = _TOKEN_RE.findall(text.casefold())
     if not tokens:
         return (0,)
-    return tuple(_stable_token_id(token, vocabulary_size) for token in tokens[:max_tokens])
+    return tuple(
+        _stable_token_id(token, vocabulary_size) for token in tokens[:max_tokens]
+    )
 
 
 @dataclass
