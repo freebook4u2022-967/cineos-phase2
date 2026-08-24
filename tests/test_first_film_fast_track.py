@@ -44,6 +44,76 @@ def test_first_film_runner_dry_run_reaches_renderable_plan(tmp_path):
     assert build.metadata["dry_run"]["renderer_compatible"] is True
     assert build.metadata["first_film"]["character_ids"] == ["lead"]
     assert build.metadata["first_film"]["critical_path"][-1] == "audio_mux"
+    assert build.metadata["first_film"]["runtime_checkpointing"] is False
+
+
+def test_first_film_runner_binds_provider_neutral_runtime_hooks():
+    runtime_state = {"kind": "test-runtime", "accepted": ["shot-001"]}
+
+    def provider():
+        return runtime_state
+
+    def restorer(payload):
+        runtime_state.update(payload)
+
+    def started(planned, scene_index, attempt):
+        del planned, scene_index, attempt
+
+    def accepted(planned, scene_index, attempt):
+        del planned, scene_index, attempt
+
+    def rejected(planned, scene_index, attempt):
+        del planned, scene_index, attempt
+
+    runner = FirstFilmRunner(
+        _Renderer(),
+        orchestrator_kwargs={
+            "checkpoint_state_provider": provider,
+            "checkpoint_state_restorer": restorer,
+            "shot_attempt_start": started,
+            "shot_attempt_accepted": accepted,
+            "shot_attempt_rejected": rejected,
+        },
+    )
+    assert runner.orchestrator.checkpoint_state_provider is provider
+    assert runner.orchestrator.checkpoint_state_restorer is restorer
+    assert runner.orchestrator.shot_attempt_start is started
+    assert runner.orchestrator.shot_attempt_accepted is accepted
+    assert runner.orchestrator.shot_attempt_rejected is rejected
+
+
+def test_first_film_dry_run_persists_runtime_checkpoint(tmp_path):
+    checkpoint = tmp_path / "film-checkpoint.json"
+    runner = FirstFilmRunner(
+        _Renderer(),
+        orchestrator_kwargs={
+            "checkpoint_state_provider": lambda: {
+                "kind": "test-runtime",
+                "accepted": [],
+            }
+        },
+    )
+    build = runner.run(
+        "A courier reaches the final checkpoint before sunrise.",
+        [DirectorCharacter("courier", "Courier")],
+        tmp_path / "output",
+        dry_run=True,
+        checkpoint_path=checkpoint,
+    )
+    assert checkpoint.exists()
+    assert build.metadata["first_film"]["runtime_checkpointing"] is True
+
+
+def test_first_film_runner_rejects_runtime_hooks_that_override_runner_policy():
+    try:
+        FirstFilmRunner(
+            _Renderer(),
+            orchestrator_kwargs={"max_recovery_attempts": 99},
+        )
+    except ValueError as error:
+        assert "cannot override runner policy" in str(error)
+    else:
+        raise AssertionError("runner policy override should be rejected")
 
 
 def test_director_rejects_duplicate_character_ids():
