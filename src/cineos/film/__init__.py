@@ -6,6 +6,7 @@ from .checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
     CheckpointError,
     load_checkpoint,
+    load_checkpoint_runtime_state,
     save_checkpoint,
 )
 from .orchestrator import FilmOrchestrator
@@ -24,6 +25,7 @@ __all__ = [
     "build_report",
     "load",
     "load_checkpoint",
+    "load_checkpoint_runtime_state",
     "save",
     "save_checkpoint",
 ]
