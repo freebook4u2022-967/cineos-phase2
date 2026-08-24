@@ -5,6 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from cineos.film.build import FilmBuild
+from cineos.film.orchestrator import FilmOrchestrator
+from cineos.film.shot_state import ShotState
 from cineos.native_image.tensor_model import Tensor
 from cineos.native_video import (
     NativeFilmContinuityBridge,
@@ -17,10 +20,12 @@ class RecordingNativeRenderer:
     def __init__(self, *, latent_dim: int = 16) -> None:
         self.latent_dim = latent_dim
         self.states = []
+        self.initial_hidden = []
         self.cancelled = False
 
     def render(self, planned, target, *, temporal_state):
         self.states.append(temporal_state)
+        self.initial_hidden.append(temporal_state.hidden.values)
         temporal_state.hidden = Tensor(
             (1.0,) * len(temporal_state.hidden.values),
             temporal_state.hidden.shape,
@@ -41,8 +46,40 @@ class RecordingNativeRenderer:
         self.cancelled = True
 
 
-def _planned(shot_id: str):
-    return SimpleNamespace(shot_id=shot_id, payload={})
+class RejectThenApprove:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def validate(self, path, planned):
+        self.calls += 1
+        return {"approved": self.calls >= 2}
+
+
+def _planned(shot_id: str, *, scene_id: str = "scene-a", index: int = 0):
+    return SimpleNamespace(
+        shot_id=shot_id,
+        scene_id=scene_id,
+        index=index,
+        duration=1.0,
+        payload={},
+    )
+
+
+def _accept_anchor(bridge: NativeFilmContinuityBridge, planned) -> None:
+    bridge.start_attempt(planned, 0, 1)
+    state = bridge.state_for(planned.shot_id)
+    state.hidden = Tensor(
+        (1.0,) * bridge.model.hidden_dim,
+        (bridge.model.hidden_dim,),
+        state.hidden.device,
+    )
+    state.last_latent = Tensor(
+        (2.0,) * bridge.model.latent_dim,
+        (bridge.model.latent_dim,),
+        state.hidden.device,
+    )
+    state.last_frame_index = 0
+    bridge.accept_attempt(planned, 0, 1)
 
 
 def test_binding_passes_exact_active_temporal_state_to_renderer(tmp_path):
@@ -62,6 +99,41 @@ def test_binding_passes_exact_active_temporal_state_to_renderer(tmp_path):
     assert bridge.memory.latest() is not None
     assert bridge.memory.latest().shot_id == "shot-1"
     assert bridge.memory.latest().latent.values == (2.0,) * bridge.model.latent_dim
+
+
+def test_orchestrator_retry_rebinds_last_durable_continuity_state(tmp_path):
+    bridge = NativeFilmContinuityBridge(model=NativeTemporalModel.initialized())
+    _accept_anchor(bridge, _planned("shot-anchor"))
+
+    renderer = RecordingNativeRenderer(latent_dim=bridge.model.latent_dim)
+    binding = NativeFilmRendererBinding(renderer=renderer, continuity=bridge)
+    orchestrator = FilmOrchestrator(
+        binding,
+        validator=RejectThenApprove(),
+        max_recovery_attempts=1,
+        **bridge.orchestrator_kwargs(),
+    )
+    planned = _planned("shot-retry", index=1)
+    state = ShotState(planned.shot_id)
+    build = FilmBuild("project", "package", "native")
+
+    orchestrator._render_shot(
+        planned,
+        state,
+        tmp_path,
+        build,
+        scene_index=0,
+    )
+
+    assert state.approved
+    assert state.attempt_count == 2
+    assert renderer.initial_hidden == [
+        pytest.approx((0.65,) * bridge.model.hidden_dim),
+        pytest.approx((0.65,) * bridge.model.hidden_dim),
+    ]
+    assert len(bridge.memory.anchors) == 2
+    assert bridge.memory.latest() is not None
+    assert bridge.memory.latest().shot_id == "shot-retry"
 
 
 def test_binding_fails_closed_without_active_attempt(tmp_path):
