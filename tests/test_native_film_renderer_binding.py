@@ -127,10 +127,13 @@ def test_orchestrator_retry_rebinds_last_durable_continuity_state(tmp_path):
 
     assert state.approved
     assert state.attempt_count == 2
-    assert renderer.initial_hidden == [
-        pytest.approx((0.65,) * bridge.model.hidden_dim),
-        pytest.approx((0.65,) * bridge.model.hidden_dim),
-    ]
+    assert len(renderer.initial_hidden) == 2
+    assert renderer.initial_hidden[0] == pytest.approx(
+        (0.65,) * bridge.model.hidden_dim
+    )
+    assert renderer.initial_hidden[1] == pytest.approx(
+        (0.65,) * bridge.model.hidden_dim
+    )
     assert len(bridge.memory.anchors) == 2
     assert bridge.memory.latest() is not None
     assert bridge.memory.latest().shot_id == "shot-retry"
