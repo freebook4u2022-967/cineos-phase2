@@ -1,7 +1,7 @@
 """Versioned native-model manifests and safe activation/rollback support.
 
 This module keeps CINEOS-owned learned artifacts evolvable without silently loading
-incompatible checkpoints.  It intentionally uses only standard-library primitives
+incompatible checkpoints. It intentionally uses only standard-library primitives
 so the compatibility gate is available in training, rendering, and release tools.
 """
 
@@ -10,15 +10,16 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 NATIVE_MODEL_MANIFEST_SCHEMA = "cineos-native-model-manifest/1"
 NATIVE_MODEL_REGISTRY_SCHEMA = "cineos-native-model-registry/1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SEMVER_RE = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
 )
 
 
@@ -28,7 +29,7 @@ class ModelManifestError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class NativeModelComponent:
-    """One independently versioned artifact that participates in native inference."""
+    """One independently versioned artifact used by native inference."""
 
     name: str
     version: str
@@ -50,7 +51,7 @@ class NativeModelComponent:
 
 @dataclass(frozen=True, slots=True)
 class NativeModelManifest:
-    """Immutable identity and compatibility contract for a CINEOS native model."""
+    """Immutable identity and compatibility contract for a native model."""
 
     model_id: str
     model_version: str
@@ -117,7 +118,12 @@ class NativeModelManifest:
         return destination
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object], *, verify_hash: bool = True) -> "NativeModelManifest":
+    def from_dict(
+        cls,
+        payload: dict[str, object],
+        *,
+        verify_hash: bool = True,
+    ) -> NativeModelManifest:
         try:
             raw_components = payload["components"]
             if not isinstance(raw_components, list):
@@ -132,12 +138,13 @@ class NativeModelManifest:
                 for item in raw_components
                 if isinstance(item, dict)
             )
+            raw_metadata = dict(payload.get("metadata", {}))
             manifest = cls(
                 model_id=str(payload["model_id"]),
                 model_version=str(payload["model_version"]),
                 runtime_contract_version=int(payload["runtime_contract_version"]),
                 components=components,
-                metadata={str(k): str(v) for k, v in dict(payload.get("metadata", {})).items()},
+                metadata={str(k): str(v) for k, v in raw_metadata.items()},
                 schema=str(payload.get("schema", "")),
             )
         except (KeyError, TypeError, ValueError) as exc:
@@ -150,7 +157,12 @@ class NativeModelManifest:
         return manifest
 
     @classmethod
-    def load(cls, path: str | Path, *, verify_hash: bool = True) -> "NativeModelManifest":
+    def load(
+        cls,
+        path: str | Path,
+        *,
+        verify_hash: bool = True,
+    ) -> NativeModelManifest:
         try:
             payload = json.loads(Path(path).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -183,13 +195,16 @@ def check_runtime_compatibility(
     for component in manifest.components:
         supported = supported_component_contracts.get(component.name)
         if supported is None:
-            return RuntimeCompatibility(False, f"unsupported component: {component.name}")
-        if component.contract_version > supported:
             return RuntimeCompatibility(
                 False,
-                f"component {component.name} requires contract {component.contract_version}, "
-                f"runtime supports {supported}",
+                f"unsupported component: {component.name}",
             )
+        if component.contract_version > supported:
+            reason = (
+                f"component {component.name} requires contract "
+                f"{component.contract_version}, runtime supports {supported}"
+            )
+            return RuntimeCompatibility(False, reason)
     return RuntimeCompatibility(True, "compatible")
 
 
@@ -216,9 +231,14 @@ class NativeModelRegistry:
             state = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ModelManifestError("unable to read native model registry") from exc
-        if not isinstance(state, dict) or state.get("schema") != NATIVE_MODEL_REGISTRY_SCHEMA:
+        if (
+            not isinstance(state, dict)
+            or state.get("schema") != NATIVE_MODEL_REGISTRY_SCHEMA
+        ):
             raise ModelManifestError("unsupported native model registry schema")
-        if not isinstance(state.get("history"), list) or not isinstance(state.get("manifests"), dict):
+        if not isinstance(state.get("history"), list) or not isinstance(
+            state.get("manifests"), dict
+        ):
             raise ModelManifestError("malformed native model registry")
         return state
 
@@ -226,7 +246,8 @@ class NativeModelRegistry:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
         temporary.write_text(
-            json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(state, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
         temporary.replace(self.path)
 
@@ -237,7 +258,9 @@ class NativeModelRegistry:
             supported_component_contracts=self.supported_component_contracts,
         )
         if not compatibility.compatible:
-            raise ModelManifestError(f"refusing incompatible model activation: {compatibility.reason}")
+            raise ModelManifestError(
+                "refusing incompatible model activation: " + compatibility.reason
+            )
         state = self._load_state()
         digest = manifest.manifest_sha256
         manifests = dict(state["manifests"])
@@ -266,7 +289,9 @@ class NativeModelRegistry:
         state = self._load_state()
         history = [str(value) for value in state["history"]]
         if not history:
-            raise ModelManifestError("no previous native model is available for rollback")
+            raise ModelManifestError(
+                "no previous native model is available for rollback"
+            )
         target_digest = history.pop()
         payload = dict(state["manifests"]).get(target_digest)
         if not isinstance(payload, dict):
@@ -278,14 +303,18 @@ class NativeModelRegistry:
             supported_component_contracts=self.supported_component_contracts,
         )
         if not compatibility.compatible:
-            raise ModelManifestError(f"refusing incompatible rollback: {compatibility.reason}")
+            raise ModelManifestError(
+                "refusing incompatible rollback: " + compatibility.reason
+            )
         state["history"] = history
         state["active_manifest_sha256"] = target_digest
         self._save_state(state)
         return target
 
 
-def component_contract_map(components: Iterable[NativeModelComponent]) -> dict[str, int]:
+def component_contract_map(
+    components: Iterable[NativeModelComponent],
+) -> dict[str, int]:
     """Build a runtime support map while rejecting duplicate component names."""
 
     result: dict[str, int] = {}
