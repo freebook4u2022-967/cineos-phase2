@@ -13,9 +13,7 @@ def _frame(value: int, size: int = 16) -> bytes:
 
 
 def test_final_film_eval_accepts_non_black_motion_evidence() -> None:
-    report = evaluate_sampled_frames(
-        (_frame(40), _frame(50), _frame(61), _frame(73))
-    )
+    report = evaluate_sampled_frames((_frame(40), _frame(50), _frame(61), _frame(73)))
 
     assert report.decision == "accept"
     assert report.accepted is True
