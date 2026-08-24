@@ -1,5 +1,6 @@
 """CINEOS-owned native video temporal modeling contracts."""
 
+from .film_bridge import FILM_CONTINUITY_RUNTIME_KIND, NativeFilmContinuityBridge
 from .runtime import (
     MotionDampingRetryPolicy,
     NativeTemporalRuntime,
@@ -26,7 +27,9 @@ from .temporal_qc import (
 )
 
 __all__ = [
+    "FILM_CONTINUITY_RUNTIME_KIND",
     "MotionDampingRetryPolicy",
+    "NativeFilmContinuityBridge",
     "NativeTemporalModel",
     "NativeTemporalRuntime",
     "SCENE_MEMORY_SCHEMA",
