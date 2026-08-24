@@ -145,9 +145,9 @@ class NativeTemporalRuntime:
 
             if report.accepted:
                 self.model.commit(candidate, state)
-                state.metadata["temporal_attempts"] = int(
-                    state.metadata.get("temporal_attempts", 0)
-                ) + attempts
+                state.metadata["temporal_attempts"] = (
+                    int(state.metadata.get("temporal_attempts", 0)) + attempts
+                )
                 state.metadata["temporal_retries"] = int(
                     state.metadata.get("temporal_retries", 0)
                 ) + (attempts - 1)
@@ -155,9 +155,9 @@ class NativeTemporalRuntime:
 
             retries_used = attempts - 1
             if retries_used >= self.max_retries:
-                state.metadata["temporal_failed_candidates"] = int(
-                    state.metadata.get("temporal_failed_candidates", 0)
-                ) + attempts
+                state.metadata["temporal_failed_candidates"] = (
+                    int(state.metadata.get("temporal_failed_candidates", 0)) + attempts
+                )
                 raise TemporalGenerationError(report, attempts)
 
             request = self.retry_policy.adapt(
