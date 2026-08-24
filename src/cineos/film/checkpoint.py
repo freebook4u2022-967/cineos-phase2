@@ -26,6 +26,8 @@ class CheckpointError(ValueError):
 
 def checkpoint_payload(build: FilmBuild) -> dict[str, Any]:
     """Return the stable, versioned payload persisted for ``build``."""
+    if not isinstance(build, FilmBuild):
+        raise TypeError("build must be a FilmBuild")
     payload = asdict(build)
     payload["status"] = str(build.status)
     return {
@@ -33,6 +35,30 @@ def checkpoint_payload(build: FilmBuild) -> dict[str, Any]:
         "build": payload,
         "content_hash": build.content_hash,
     }
+
+
+def _fsync_directory(path: Path) -> None:
+    """Best-effort directory sync after atomic replacement.
+
+    ``os.replace`` protects readers from partial checkpoint contents, but on POSIX
+    filesystems durability across a sudden power loss also requires syncing the
+    containing directory entry. Some platforms do not permit opening directories;
+    those platforms retain the atomic-replace guarantee and safely skip this step.
+    """
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        # Directory fsync is not supported on every filesystem/platform.
+        pass
+    finally:
+        os.close(fd)
 
 
 def save_checkpoint(build: FilmBuild, path: str | Path) -> Path:
@@ -56,6 +82,7 @@ def save_checkpoint(build: FilmBuild, path: str | Path) -> Path:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, target)
+        _fsync_directory(target.parent)
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
@@ -82,18 +109,23 @@ def load_checkpoint(path: str | Path) -> FilmBuild:
     if not isinstance(raw, dict):
         raise CheckpointError("checkpoint is missing build state")
 
+    recorded_hash = document.get("content_hash")
+    if not isinstance(recorded_hash, str) or not recorded_hash:
+        raise CheckpointError("checkpoint is missing content hash")
+
     data = dict(raw)
     try:
         data["status"] = BuildStatus(data["status"])
         shot_states = data.get("shot_states", [])
         if not isinstance(shot_states, list):
             raise TypeError("shot_states must be a list")
+        if any(not isinstance(item, dict) for item in shot_states):
+            raise TypeError("shot_states entries must be objects")
         data["shot_states"] = [ShotState(**item) for item in shot_states]
         build = FilmBuild(**data)
     except (KeyError, TypeError, ValueError) as error:
         raise CheckpointError(f"invalid checkpoint build state: {error}") from error
 
-    recorded_hash = document.get("content_hash")
-    if recorded_hash and recorded_hash != build.content_hash:
+    if recorded_hash != build.content_hash:
         raise CheckpointError("checkpoint content hash mismatch")
     return build
