@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,8 +69,11 @@ def load_dataset_manifest(path: str | Path) -> NativeDatasetManifest:
 
 
 def load_identity_anchors(path: str | Path) -> dict[str, tuple[float, ...]]:
-    """Load normalized character anchors from a compact JSON identity bank."""
-    torch = _load_torch()
+    """Load normalized character anchors from a compact JSON identity bank.
+
+    Parsing and validation remain available without PyTorch so manifests and
+    identity metadata can be inspected by lightweight tooling and CI jobs.
+    """
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     source = payload.get("characters", payload)
     if not isinstance(source, dict) or not source:
@@ -78,15 +82,17 @@ def load_identity_anchors(path: str | Path) -> dict[str, tuple[float, ...]]:
     width: int | None = None
     for character_id, raw in source.items():
         vector = raw.get("vector") if isinstance(raw, dict) else raw
-        tensor = torch.as_tensor(vector, dtype=torch.float32).reshape(-1)
-        if tensor.numel() == 0 or float(torch.linalg.vector_norm(tensor)) == 0.0:
+        values = tuple(float(value) for value in vector)
+        if not values:
+            raise ValueError(f"invalid identity anchor: {character_id}")
+        norm = math.sqrt(sum(value * value for value in values))
+        if norm == 0.0:
             raise ValueError(f"invalid identity anchor: {character_id}")
         if width is None:
-            width = tensor.numel()
-        elif tensor.numel() != width:
+            width = len(values)
+        elif len(values) != width:
             raise ValueError("identity anchors must share the same dimension")
-        tensor = torch.nn.functional.normalize(tensor, dim=0)
-        anchors[str(character_id)] = tuple(float(value) for value in tensor.tolist())
+        anchors[str(character_id)] = tuple(value / norm for value in values)
     return anchors
 
 
