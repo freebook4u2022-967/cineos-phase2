@@ -13,6 +13,7 @@ from .training import NativeDatasetManifest
 @dataclass(frozen=True, slots=True)
 class RealTrainingRecord:
     sample_id: str
+    character_id: str
     identity_features: tuple[float, ...]
     scene_features: tuple[float, ...]
     target_latent: tuple[float, ...]
@@ -32,9 +33,15 @@ class RealManifestTorchDataset:
         prepared = preprocessor.prepare_dataset(manifest)
         if not prepared:
             raise ValueError("real training manifest must contain at least one sample")
+        characters = {
+            sample.sample_id: sample.identity_tags[0]
+            for sample in manifest.samples
+            if sample.identity_tags
+        }
         self.records = tuple(
             RealTrainingRecord(
                 sample_id=item.sample_id,
+                character_id=characters.get(item.sample_id, item.sample_id),
                 identity_features=item.identity_features,
                 scene_features=item.scene_features,
                 target_latent=item.target_latent,
@@ -52,7 +59,7 @@ class RealManifestTorchDataset:
         scene = torch.tensor(item.scene_features, dtype=torch.float32)
         target = torch.tensor(item.target_latent, dtype=torch.float32)
         source = torch.zeros_like(target)
-        return identity, scene, source, target, item.sample_id
+        return identity, scene, source, target, item.character_id
 
 
 def build_distributed_real_loader(
