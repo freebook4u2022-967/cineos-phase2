@@ -1,8 +1,8 @@
 """Optional real neural backend for CINEOS native training.
 
 PyTorch is loaded lazily so the base package and CI remain lightweight. Install
-CINEOS with the `neural` extra to enable actual autograd, GPU execution, and
-checkpoint-backed flow-matching training.
+CINEOS with the `neural` extra to enable actual autograd, GPU execution, decoded
+image ingestion, and checkpoint-backed flow-matching training.
 """
 
 from __future__ import annotations
@@ -33,6 +33,17 @@ class NeuralModelConfig:
     embedding_dim: int = 128
     latent_dim: int = 256
     hidden_dim: int = 512
+    image_size: int = 32
+
+    def __post_init__(self) -> None:
+        if min(
+            self.feature_dim,
+            self.embedding_dim,
+            self.latent_dim,
+            self.hidden_dim,
+            self.image_size,
+        ) <= 0:
+            raise ValueError("neural model dimensions must be positive")
 
 
 class TorchCineosFlowModel:
