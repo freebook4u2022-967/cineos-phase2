@@ -185,7 +185,8 @@ class CINEOSNativeTemporalShotRenderer:
         frame_count = max(1, int(round(duration * self.fps)))
         if frame_count > self.max_frames:
             raise NativeShotRenderError(
-                f"shot requests {frame_count} frames; native safety limit is {self.max_frames}"
+                "shot requests "
+                f"{frame_count} frames; native safety limit is {self.max_frames}"
             )
 
         ffmpeg = shutil.which(self.ffmpeg_binary)
