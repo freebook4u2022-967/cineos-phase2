@@ -33,6 +33,11 @@ from .temporal_identity import (
     TemporalIdentityMemory,
     apply_temporal_identity_memory,
 )
+from .tensor_checkpoint import (
+    TENSOR_CHECKPOINT_SCHEMA,
+    TensorCheckpointError,
+    TensorTrainingCheckpoint,
+)
 from .tensor_model import CineosTensorModel, LinearTensorLayer, Tensor
 from .tensor_training import (
     FlowMatchingBatch,
@@ -73,6 +78,7 @@ __all__ = [
     "CHECKPOINT_MANIFEST_SCHEMA",
     "DATASET_MANIFEST_SCHEMA",
     "NATIVE_IMAGE_PLAN_SCHEMA",
+    "TENSOR_CHECKPOINT_SCHEMA",
     "VISUAL_QC_AXES",
     "AutomaticRerenderController",
     "CineosLatentFrameModel",
@@ -109,7 +115,9 @@ __all__ = [
     "TemporalIdentityMemory",
     "Tensor",
     "TensorBatchTrainer",
+    "TensorCheckpointError",
     "TensorSGDOptimizer",
+    "TensorTrainingCheckpoint",
     "TorchCineosFlowModel",
     "TorchFlowTrainingRunner",
     "TrainableLatentComponents",
