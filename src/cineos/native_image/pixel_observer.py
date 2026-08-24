@@ -195,7 +195,9 @@ class PixelContinuityMemory:
             raise ValueError("pixel continuity accepted state must be a mapping")
         memory = cls()
         for scene_id, descriptor_payload in raw.items():
-            if not isinstance(scene_id, str) or not isinstance(descriptor_payload, dict):
+            if not isinstance(scene_id, str) or not isinstance(
+                descriptor_payload, dict
+            ):
                 raise ValueError("invalid pixel continuity memory entry")
             memory.accept(scene_id, PixelFrameDescriptor.restore(descriptor_payload))
         return memory
@@ -213,7 +215,9 @@ class DecodedPixelContinuityObserver:
         plan: NativeImageConditioningPlan,
     ) -> VisualContinuityObservation:
         if result.shot_id != plan.shot_id:
-            raise ValueError("generated result and conditioning plan shot IDs must match")
+            raise ValueError(
+                "generated result and conditioning plan shot IDs must match"
+            )
         descriptor = describe_rgb_frame(result.image)
         baseline = self.memory.latest(plan.scene_id)
         if baseline is None:
@@ -234,7 +238,9 @@ class DecodedPixelContinuityObserver:
     ) -> None:
         """Commit pixels only after the enclosing QC transaction accepts the frame."""
         if result.shot_id != plan.shot_id:
-            raise ValueError("generated result and conditioning plan shot IDs must match")
+            raise ValueError(
+                "generated result and conditioning plan shot IDs must match"
+            )
         self.memory.accept(plan.scene_id, describe_rgb_frame(result.image))
 
 
