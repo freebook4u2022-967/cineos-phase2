@@ -14,7 +14,8 @@ from cineos.native_video import (
 
 
 class RecordingNativeRenderer:
-    def __init__(self) -> None:
+    def __init__(self, *, latent_dim: int = 16) -> None:
+        self.latent_dim = latent_dim
         self.states = []
         self.cancelled = False
 
@@ -26,8 +27,8 @@ class RecordingNativeRenderer:
             temporal_state.hidden.device,
         )
         temporal_state.last_latent = Tensor(
-            (2.0,) * 8,
-            (8,),
+            (2.0,) * self.latent_dim,
+            (self.latent_dim,),
             temporal_state.hidden.device,
         )
         temporal_state.last_frame_index = 0
@@ -50,7 +51,7 @@ def test_binding_passes_exact_active_temporal_state_to_renderer(tmp_path):
     bridge.start_attempt(planned, 0, 1)
     active = bridge.state_for("shot-1")
 
-    renderer = RecordingNativeRenderer()
+    renderer = RecordingNativeRenderer(latent_dim=bridge.model.latent_dim)
     binding = NativeFilmRendererBinding(renderer=renderer, continuity=bridge)
     output = binding.render(planned, tmp_path / "shot.mp4")
 
@@ -66,7 +67,7 @@ def test_binding_passes_exact_active_temporal_state_to_renderer(tmp_path):
 def test_binding_fails_closed_without_active_attempt(tmp_path):
     bridge = NativeFilmContinuityBridge(model=NativeTemporalModel.initialized())
     binding = NativeFilmRendererBinding(
-        renderer=RecordingNativeRenderer(),
+        renderer=RecordingNativeRenderer(latent_dim=bridge.model.latent_dim),
         continuity=bridge,
     )
 
@@ -77,7 +78,7 @@ def test_binding_fails_closed_without_active_attempt(tmp_path):
 def test_binding_rejects_missing_shot_id(tmp_path):
     bridge = NativeFilmContinuityBridge(model=NativeTemporalModel.initialized())
     binding = NativeFilmRendererBinding(
-        renderer=RecordingNativeRenderer(),
+        renderer=RecordingNativeRenderer(latent_dim=bridge.model.latent_dim),
         continuity=bridge,
     )
 
@@ -87,7 +88,7 @@ def test_binding_rejects_missing_shot_id(tmp_path):
 
 def test_binding_forwards_cancellation():
     bridge = NativeFilmContinuityBridge(model=NativeTemporalModel.initialized())
-    renderer = RecordingNativeRenderer()
+    renderer = RecordingNativeRenderer(latent_dim=bridge.model.latent_dim)
     binding = NativeFilmRendererBinding(renderer=renderer, continuity=bridge)
 
     binding.cancel_pending()
