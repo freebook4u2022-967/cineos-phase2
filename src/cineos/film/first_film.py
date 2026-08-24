@@ -8,9 +8,10 @@ single FilmBuild with an explicit final MP4 path.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .audio import AudioTrack, available_tracks, mux_primary_audio
 from .build import BuildStatus, FilmBuild
@@ -66,7 +67,10 @@ class FastTrackAutoDirector:
         beats = (
             ("setup", "Establish the world, protagonist and immediate objective."),
             ("escalation", "Introduce a visible obstacle and raise urgency."),
-            ("payoff", "Resolve the immediate dramatic question with a strong final image."),
+            (
+                "payoff",
+                "Resolve the immediate dramatic question with a strong final image.",
+            ),
         )
         shots: list[dict[str, Any]] = []
         order: list[str] = []
@@ -145,7 +149,9 @@ class FirstFilmRunner:
         )
         build.metadata["first_film"] = {
             "premise": package.premise,
-            "character_ids": [item["character_id"] for item in package.character_manifest],
+            "character_ids": [
+                item["character_id"] for item in package.character_manifest
+            ],
             "critical_path": [
                 "auto_director",
                 "continuity_lock",
@@ -169,10 +175,17 @@ class FirstFilmRunner:
             result.transition(BuildStatus.FAILED)
             return result
         usable_audio = available_tracks(audio_tracks)
-        final_with_audio = mux_primary_audio(video, usable_audio, root / "first-film.mp4")
+        final_with_audio = mux_primary_audio(
+            video,
+            usable_audio,
+            root / "first-film.mp4",
+        )
         result.output_files["final_mp4"] = str(final_with_audio)
         result.attach_audio(
             str(usable_audio[0].path) if usable_audio else None,
-            {"silent_fallback": not bool(usable_audio), "track_count": len(usable_audio)},
+            {
+                "silent_fallback": not bool(usable_audio),
+                "track_count": len(usable_audio),
+            },
         )
         return result
