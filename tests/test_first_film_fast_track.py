@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from cineos.film.audio import mux_primary_audio
 from cineos.film.first_film import DirectorCharacter, FastTrackAutoDirector, FirstFilmRunner
 
 
@@ -38,6 +41,7 @@ def test_first_film_runner_dry_run_reaches_renderable_plan(tmp_path):
     assert build.metadata["dry_run"]["shot_count"] == 3
     assert build.metadata["dry_run"]["renderer_compatible"] is True
     assert build.metadata["first_film"]["character_ids"] == ["lead"]
+    assert build.metadata["first_film"]["critical_path"][-1] == "audio_mux"
 
 
 def test_director_rejects_duplicate_character_ids():
@@ -51,3 +55,12 @@ def test_director_rejects_duplicate_character_ids():
         assert "unique" in str(error)
     else:
         raise AssertionError("duplicate IDs should be rejected")
+
+
+def test_audio_mux_has_nonblocking_silent_fallback(tmp_path):
+    source = tmp_path / "video.mp4"
+    source.write_bytes(b"placeholder-film")
+    destination = tmp_path / "first-film.mp4"
+    result = mux_primary_audio(source, [], destination)
+    assert result == destination
+    assert destination.read_bytes() == source.read_bytes()
