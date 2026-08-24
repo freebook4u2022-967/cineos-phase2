@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .build import FilmBuild
+from .audio import AudioTrack, mux_primary_audio
+from .build import BuildStatus, FilmBuild
 from .orchestrator import FilmOrchestrator
 
 
@@ -103,7 +104,7 @@ class FastTrackAutoDirector:
 
 
 class FirstFilmRunner:
-    """One-call Auto Director -> render -> QC/retry -> final MP4 runner."""
+    """One-call Auto Director -> render -> QC/retry -> audio -> final MP4 runner."""
 
     def __init__(
         self,
@@ -131,6 +132,7 @@ class FirstFilmRunner:
         project_id: str = "cineos-first-film",
         package_id: str = "first-film",
         shot_duration: float = 4.0,
+        audio_tracks: list[AudioTrack] | None = None,
         dry_run: bool = False,
     ) -> FilmBuild:
         package = FastTrackAutoDirector(shot_duration=shot_duration).direct(
@@ -150,6 +152,26 @@ class FirstFilmRunner:
                 "renderer",
                 "qc_retry",
                 "assembly",
+                "audio_mux",
             ],
         }
-        return self.orchestrator.run(package, build, output_dir, dry_run=dry_run)
+        result = self.orchestrator.run(package, build, output_dir, dry_run=dry_run)
+        if dry_run or result.status not in {
+            BuildStatus.COMPLETED,
+            BuildStatus.COMPLETED_WITH_WARNINGS,
+        }:
+            return result
+
+        root = Path(output_dir)
+        video = result.output_files.get("final_mp4")
+        if not video:
+            result.failures.append("final assembly did not produce final_mp4")
+            result.transition(BuildStatus.FAILED)
+            return result
+        final_with_audio = mux_primary_audio(video, audio_tracks, root / "first-film.mp4")
+        result.output_files["final_mp4"] = str(final_with_audio)
+        result.attach_audio(
+            str(audio_tracks[0].path) if audio_tracks and audio_tracks[0].path.is_file() else None,
+            {"silent_fallback": not bool(audio_tracks), "track_count": len(audio_tracks or [])},
+        )
+        return result
