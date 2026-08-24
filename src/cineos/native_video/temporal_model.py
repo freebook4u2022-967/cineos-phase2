@@ -37,7 +37,11 @@ class TemporalFrameInput:
 
 @dataclass(frozen=True, slots=True)
 class TemporalFrameOutput:
-    """Predicted latent plus the recurrent state used for the next frame."""
+    """Predicted latent plus the recurrent state used for the next frame.
+
+    Outputs are immutable candidates. They are safe to inspect with visual or
+    continuity QC before committing them to :class:`TemporalSequenceState`.
+    """
 
     shot_id: str
     frame_index: int
@@ -124,8 +128,15 @@ class NativeTemporalModel:
     """First CINEOS-owned recurrent latent video model contract.
 
     The model fuses identity, scene, motion and previous hidden state. A future
-    torch implementation can implement the same step/state contract while using
-    attention, diffusion/flow matching or other learned temporal objectives.
+    torch implementation can implement the same proposal/commit state contract
+    while using attention, diffusion/flow matching or other learned temporal
+    objectives.
+
+    Candidate generation is transactional: :meth:`propose` never advances the
+    sequence, allowing QC and rerender logic to reject a candidate without
+    poisoning continuity memory. :meth:`commit` advances state only after the
+    caller accepts the candidate. :meth:`step` preserves the original eager API
+    by proposing and committing in one call.
     """
 
     identity_dim: int
@@ -169,12 +180,85 @@ class NativeTemporalModel:
             hidden=Tensor((0.0,) * self.hidden_dim, (self.hidden_dim,), device),
         )
 
+    def propose(
+        self,
+        frame: TemporalFrameInput,
+        state: TemporalSequenceState,
+    ) -> TemporalFrameOutput:
+        """Generate the next candidate without mutating sequence state.
+
+        This is the production-safe boundary for QC/retry integration. A caller
+        may inspect or reject the returned candidate and call :meth:`propose`
+        again with the same state. Only :meth:`commit` advances continuity.
+        """
+        self._validate_next_frame(frame, state)
+
+        fused = Tensor(
+            frame.identity.values
+            + frame.scene.values
+            + frame.motion.values
+            + state.hidden.values,
+            (self.identity_dim + self.scene_dim + self.motion_dim + self.hidden_dim,),
+            frame.identity.device,
+        )
+        hidden = self.recurrent.forward(fused)
+        latent = self.decoder.forward(hidden)
+        continuity_delta = self._continuity_delta(state.last_latent, latent)
+
+        return TemporalFrameOutput(
+            shot_id=frame.shot_id,
+            frame_index=frame.frame_index,
+            latent=latent,
+            hidden=hidden,
+            continuity_delta=continuity_delta,
+        )
+
+    def commit(
+        self,
+        candidate: TemporalFrameOutput,
+        state: TemporalSequenceState,
+    ) -> None:
+        """Atomically accept a previously proposed candidate into sequence state."""
+        if candidate.shot_id != state.shot_id:
+            raise ValueError("candidate and temporal state must belong to the same shot")
+        expected_index = state.last_frame_index + 1
+        if candidate.frame_index != expected_index:
+            raise ValueError(
+                f"expected candidate frame_index {expected_index}, "
+                f"got {candidate.frame_index}"
+            )
+        if candidate.hidden.shape != (self.hidden_dim,):
+            raise ValueError("candidate hidden tensor has incompatible shape")
+        if candidate.latent.shape != (self.latent_dim,):
+            raise ValueError("candidate latent tensor has incompatible shape")
+        if candidate.hidden.device != state.hidden.device:
+            raise ValueError("candidate and temporal state must share a device")
+        if candidate.latent.device != state.hidden.device:
+            raise ValueError("candidate and temporal state must share a device")
+
+        state.hidden = candidate.hidden
+        state.last_latent = candidate.latent
+        state.last_frame_index = candidate.frame_index
+        state.metadata["frames_generated"] = candidate.frame_index + 1
+        state.metadata["accepted_candidates"] = int(
+            state.metadata.get("accepted_candidates", 0)
+        ) + 1
+
     def step(
         self,
         frame: TemporalFrameInput,
         state: TemporalSequenceState,
     ) -> TemporalFrameOutput:
-        """Advance a sequence exactly one frame while enforcing ordering."""
+        """Advance exactly one accepted frame while preserving the eager API."""
+        candidate = self.propose(frame, state)
+        self.commit(candidate, state)
+        return candidate
+
+    def _validate_next_frame(
+        self,
+        frame: TemporalFrameInput,
+        state: TemporalSequenceState,
+    ) -> None:
         if frame.shot_id != state.shot_id:
             raise ValueError("frame and temporal state must belong to the same shot")
         expected_index = state.last_frame_index + 1
@@ -192,31 +276,6 @@ class NativeTemporalModel:
             raise ValueError("temporal hidden state has incompatible shape")
         if frame.identity.device != state.hidden.device:
             raise ValueError("frame tensors and temporal state must share a device")
-
-        fused = Tensor(
-            frame.identity.values
-            + frame.scene.values
-            + frame.motion.values
-            + state.hidden.values,
-            (self.identity_dim + self.scene_dim + self.motion_dim + self.hidden_dim,),
-            frame.identity.device,
-        )
-        hidden = self.recurrent.forward(fused)
-        latent = self.decoder.forward(hidden)
-        continuity_delta = self._continuity_delta(state.last_latent, latent)
-
-        state.hidden = hidden
-        state.last_latent = latent
-        state.last_frame_index = frame.frame_index
-        state.metadata["frames_generated"] = frame.frame_index + 1
-
-        return TemporalFrameOutput(
-            shot_id=frame.shot_id,
-            frame_index=frame.frame_index,
-            latent=latent,
-            hidden=hidden,
-            continuity_delta=continuity_delta,
-        )
 
     @staticmethod
     def _continuity_delta(previous: Tensor | None, current: Tensor) -> float:
