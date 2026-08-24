@@ -12,7 +12,9 @@ from cineos.native_video import (
 
 def _accepted_state(model: NativeTemporalModel, shot_id: str):
     state = model.initial_state(shot_id)
-    state.hidden = Tensor(tuple(0.5 for _ in range(model.hidden_dim)), (model.hidden_dim,))
+    state.hidden = Tensor(
+        tuple(0.5 for _ in range(model.hidden_dim)), (model.hidden_dim,)
+    )
     state.last_latent = Tensor(
         tuple(0.25 for _ in range(model.latent_dim)), (model.latent_dim,)
     )

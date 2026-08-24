@@ -167,11 +167,15 @@ class SceneContinuityMemory:
 
         transition = policy or SceneTransitionPolicy()
         if previous.hidden.shape != state.hidden.shape:
-            raise ValueError("continuity anchor hidden shape is incompatible with model")
+            raise ValueError(
+                "continuity anchor hidden shape is incompatible with model"
+            )
         if previous.hidden.device != device or previous.latent.device != device:
             raise ValueError("continuity anchor and new shot must share a device")
         if previous.latent.shape != (model.latent_dim,):
-            raise ValueError("continuity anchor latent shape is incompatible with model")
+            raise ValueError(
+                "continuity anchor latent shape is incompatible with model"
+            )
 
         state.hidden = Tensor(
             tuple(value * transition.hidden_carry for value in previous.hidden.values),
@@ -187,9 +191,7 @@ class SceneContinuityMemory:
                 "previous_scene_index": previous.scene_index,
                 "previous_shot_id": previous.shot_id,
                 "hidden_carry": transition.hidden_carry,
-                "latent_reference_preserved": int(
-                    transition.preserve_latent_reference
-                ),
+                "latent_reference_preserved": int(transition.preserve_latent_reference),
             }
         )
         return state
@@ -219,7 +221,9 @@ class SceneContinuityMemory:
                 raise ValueError("scene continuity anchor must be a mapping")
             anchor = SceneContinuityAnchor.from_dict(item)
             if anchor.scene_index < previous_scene:
-                raise ValueError("checkpoint scene_index values must not move backwards")
+                raise ValueError(
+                    "checkpoint scene_index values must not move backwards"
+                )
             if anchor.shot_id in seen_shots:
                 raise ValueError("checkpoint contains duplicate shot_id values")
             memory.anchors.append(anchor)
