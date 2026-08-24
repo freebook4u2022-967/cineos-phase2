@@ -5,19 +5,28 @@ from __future__ import annotations
 from pathlib import Path
 from threading import Event
 from time import monotonic
-from typing import Any
+from typing import Any, Callable
 
 from .assembly import assemble
 from .build import BuildStatus, FilmBuild
-from .checkpoint import save_checkpoint
+from .checkpoint import load_checkpoint_runtime_state, save_checkpoint
 from .exceptions import BuildCancelled, FilmBuildError
 from .planner import plan_shots
 from .shot_state import ShotState
 from .validator import ShotValidator, file_hash, validate_reusable_output
 
+RuntimeStateProvider = Callable[[], dict[str, Any] | None]
+RuntimeStateRestorer = Callable[[dict[str, Any]], None]
+
 
 class FilmOrchestrator:
-    """Render in timeline order with explicit validation and bounded recovery."""
+    """Render in timeline order with explicit validation and bounded recovery.
+
+    The orchestrator stays renderer-neutral while exposing an optional runtime
+    checkpoint boundary. Native renderers can use it to persist scene/temporal
+    continuity memory alongside the durable ``FilmBuild`` without teaching the
+    film layer model-specific tensor semantics.
+    """
 
     def __init__(
         self,
@@ -26,11 +35,15 @@ class FilmOrchestrator:
         *,
         max_recovery_attempts: int = 1,
         manual_review_on_failure: bool = False,
+        checkpoint_state_provider: RuntimeStateProvider | None = None,
+        checkpoint_state_restorer: RuntimeStateRestorer | None = None,
     ) -> None:
         self.renderer = renderer
         self.validator = validator or ShotValidator()
         self.max_recovery_attempts = max_recovery_attempts
         self.manual_review_on_failure = manual_review_on_failure
+        self.checkpoint_state_provider = checkpoint_state_provider
+        self.checkpoint_state_restorer = checkpoint_state_restorer
         self.cancel_event = Event()
 
     def cancel(self) -> None:
@@ -52,6 +65,17 @@ class FilmOrchestrator:
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         checkpoint = Path(checkpoint_path) if checkpoint_path is not None else None
+
+        if (
+            resume
+            and checkpoint is not None
+            and checkpoint.exists()
+            and self.checkpoint_state_restorer is not None
+        ):
+            runtime_state = load_checkpoint_runtime_state(checkpoint)
+            if runtime_state is not None:
+                self.checkpoint_state_restorer(runtime_state)
+
         plan = plan_shots(package)
         existing = {state.shot_id: state for state in build.shot_states}
         build.shot_states = [
@@ -116,10 +140,15 @@ class FilmOrchestrator:
             self._checkpoint(build, checkpoint)
         return build
 
-    @staticmethod
-    def _checkpoint(build: FilmBuild, checkpoint: Path | None) -> None:
-        if checkpoint is not None:
-            save_checkpoint(build, checkpoint)
+    def _checkpoint(self, build: FilmBuild, checkpoint: Path | None) -> None:
+        if checkpoint is None:
+            return
+        runtime_state = (
+            self.checkpoint_state_provider()
+            if self.checkpoint_state_provider is not None
+            else None
+        )
+        save_checkpoint(build, checkpoint, runtime_state=runtime_state)
 
     def _render_shot(
         self,
