@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+import cineos.film.orchestrator as orchestrator_module
 from cineos.film.build import FilmBuild
+from cineos.film.checkpoint import save_checkpoint
 from cineos.film.exceptions import FilmBuildError
 from cineos.film.orchestrator import FilmOrchestrator
 from cineos.film.shot_state import ShotState
@@ -32,6 +34,25 @@ def test_native_film_bridge_exposes_resume_reset_hook():
     hooks["checkpoint_state_resetter"]()
     assert bridge._active == {}
     assert bridge.memory.latest() is None
+
+
+def test_stateful_resume_run_fails_closed_without_runtime_restorer(
+    tmp_path, monkeypatch
+):
+    checkpoint = tmp_path / "film.checkpoint.json"
+    build = FilmBuild("project", "package", "native")
+    save_checkpoint(build, checkpoint, runtime_state={"kind": "test-runtime"})
+    monkeypatch.setattr(orchestrator_module, "plan_shots", lambda package: [])
+    orchestrator = FilmOrchestrator(renderer=object())
+
+    with pytest.raises(FilmBuildError, match="no runtime state restorer"):
+        orchestrator.run(
+            object(),
+            build,
+            tmp_path / "output",
+            resume=True,
+            checkpoint_path=checkpoint,
+        )
 
 
 def test_stateful_resume_restores_only_contiguous_reusable_prefix(tmp_path):
