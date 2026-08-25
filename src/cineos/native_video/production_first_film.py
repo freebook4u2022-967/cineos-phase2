@@ -18,7 +18,10 @@ container tools only through the existing gates.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import dataclass, fields, is_dataclass
+from pathlib import Path
 from typing import Any
 
 from cineos.film.first_film import FirstFilmRunner
@@ -48,6 +51,64 @@ class ProductionFirstFilmRuntime:
     renderer_binding: NativeFilmRendererBinding
     final_gate: MeasuredFinalFilmGate
     manifest: ProductionRuntimeManifest
+
+
+def _stable_policy_value(value: Any) -> Any:
+    """Return deterministic JSON-safe configuration for an acceptance component.
+
+    Production resume compatibility must include more than the boolean fact that a
+    quality gate exists. Threshold changes alter acceptance semantics and therefore
+    must invalidate a checkpoint created under the old policy. This serializer is
+    deliberately configuration-oriented: dataclass fields and ordinary public
+    instance attributes are captured together with the fully-qualified component
+    type, while callables and private caches are excluded.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {
+            str(key): _stable_policy_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_stable_policy_value(item) for item in value]
+
+    type_name = f"{type(value).__module__}.{type(value).__qualname__}"
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            "type": type_name,
+            "fields": {
+                field.name: _stable_policy_value(getattr(value, field.name))
+                for field in fields(value)
+            },
+        }
+
+    try:
+        attributes = vars(value)
+    except TypeError:
+        attributes = {}
+    public = {
+        name: _stable_policy_value(item)
+        for name, item in sorted(attributes.items())
+        if not name.startswith("_") and not callable(item)
+    }
+    return {"type": type_name, "attributes": public}
+
+
+def final_gate_policy_fingerprint(gate: MeasuredFinalFilmGate) -> str:
+    """Hash the complete configured final-film acceptance policy.
+
+    The fingerprint is semantic configuration evidence, not a source-code hash. It
+    catches threshold/evaluator/binary-policy changes across resume while remaining
+    stable across process restarts and object identities.
+    """
+    payload = _stable_policy_value(gate)
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _production_checkpoint_hooks(
@@ -118,7 +179,8 @@ def build_production_first_film_runtime(
 
     Durable production checkpoints contain both continuity memory and this runtime's
     versioned manifest. Resume therefore fails before recurrent state is restored if
-    renderer identity, temporal weights, or final acceptance requirements changed.
+    renderer identity, temporal weights, final-gate policy, or final acceptance
+    requirements changed.
     """
 
     if max_recovery_attempts < 0:
@@ -143,6 +205,7 @@ def build_production_first_film_runtime(
         max_recovery_attempts=max_recovery_attempts,
         require_final_film_evaluation=True,
         require_audio=active_gate.require_audio,
+        final_gate_policy_fingerprint=final_gate_policy_fingerprint(active_gate),
     )
     runner = FirstFilmRunner(
         binding,
@@ -166,4 +229,5 @@ __all__ = [
     "PRODUCTION_FIRST_FILM_RUNTIME_KIND",
     "ProductionFirstFilmRuntime",
     "build_production_first_film_runtime",
+    "final_gate_policy_fingerprint",
 ]
