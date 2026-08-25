@@ -21,7 +21,12 @@ from .scene_memory import (
     SceneContinuityMemory,
     SceneTransitionPolicy,
 )
-from .shot_renderer import CINEOSNativeTemporalShotRenderer, NativeShotRenderError
+from .shot_renderer import (
+    AnalyticLatentRGBDecoder,
+    CINEOSNativeTemporalShotRenderer,
+    NativeLatentRGBDecoder,
+    NativeShotRenderError,
+)
 from .temporal_model import (
     NativeTemporalModel,
     TemporalFrameInput,
@@ -35,12 +40,14 @@ from .temporal_qc import (
 )
 
 __all__ = [
+    "AnalyticLatentRGBDecoder",
     "CINEOSNativeTemporalShotRenderer",
     "FFmpegTemporalFilmEvaluator",
     "FILM_CONTINUITY_RUNTIME_KIND",
     "MotionDampingRetryPolicy",
     "NativeFilmContinuityBridge",
     "NativeFilmRendererBinding",
+    "NativeLatentRGBDecoder",
     "NativeShotRenderError",
     "NativeTemporalModel",
     "NativeTemporalRuntime",
