@@ -1,5 +1,12 @@
 """CINEOS-owned native video temporal modeling contracts."""
 
+from .artifact_integrity import (
+    ArtifactIntegrityError,
+    NativeArtifactProvenance,
+    provenance_for,
+    verify_continuity_artifact,
+    verify_provenance,
+)
 from .film_bridge import FILM_CONTINUITY_RUNTIME_KIND, NativeFilmContinuityBridge
 from .final_eval import (
     FFmpegTemporalFilmEvaluator,
@@ -41,10 +48,12 @@ from .temporal_qc import (
 
 __all__ = [
     "AnalyticLatentRGBDecoder",
+    "ArtifactIntegrityError",
     "CINEOSNativeTemporalShotRenderer",
     "FFmpegTemporalFilmEvaluator",
     "FILM_CONTINUITY_RUNTIME_KIND",
     "MotionDampingRetryPolicy",
+    "NativeArtifactProvenance",
     "NativeFilmContinuityBridge",
     "NativeFilmRendererBinding",
     "NativeLatentRGBDecoder",
@@ -68,4 +77,7 @@ __all__ = [
     "TemporalRetryPolicy",
     "TemporalSequenceState",
     "evaluate_sampled_frames",
+    "provenance_for",
+    "verify_continuity_artifact",
+    "verify_provenance",
 ]
