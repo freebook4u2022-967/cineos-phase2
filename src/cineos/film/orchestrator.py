@@ -236,7 +236,9 @@ class FilmOrchestrator:
                 "approved_shots": approved_count,
                 "reusable_prefix_shots": reusable_count,
             }
-            build.shot_states = [ShotState(state.shot_id) for state in build.shot_states]
+            build.shot_states = [
+                ShotState(state.shot_id) for state in build.shot_states
+            ]
             return
 
         self.checkpoint_state_restorer(runtime_state)
