@@ -2,18 +2,20 @@
 
 This module adapts native video evaluators to the provider-neutral ``FirstFilmRunner``
 contract. It combines whole-film temporal evidence, plan-aware scene-boundary
-evidence, and encoded-duration integrity. It fails closed when measured quality or
-assembly completeness is rejected. External tools are inspectors/decoders only;
-no external visual generator participates in acceptance.
+evidence, encoded-duration integrity, and optional measured audio integrity. It fails
+closed when measured quality or assembly completeness is rejected. External tools
+are inspectors/decoders only; no external visual generator participates in acceptance.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .audio_integrity import AudioIntegrityReport, FinalFilmAudioIntegrityGate
 from .boundary_eval import FFmpegSceneBoundaryEvaluator, SceneBoundaryPoint
 from .duration_gate import DurationIntegrityReport, FFprobeDurationIntegrityGate
 from .final_eval import (
@@ -25,13 +27,14 @@ from .final_eval import (
 
 @dataclass(frozen=True, slots=True)
 class MeasuredFinalFilmReport:
-    """Auditable aggregate of final-film pixel and assembly evidence."""
+    """Auditable aggregate of final-film picture, assembly, and audio evidence."""
 
     decision: str
     directives: tuple[str, ...]
     temporal: TemporalFilmEvalReport
     boundaries: SceneBoundaryEvalReport | None = None
     duration: DurationIntegrityReport | None = None
+    audio: AudioIntegrityReport | None = None
 
     @property
     def accepted(self) -> bool:
@@ -46,6 +49,7 @@ class MeasuredFinalFilmReport:
                 asdict(self.boundaries) if self.boundaries is not None else None
             ),
             "duration": asdict(self.duration) if self.duration is not None else None,
+            "audio": asdict(self.audio) if self.audio is not None else None,
         }
 
 
@@ -65,8 +69,8 @@ def _planned_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, 
         duration = float(getattr(shot, "duration", 0.0))
         if not scene_id:
             raise ValueError("planned shot is missing scene_id")
-        if duration <= 0.0:
-            raise ValueError("planned shot duration must be positive")
+        if not math.isfinite(duration) or duration <= 0.0:
+            raise ValueError("planned shot duration must be finite and positive")
 
         if previous_scene is not None and scene_id != previous_scene:
             payload = getattr(shot, "payload", {}) or {}
@@ -97,11 +101,28 @@ def _planned_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, 
                 )
             )
 
-        elapsed += duration
+        next_elapsed = elapsed + duration
+        if not math.isfinite(next_elapsed):
+            raise ValueError("planned shot timeline must remain finite")
+        elapsed = next_elapsed
         previous_scene = scene_id
         previous_shot = shot
 
     return tuple(boundaries)
+
+
+def _planned_duration_seconds(plan: Sequence[Any]) -> float:
+    if not plan:
+        raise ValueError("final-film quality gate requires a non-empty shot plan")
+    total = 0.0
+    for shot in plan:
+        duration = float(getattr(shot, "duration", 0.0))
+        if not math.isfinite(duration) or duration <= 0.0:
+            raise ValueError("planned shot duration must be finite and positive")
+        total += duration
+        if not math.isfinite(total):
+            raise ValueError("planned shot timeline must remain finite")
+    return total
 
 
 @dataclass(slots=True)
@@ -110,13 +131,16 @@ class MeasuredFinalFilmGate:
 
     Whole-film temporal sampling detects black/frozen/drifting output. Scene-boundary
     sampling validates authored edit semantics. Duration integrity independently
-    proves that the assembled container covers the authored shot plan, catching
-    truncation or duplicated footage that visual sampling alone can miss.
+    proves that the assembled container covers the authored shot plan. Production
+    callers can additionally require measured encoded audio; this is opt-in for
+    backwards compatibility with intentionally silent legacy/test films.
     """
 
     temporal_evaluator: FFmpegTemporalFilmEvaluator | None = None
     boundary_evaluator: FFmpegSceneBoundaryEvaluator | None = None
     duration_evaluator: FFprobeDurationIntegrityGate | None = None
+    audio_evaluator: FinalFilmAudioIntegrityGate | None = None
+    require_audio: bool = False
 
     def __post_init__(self) -> None:
         if self.temporal_evaluator is None:
@@ -125,6 +149,8 @@ class MeasuredFinalFilmGate:
             self.boundary_evaluator = FFmpegSceneBoundaryEvaluator()
         if self.duration_evaluator is None:
             self.duration_evaluator = FFprobeDurationIntegrityGate()
+        if self.require_audio and self.audio_evaluator is None:
+            self.audio_evaluator = FinalFilmAudioIntegrityGate()
 
     def evaluate(
         self, movie_path: str | Path, plan: Sequence[Any]
@@ -139,9 +165,21 @@ class MeasuredFinalFilmGate:
             else None
         )
 
+        audio_report: AudioIntegrityReport | None = None
+        if self.require_audio:
+            if self.audio_evaluator is None:
+                raise RuntimeError("required final-film audio evaluator is not configured")
+            audio_report = self.audio_evaluator.evaluate(
+                source,
+                expected_duration_seconds=_planned_duration_seconds(plan),
+                required=True,
+            )
+
         decisions = [temporal.decision, duration.decision]
         if boundary_report is not None:
             decisions.append(boundary_report.decision)
+        if audio_report is not None:
+            decisions.append(audio_report.decision)
         if "reject" in decisions:
             decision = "reject"
         elif "warn" in decisions:
@@ -154,6 +192,8 @@ class MeasuredFinalFilmGate:
         if boundary_report is not None:
             for item in boundary_report.boundaries:
                 directives.extend(item.directives)
+        if audio_report is not None:
+            directives.extend(audio_report.directives)
 
         deduped = tuple(dict.fromkeys(str(item) for item in directives if str(item)))
         return MeasuredFinalFilmReport(
@@ -162,11 +202,13 @@ class MeasuredFinalFilmGate:
             temporal=temporal,
             boundaries=boundary_report,
             duration=duration,
+            audio=audio_report,
         )
 
 
 __all__ = [
     "MeasuredFinalFilmGate",
     "MeasuredFinalFilmReport",
+    "_planned_duration_seconds",
     "_planned_scene_boundaries",
 ]
