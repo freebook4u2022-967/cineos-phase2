@@ -9,8 +9,10 @@ production checkpoint.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+from .artifact_integrity import NativeArtifactProvenance, verify_continuity_artifact
 from .scene_memory import SceneContinuityMemory, SceneTransitionPolicy
 from .temporal_model import NativeTemporalModel, TemporalSequenceState
 
@@ -109,6 +111,27 @@ class NativeFilmContinuityBridge:
         if int(state.metadata.get("film_attempt", -1)) != attempt:
             raise ValueError("rejected attempt does not match active temporal state")
         self._active.pop(shot_id, None)
+
+    def verify_latest_artifact(
+        self,
+        path: str | Path,
+        *,
+        require_provenance: bool = True,
+    ) -> NativeArtifactProvenance | None:
+        """Verify a resumed/reused artifact against the latest durable scene anchor.
+
+        Production resume should use the default fail-closed policy. Legacy
+        checkpoint migration may explicitly set ``require_provenance=False`` to
+        acknowledge that an older anchor cannot be cryptographically verified.
+        """
+        anchor = self.memory.latest()
+        if anchor is None:
+            raise ValueError("cannot verify native artifact without a continuity anchor")
+        return verify_continuity_artifact(
+            anchor,
+            path,
+            require_provenance=require_provenance,
+        )
 
     def snapshot(self) -> dict[str, object]:
         """Return durable runtime state; in-flight attempts are intentionally absent."""
