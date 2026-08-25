@@ -57,7 +57,9 @@ def test_stateful_resume_run_fails_closed_without_runtime_restorer(
         )
 
 
-def test_resume_run_restores_persisted_build_before_planning_reuse(tmp_path, monkeypatch):
+def test_resume_run_restores_persisted_build_before_planning_reuse(
+    tmp_path, monkeypatch
+):
     artifact = tmp_path / "shot.mp4"
     artifact.write_bytes(b"approved-shot")
     saved = FilmBuild("project", "package", "native")
