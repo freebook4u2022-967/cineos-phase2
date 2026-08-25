@@ -45,6 +45,10 @@ def shot_plan_fingerprint(plan: list[PlannedShot]) -> str:
     ordering, and renderer-facing payload can all change the visual contract. The
     fingerprint therefore covers the canonicalized full plan and is persisted with
     film checkpoints before any output is reused.
+
+    The function intentionally accepts PlannedShot-compatible objects so tests and
+    downstream adapters can supply lightweight plan records without inheriting the
+    concrete dataclass.
     """
     canonical = [
         {
@@ -52,7 +56,7 @@ def shot_plan_fingerprint(plan: list[PlannedShot]) -> str:
             "scene_id": item.scene_id,
             "duration": item.duration,
             "index": item.index,
-            "payload": item.payload,
+            "payload": getattr(item, "payload", {}),
         }
         for item in plan
     ]
