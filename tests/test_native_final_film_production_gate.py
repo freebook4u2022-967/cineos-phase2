@@ -69,17 +69,23 @@ class _BoundaryEvaluator:
         self.report = report
         self.boundaries = ()
 
-    def evaluate(self, movie_path: object, boundaries: object) -> SceneBoundaryEvalReport:
+    def evaluate(
+        self, movie_path: object, boundaries: object
+    ) -> SceneBoundaryEvalReport:
         self.boundaries = tuple(boundaries)
         return self.report
 
 
 class _UnexpectedBoundaryEvaluator:
-    def evaluate(self, movie_path: object, boundaries: object) -> SceneBoundaryEvalReport:
+    def evaluate(
+        self, movie_path: object, boundaries: object
+    ) -> SceneBoundaryEvalReport:
         raise AssertionError("single-scene films must not fabricate scene boundaries")
 
 
-def test_plan_scene_boundaries_uses_cumulative_timeline_and_authored_transition() -> None:
+def test_plan_scene_boundaries_uses_cumulative_timeline_and_authored_transition() -> (
+    None
+):
     plan = (
         _shot("scene-a", 2.0),
         _shot("scene-a", 3.0),
@@ -99,9 +105,7 @@ def test_plan_scene_boundaries_uses_cumulative_timeline_and_authored_transition(
 
 
 def test_plan_scene_boundaries_defaults_unmarked_scene_change_to_match() -> None:
-    boundaries = plan_scene_boundaries(
-        (_shot("scene-a", 1.5), _shot("scene-b", 2.0))
-    )
+    boundaries = plan_scene_boundaries((_shot("scene-a", 1.5), _shot("scene-b", 2.0)))
     assert boundaries[0].transition == "match"
 
 
@@ -112,7 +116,9 @@ def test_plan_scene_boundaries_fails_closed_on_unknown_transition() -> None:
         )
 
 
-def test_measured_final_film_gate_rejects_when_boundary_evidence_rejects(tmp_path) -> None:
+def test_measured_final_film_gate_rejects_when_boundary_evidence_rejects(
+    tmp_path,
+) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"assembled-film")
     temporal = _TemporalEvaluator(_temporal())
