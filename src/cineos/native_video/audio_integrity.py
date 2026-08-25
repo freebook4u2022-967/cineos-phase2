@@ -35,7 +35,9 @@ class AudioIntegrityPolicy:
             not math.isfinite(self.max_duration_delta_seconds)
             or self.max_duration_delta_seconds < 0.0
         ):
-            raise ValueError("max_duration_delta_seconds must be finite and non-negative")
+            raise ValueError(
+                "max_duration_delta_seconds must be finite and non-negative"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +86,9 @@ class FFprobeAudioInspector:
 
         ffprobe = self.ffprobe_binary or shutil.which("ffprobe")
         if not ffprobe:
-            raise RuntimeError("ffprobe is unavailable; install ffmpeg/ffprobe for audio QC")
+            raise RuntimeError(
+                "ffprobe is unavailable; install ffmpeg/ffprobe for audio QC"
+            )
 
         command = [
             ffprobe,
@@ -100,12 +104,16 @@ class FFprobeAudioInspector:
         ]
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if result.returncode:
-            raise RuntimeError(f"ffprobe audio inspection failed: {result.stderr.strip()}")
+            raise RuntimeError(
+                f"ffprobe audio inspection failed: {result.stderr.strip()}"
+            )
 
         try:
             payload = json.loads(result.stdout or "{}")
         except json.JSONDecodeError as exc:
-            raise RuntimeError("ffprobe returned invalid JSON for audio inspection") from exc
+            raise RuntimeError(
+                "ffprobe returned invalid JSON for audio inspection"
+            ) from exc
 
         streams = payload.get("streams") or []
         if not streams:
@@ -121,7 +129,9 @@ class FFprobeAudioInspector:
             channels = int(stream.get("channels") or 0)
             duration = float(raw_duration or 0.0)
         except (TypeError, ValueError) as exc:
-            raise RuntimeError("ffprobe returned malformed audio stream metadata") from exc
+            raise RuntimeError(
+                "ffprobe returned malformed audio stream metadata"
+            ) from exc
 
         if not math.isfinite(duration) or duration <= 0.0:
             raise RuntimeError("final-film audio duration must be finite and positive")
@@ -156,7 +166,8 @@ class FinalFilmAudioIntegrityGate:
         if not source.is_file():
             raise FileNotFoundError(source)
         if expected_duration_seconds is not None and (
-            not math.isfinite(expected_duration_seconds) or expected_duration_seconds <= 0.0
+            not math.isfinite(expected_duration_seconds)
+            or expected_duration_seconds <= 0.0
         ):
             raise ValueError("expected_duration_seconds must be finite and positive")
         if self.inspector is None:
@@ -171,7 +182,9 @@ class FinalFilmAudioIntegrityGate:
                     stream=None,
                     expected_duration_seconds=expected_duration_seconds,
                     duration_delta_seconds=None,
-                    directives=("restore or render the required final-film audio stream",),
+                    directives=(
+                        "restore or render the required final-film audio stream",
+                    ),
                 )
             return AudioIntegrityReport(
                 decision="accept",

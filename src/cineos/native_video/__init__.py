@@ -8,9 +8,9 @@ from .artifact_integrity import (
     verify_provenance,
 )
 from .audio_integrity import (
+    AudioInspector,
     AudioIntegrityPolicy,
     AudioIntegrityReport,
-    AudioInspector,
     AudioStreamEvidence,
     FFprobeAudioInspector,
     FinalFilmAudioIntegrityGate,

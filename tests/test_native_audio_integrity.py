@@ -89,7 +89,9 @@ def test_audio_gate_rejects_weak_stream_and_timeline_drift(tmp_path) -> None:
 def test_audio_gate_accepts_healthy_aligned_stream(tmp_path) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"film")
-    gate = FinalFilmAudioIntegrityGate(inspector=_Inspector(_stream(duration_seconds=9.8)))
+    gate = FinalFilmAudioIntegrityGate(
+        inspector=_Inspector(_stream(duration_seconds=9.8))
+    )
 
     report = gate.evaluate(movie, expected_duration_seconds=10.0)
 
@@ -100,7 +102,9 @@ def test_audio_gate_accepts_healthy_aligned_stream(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("expected", [0.0, -1.0, float("nan"), float("inf")])
-def test_audio_gate_rejects_invalid_expected_duration(tmp_path, expected: float) -> None:
+def test_audio_gate_rejects_invalid_expected_duration(
+    tmp_path, expected: float
+) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"film")
     gate = FinalFilmAudioIntegrityGate(inspector=_Inspector(_stream()))
