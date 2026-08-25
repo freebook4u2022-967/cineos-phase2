@@ -57,6 +57,28 @@ def test_renderer_fails_closed_without_encoder(tmp_path: Path) -> None:
     assert state.last_latent is None
 
 
+def test_renderer_rolls_back_temporal_state_when_encoding_fails(tmp_path: Path) -> None:
+    fake_ffmpeg = tmp_path / "ffmpeg-fail"
+    fake_ffmpeg.write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
+    fake_ffmpeg.chmod(0o755)
+
+    renderer = CINEOSNativeTemporalShotRenderer(
+        width=16,
+        height=16,
+        fps=2,
+        ffmpeg_binary=str(fake_ffmpeg),
+    )
+    state = renderer.runtime.model.initial_state("shot-001")
+    original = state.snapshot()
+    target = tmp_path / "shot.mp4"
+
+    with pytest.raises(NativeShotRenderError, match="failed to encode"):
+        renderer.render(Planned(duration=1.0), target, temporal_state=state)
+
+    assert state.snapshot() == original
+    assert not target.exists()
+
+
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="FFmpeg is not installed")
 def test_renderer_generates_mp4_and_advances_only_native_temporal_state(
     tmp_path: Path,
@@ -73,7 +95,7 @@ def test_renderer_generates_mp4_and_advances_only_native_temporal_state(
     assert state.last_frame_index == 1
     assert state.last_latent is not None
     assert state.metadata["frames_generated"] == 2
-    assert state.metadata["native_renderer"] == "cineos-temporal-pixel/0.1"
+    assert state.metadata["native_renderer"] == "cineos-temporal-pixel/0.2"
     assert state.metadata["native_frame_count"] == 2
 
 
