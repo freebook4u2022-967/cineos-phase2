@@ -14,6 +14,14 @@ from .final_eval import (
     TemporalFilmEvalReport,
     evaluate_sampled_frames,
 )
+from .observability import (
+    TEMPORAL_EVENT_SCHEMA,
+    InMemoryTemporalObserver,
+    JsonlTemporalObserver,
+    NullTemporalObserver,
+    TemporalObserver,
+    TemporalRuntimeEvent,
+)
 from .renderer_binding import NativeFilmRendererBinding, NativeTemporalShotRenderer
 from .runtime import (
     MotionDampingRetryPolicy,
@@ -52,6 +60,8 @@ __all__ = [
     "CINEOSNativeTemporalShotRenderer",
     "FFmpegTemporalFilmEvaluator",
     "FILM_CONTINUITY_RUNTIME_KIND",
+    "InMemoryTemporalObserver",
+    "JsonlTemporalObserver",
     "MotionDampingRetryPolicy",
     "NativeArtifactProvenance",
     "NativeFilmContinuityBridge",
@@ -61,10 +71,12 @@ __all__ = [
     "NativeTemporalModel",
     "NativeTemporalRuntime",
     "NativeTemporalShotRenderer",
+    "NullTemporalObserver",
     "SCENE_MEMORY_SCHEMA",
     "SceneContinuityAnchor",
     "SceneContinuityMemory",
     "SceneTransitionPolicy",
+    "TEMPORAL_EVENT_SCHEMA",
     "TemporalContinuityGate",
     "TemporalFilmEvalPolicy",
     "TemporalFilmEvalReport",
@@ -72,9 +84,11 @@ __all__ = [
     "TemporalFrameOutput",
     "TemporalGenerationError",
     "TemporalGenerationResult",
+    "TemporalObserver",
     "TemporalQCPolicy",
     "TemporalQCReport",
     "TemporalRetryPolicy",
+    "TemporalRuntimeEvent",
     "TemporalSequenceState",
     "evaluate_sampled_frames",
     "provenance_for",
