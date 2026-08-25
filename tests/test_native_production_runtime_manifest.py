@@ -40,9 +40,9 @@ def test_manifest_rejects_unknown_schema() -> None:
         ProductionRuntimeManifest.restore(payload)
 
 
-def test_resume_compatibility_allows_recovery_budget_change() -> None:
-    current = _manifest(max_recovery_attempts=5)
-    saved = _manifest(max_recovery_attempts=1)
+def test_resume_compatibility_allows_operational_setting_changes() -> None:
+    current = _manifest(max_recovery_attempts=5, device="cuda")
+    saved = _manifest(max_recovery_attempts=1, device="cpu")
 
     current.assert_resume_compatible(saved)
 
@@ -52,7 +52,6 @@ def test_resume_compatibility_allows_recovery_budget_change() -> None:
     [
         ("renderer_id", "different-renderer"),
         ("temporal_model_fingerprint", "different-model"),
-        ("device", "cuda"),
         ("require_final_film_evaluation", False),
         ("require_audio", False),
     ],
@@ -66,6 +65,30 @@ def test_resume_compatibility_rejects_changed_production_invariants(
 
     with pytest.raises(ValueError, match=field_name):
         current.assert_resume_compatible(saved)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "expected_message"),
+    [
+        ("renderer_id", 123, "renderer_id must be a string"),
+        (
+            "max_recovery_attempts",
+            True,
+            "max_recovery_attempts must be an integer",
+        ),
+        ("require_audio", "true", "require_audio must be boolean"),
+    ],
+)
+def test_manifest_restore_rejects_malformed_types(
+    field_name: str,
+    value: object,
+    expected_message: str,
+) -> None:
+    payload = _manifest().snapshot()
+    payload[field_name] = value
+
+    with pytest.raises(ValueError, match=expected_message):
+        ProductionRuntimeManifest.restore(payload)
 
 
 def test_manifest_rejects_empty_runtime_identity() -> None:
