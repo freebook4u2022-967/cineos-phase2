@@ -1,9 +1,9 @@
 """Concrete CINEOS-owned temporal shot rendering path.
 
 This renderer turns the existing native temporal latent runtime into real RGB
-frames and then uses FFmpeg only as a container/video encoder.  FFmpeg is not a
+frames and then uses FFmpeg only as a container/video encoder. FFmpeg is not a
 visual generation backend: every generated pixel originates from CINEOS temporal
-model state.  The implementation is deliberately dependency-light and provides a
+model state. The implementation is deliberately dependency-light and provides a
 production integration boundary that future learned decoders can replace without
 changing complete-film orchestration semantics.
 """
@@ -64,9 +64,9 @@ def _motion_vector(
 def _latent_to_rgb(latent: Tensor, width: int, height: int) -> bytes:
     """Decode a native latent into deterministic RGB pixels without a provider.
 
-    This decoder is intentionally simple but real.  It exists so the native video
+    This decoder is intentionally simple but real. It exists so the native video
     runtime has an executable owned pixel path today; a learned VAE/RGB decoder can
-    implement the same boundary later.  Spatial frequencies are derived from the
+    implement the same boundary later. Spatial frequencies are derived from the
     model latent rather than from canned frames or fixtures.
     """
     if width <= 0 or height <= 0:
@@ -104,15 +104,35 @@ def _write_ppm(path: Path, width: int, height: int, rgb: bytes) -> None:
     path.write_bytes(f"P6\n{width} {height}\n255\n".encode("ascii") + rgb)
 
 
+def _promote_state(
+    source: TemporalSequenceState,
+    destination: TemporalSequenceState,
+) -> None:
+    """Promote a fully rendered working state into the caller-owned state.
+
+    Rendering is intentionally performed against a restored snapshot. The durable
+    state is changed only after all frames have passed temporal QC and FFmpeg has
+    produced a non-empty output. This keeps a failed whole-shot attempt from
+    poisoning continuity even when failure happens after many accepted frames.
+    """
+    if source.shot_id != destination.shot_id:
+        raise ValueError("cannot promote temporal state across different shots")
+    destination.hidden = source.hidden
+    destination.last_frame_index = source.last_frame_index
+    destination.last_latent = source.last_latent
+    destination.metadata = dict(source.metadata)
+
+
 @dataclass(slots=True)
 class CINEOSNativeTemporalShotRenderer:
     """Render complete shots using CINEOS temporal generation and transactional QC.
 
-    ``NativeFilmRendererBinding`` supplies the active attempt state.  Every frame
-    advances that state only through :class:`NativeTemporalRuntime`, whose QC/retry
-    transaction rejects excessive latent drift before commit.  Whole-shot film QC
-    still decides whether the resulting attempt is promoted into durable scene
-    continuity memory.
+    ``NativeFilmRendererBinding`` supplies the active attempt state. Every frame
+    advances an isolated working copy only through :class:`NativeTemporalRuntime`,
+    whose QC/retry transaction rejects excessive latent drift before commit. The
+    caller-visible state is promoted only after successful video encoding, and
+    whole-shot film QC still decides whether the resulting attempt is promoted into
+    durable scene continuity memory.
     """
 
     runtime: NativeTemporalRuntime = field(
@@ -197,7 +217,12 @@ class CINEOSNativeTemporalShotRenderer:
 
         destination = Path(target)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        identity, scene = self._conditioning(planned, temporal_state)
+
+        # Whole-shot transaction boundary: frame-level QC may commit to this working
+        # state, but no caller-visible continuity is advanced until the final encoded
+        # artifact exists and passes the basic durability check below.
+        working_state = TemporalSequenceState.restore(temporal_state.snapshot())
+        identity, scene = self._conditioning(planned, working_state)
 
         with tempfile.TemporaryDirectory(prefix=f"cineos-{shot_id}-") as temp_dir:
             frames = Path(temp_dir)
@@ -211,10 +236,10 @@ class CINEOSNativeTemporalShotRenderer:
                         shot_id,
                         frame_index,
                         self.runtime.model.motion_dim,
-                        device=temporal_state.hidden.device,
+                        device=working_state.hidden.device,
                     ),
                 )
-                result = self.runtime.generate_frame(request, temporal_state)
+                result = self.runtime.generate_frame(request, working_state)
                 rgb = _latent_to_rgb(result.candidate.latent, self.width, self.height)
                 _write_ppm(
                     frames / f"frame-{frame_index:06d}.ppm",
@@ -248,15 +273,19 @@ class CINEOSNativeTemporalShotRenderer:
                 text=True,
             )
             if completed.returncode != 0:
+                destination.unlink(missing_ok=True)
                 raise NativeShotRenderError(
                     "FFmpeg failed to encode native frames: " + completed.stderr.strip()
                 )
 
         if not destination.is_file() or destination.stat().st_size <= 0:
+            destination.unlink(missing_ok=True)
             raise NativeShotRenderError("native shot encoder produced no video output")
-        temporal_state.metadata["native_renderer"] = "cineos-temporal-pixel/0.1"
-        temporal_state.metadata["native_width"] = self.width
-        temporal_state.metadata["native_height"] = self.height
-        temporal_state.metadata["native_fps"] = self.fps
-        temporal_state.metadata["native_frame_count"] = frame_count
+
+        working_state.metadata["native_renderer"] = "cineos-temporal-pixel/0.2"
+        working_state.metadata["native_width"] = self.width
+        working_state.metadata["native_height"] = self.height
+        working_state.metadata["native_fps"] = self.fps
+        working_state.metadata["native_frame_count"] = frame_count
+        _promote_state(working_state, temporal_state)
         return destination
