@@ -117,8 +117,8 @@ class NativeTemporalRuntime:
     model: NativeTemporalModel
     gate: TemporalContinuityGate
     retry_policy: TemporalRetryPolicy
-    observer: TemporalObserver = field(default_factory=NullTemporalObserver)
     max_retries: int = 2
+    observer: TemporalObserver = field(default_factory=NullTemporalObserver)
 
     def __post_init__(self) -> None:
         if self.max_retries < 0:
@@ -137,8 +137,8 @@ class NativeTemporalRuntime:
             model=model or NativeTemporalModel.initialized(),
             gate=gate or TemporalContinuityGate(),
             retry_policy=MotionDampingRetryPolicy(),
-            observer=observer or NullTemporalObserver(),
             max_retries=max_retries,
+            observer=observer or NullTemporalObserver(),
         )
 
     def _record(
