@@ -7,6 +7,7 @@ from cineos.film.exceptions import FilmBuildError
 from cineos.film.orchestrator import FilmOrchestrator
 from cineos.film.shot_state import ShotState
 from cineos.film.validator import file_hash, validate_reusable_output
+from cineos.native_video.film_bridge import NativeFilmContinuityBridge
 
 
 def _approved(shot_id, path):
@@ -20,6 +21,17 @@ def _approved(shot_id, path):
 def test_validate_reusable_output_treats_missing_artifact_as_not_reusable(tmp_path):
     missing = tmp_path / "missing.mp4"
     assert not validate_reusable_output(missing, "0" * 64)
+
+
+def test_native_film_bridge_exposes_resume_reset_hook():
+    bridge = NativeFilmContinuityBridge.default()
+    hooks = bridge.orchestrator_kwargs()
+
+    assert hooks["checkpoint_state_resetter"] == bridge.reset
+    bridge._active["sentinel"] = object()
+    hooks["checkpoint_state_resetter"]()
+    assert bridge._active == {}
+    assert bridge.memory.latest() is None
 
 
 def test_stateful_resume_restores_only_contiguous_reusable_prefix(tmp_path):
