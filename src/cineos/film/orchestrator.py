@@ -18,6 +18,7 @@ from .validator import ShotValidator, file_hash, validate_reusable_output
 
 RuntimeStateProvider = Callable[[], dict[str, Any] | None]
 RuntimeStateRestorer = Callable[[dict[str, Any]], None]
+RuntimeStateResetter = Callable[[], None]
 ShotAttemptCallback = Callable[[Any, int, int], None]
 
 
@@ -34,6 +35,12 @@ class FilmOrchestrator:
     only after whole-shot validation and final artifact hashing succeed, and
     ``shot_attempt_rejected`` for any failed attempt. This prevents rejected or
     incomplete whole-shot retries from advancing long-range continuity state.
+
+    Stateful resume is integrity-aware. If the persisted shot timeline is no longer
+    a contiguous reusable prefix (for example, an earlier approved artifact was
+    deleted or corrupted), the orchestrator must not restore continuity memory that
+    may already contain later-shot state. With a runtime reset hook it safely
+    restarts the timeline from shot zero; without one it fails closed.
     """
 
     def __init__(
@@ -45,6 +52,7 @@ class FilmOrchestrator:
         manual_review_on_failure: bool = False,
         checkpoint_state_provider: RuntimeStateProvider | None = None,
         checkpoint_state_restorer: RuntimeStateRestorer | None = None,
+        checkpoint_state_resetter: RuntimeStateResetter | None = None,
         shot_attempt_start: ShotAttemptCallback | None = None,
         shot_attempt_accepted: ShotAttemptCallback | None = None,
         shot_attempt_rejected: ShotAttemptCallback | None = None,
@@ -55,6 +63,7 @@ class FilmOrchestrator:
         self.manual_review_on_failure = manual_review_on_failure
         self.checkpoint_state_provider = checkpoint_state_provider
         self.checkpoint_state_restorer = checkpoint_state_restorer
+        self.checkpoint_state_resetter = checkpoint_state_resetter
         self.shot_attempt_start = shot_attempt_start
         self.shot_attempt_accepted = shot_attempt_accepted
         self.shot_attempt_rejected = shot_attempt_rejected
@@ -79,16 +88,9 @@ class FilmOrchestrator:
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         checkpoint = Path(checkpoint_path) if checkpoint_path is not None else None
-
-        if (
-            resume
-            and checkpoint is not None
-            and checkpoint.exists()
-            and self.checkpoint_state_restorer is not None
-        ):
+        runtime_state = None
+        if resume and checkpoint is not None and checkpoint.exists():
             runtime_state = load_checkpoint_runtime_state(checkpoint)
-            if runtime_state is not None:
-                self.checkpoint_state_restorer(runtime_state)
 
         plan = plan_shots(package)
         scene_indices: dict[str, int] = {}
@@ -99,6 +101,14 @@ class FilmOrchestrator:
         build.shot_states = [
             existing.get(item.shot_id, ShotState(item.shot_id)) for item in plan
         ]
+
+        if (
+            resume
+            and runtime_state is not None
+            and self.checkpoint_state_restorer is not None
+        ):
+            self._restore_runtime_for_resume(build, runtime_state, dry_run=dry_run)
+
         self._checkpoint(build, checkpoint)
         if dry_run:
             build.metadata["dry_run"] = {
@@ -164,6 +174,77 @@ class FilmOrchestrator:
             build.transition(BuildStatus.FAILED)
             self._checkpoint(build, checkpoint)
         return build
+
+    def _restore_runtime_for_resume(
+        self,
+        build: FilmBuild,
+        runtime_state: dict[str, Any],
+        *,
+        dry_run: bool,
+    ) -> None:
+        """Restore stateful runtime only when reusable shots form a safe prefix.
+
+        Continuity runtimes are order-dependent. Restoring a checkpoint that has
+        accepted later shots and then rerendering an earlier missing/corrupt shot
+        would seed that earlier shot from future recurrent state. We therefore
+        require approved reusable outputs to form one contiguous prefix. If not,
+        reset both runtime and shot state so the timeline is regenerated from the
+        beginning. Dry runs preserve the historical restore-only behavior because
+        they never render or advance continuity state.
+        """
+        if dry_run:
+            self.checkpoint_state_restorer(runtime_state)
+            return
+
+        saw_gap = False
+        unsafe = False
+        approved_count = 0
+        reusable_count = 0
+        for state in build.shot_states:
+            if not state.approved:
+                saw_gap = True
+                continue
+            approved_count += 1
+            reusable = validate_reusable_output(
+                state.selected_output or "", state.output_hash
+            )
+            if reusable and not saw_gap:
+                reusable_count += 1
+                continue
+            unsafe = True
+            saw_gap = True
+
+        if approved_count == 0:
+            # A runtime checkpoint paired with no accepted shot state is internally
+            # inconsistent for a stateful production resume. Start clean rather
+            # than guessing what recurrent state the checkpoint represents.
+            unsafe = True
+
+        if unsafe:
+            if self.checkpoint_state_resetter is None:
+                raise FilmBuildError(
+                    "stateful resume checkpoint is not a contiguous reusable shot "
+                    "prefix and no runtime reset hook is configured"
+                )
+            self.checkpoint_state_resetter()
+            build.warnings.append(
+                "Stateful resume integrity mismatch; continuity runtime was reset "
+                "and the shot timeline will be regenerated from the beginning"
+            )
+            build.metadata["resume_integrity"] = {
+                "action": "full_timeline_regeneration",
+                "approved_shots": approved_count,
+                "reusable_prefix_shots": reusable_count,
+            }
+            build.shot_states = [ShotState(state.shot_id) for state in build.shot_states]
+            return
+
+        self.checkpoint_state_restorer(runtime_state)
+        build.metadata["resume_integrity"] = {
+            "action": "restored_contiguous_prefix",
+            "approved_shots": approved_count,
+            "reusable_prefix_shots": reusable_count,
+        }
 
     def _checkpoint(self, build: FilmBuild, checkpoint: Path | None) -> None:
         if checkpoint is None:

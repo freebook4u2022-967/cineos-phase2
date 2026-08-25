@@ -90,10 +90,22 @@ class NativeFilmContinuityBridge:
         return {
             "checkpoint_state_provider": self.snapshot,
             "checkpoint_state_restorer": self.restore,
+            "checkpoint_state_resetter": self.reset,
             "shot_attempt_start": self.start_attempt,
             "shot_attempt_accepted": self.accept_attempt,
             "shot_attempt_rejected": self.reject_attempt,
         }
+
+    def reset(self) -> None:
+        """Reset durable and in-flight continuity for a clean timeline replay.
+
+        Production resume calls this when persisted shot artifacts no longer form
+        a trustworthy contiguous prefix. Clearing both durable anchors and active
+        attempts prevents a regenerated early shot from inheriting recurrent state
+        from a later shot that existed in the old checkpoint.
+        """
+        self.memory = SceneContinuityMemory()
+        self._active.clear()
 
     def _policy_for(self, planned: Any) -> SceneTransitionPolicy:
         payload = dict(getattr(planned, "payload", {}) or {})
