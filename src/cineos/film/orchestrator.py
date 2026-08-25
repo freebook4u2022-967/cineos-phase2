@@ -12,7 +12,7 @@ from .assembly import assemble
 from .build import BuildStatus, FilmBuild
 from .checkpoint import load_checkpoint_bundle, save_checkpoint
 from .exceptions import BuildCancelled, FilmBuildError
-from .planner import plan_shots
+from .planner import plan_shots, shot_plan_fingerprint
 from .shot_state import ShotState
 from .validator import ShotValidator, file_hash, validate_reusable_output
 
@@ -38,12 +38,13 @@ class FilmOrchestrator:
 
     Stateful resume is integrity-aware. The persisted ``FilmBuild`` and optional
     renderer runtime state are loaded from the same checkpoint document, validated
-    against the requested build identity/creative contract, and only then reused.
-    If the persisted shot timeline is no longer a contiguous reusable prefix (for
-    example, an earlier approved artifact was deleted or corrupted), the
-    orchestrator must not restore continuity memory that may already contain
-    later-shot state. With a runtime reset hook it safely restarts the timeline from
-    shot zero; without one it fails closed.
+    against the requested build identity/creative contract and the deterministic
+    shot-plan fingerprint, and only then reused. If the persisted shot timeline is
+    no longer a contiguous reusable prefix (for example, an earlier approved
+    artifact was deleted or corrupted), the orchestrator must not restore
+    continuity memory that may already contain later-shot state. With a runtime
+    reset hook it safely restarts the timeline from shot zero; without one it fails
+    closed.
     """
 
     def __init__(
@@ -98,6 +99,11 @@ class FilmOrchestrator:
             build = saved_build
 
         plan = plan_shots(package)
+        plan_fingerprint = shot_plan_fingerprint(plan)
+        if resume:
+            self._assert_resume_plan_compatible(build, plan, plan_fingerprint)
+        build.metadata["shot_plan_fingerprint"] = plan_fingerprint
+
         scene_indices: dict[str, int] = {}
         for item in plan:
             scene_indices.setdefault(item.scene_id, len(scene_indices))
@@ -198,6 +204,35 @@ class FilmOrchestrator:
                 "resume checkpoint is incompatible with requested build: "
                 + ", ".join(mismatches)
             )
+
+    @staticmethod
+    def _assert_resume_plan_compatible(
+        saved: FilmBuild, plan: list[Any], current_fingerprint: str
+    ) -> None:
+        """Prevent checkpoint reuse across a changed creative timeline.
+
+        New checkpoints carry a fingerprint of the full renderer-facing plan. For
+        legacy checkpoints that predate the fingerprint, preserve compatibility
+        only when the persisted shot-state order exactly matches the current shot
+        IDs. This catches reorders/additions/removals while allowing old checkpoints
+        to be upgraded on their next successful checkpoint write.
+        """
+        saved_fingerprint = saved.metadata.get("shot_plan_fingerprint")
+        if saved_fingerprint is not None and saved_fingerprint != current_fingerprint:
+            raise FilmBuildError(
+                "resume checkpoint shot plan differs from the current creative "
+                "timeline; start a fresh build instead of reusing prior artifacts"
+            )
+
+        if saved_fingerprint is None and saved.shot_states:
+            saved_ids = [state.shot_id for state in saved.shot_states]
+            planned_ids = [item.shot_id for item in plan]
+            if saved_ids != planned_ids:
+                raise FilmBuildError(
+                    "legacy resume checkpoint shot order differs from the current "
+                    "creative timeline; start a fresh build instead of reusing "
+                    "prior artifacts"
+                )
 
     def _restore_runtime_for_resume(
         self,
