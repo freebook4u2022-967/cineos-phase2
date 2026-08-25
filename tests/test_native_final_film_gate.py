@@ -1,4 +1,5 @@
 from cineos.film.planner import PlannedShot
+from cineos.native_video.duration_gate import DurationIntegrityReport
 from cineos.native_video.final_eval import (
     SceneBoundaryEvalReport,
     SceneBoundaryEvidence,
@@ -57,12 +58,40 @@ class _BoundaryEvaluator:
         return self.report
 
 
+class _DurationEvaluator:
+    def __init__(self, decision="accept", directives=()):
+        self.decision = decision
+        self.directives = tuple(directives)
+        self.calls = []
+
+    def evaluate(self, movie_path, plan):
+        self.calls.append((movie_path, tuple(plan)))
+        planned = sum(float(shot.duration) for shot in plan)
+        measured = planned if self.decision == "accept" else planned - 2.0
+        return DurationIntegrityReport(
+            planned_seconds=planned,
+            measured_seconds=measured,
+            delta_seconds=measured - planned,
+            allowed_error_seconds=0.25,
+            decision=self.decision,
+            directives=self.directives,
+        )
+
+
 def _plan():
     return [
         PlannedShot("a1", "scene-a", 2.0, 0, {}),
         PlannedShot("a2", "scene-a", 3.0, 1, {"transition_out": "fade"}),
         PlannedShot("b1", "scene-b", 4.0, 2, {"transition_in": "match"}),
     ]
+
+
+def _gate(temporal=None, boundary=None, duration=None):
+    return MeasuredFinalFilmGate(
+        temporal or _TemporalEvaluator(),
+        boundary or _BoundaryEvaluator(),
+        duration or _DurationEvaluator(),
+    )
 
 
 def test_plan_boundaries_use_elapsed_duration_and_explicit_transition():
@@ -78,7 +107,8 @@ def test_plan_boundaries_use_elapsed_duration_and_explicit_transition():
 def test_single_scene_skips_boundary_decoder(tmp_path):
     temporal = _TemporalEvaluator()
     boundary = _BoundaryEvaluator()
-    gate = MeasuredFinalFilmGate(temporal, boundary)
+    duration = _DurationEvaluator()
+    gate = _gate(temporal, boundary, duration)
     movie = tmp_path / "movie.mp4"
     movie.write_bytes(b"movie")
     plan = [PlannedShot("a1", "scene-a", 2.0, 0, {})]
@@ -87,14 +117,17 @@ def test_single_scene_skips_boundary_decoder(tmp_path):
 
     assert report.decision == "accept"
     assert len(temporal.calls) == 1
+    assert len(duration.calls) == 1
     assert boundary.calls == []
     assert report.boundaries is None
+    assert report.duration is not None
+    assert report.duration.accepted
 
 
 def test_boundary_rejection_overrides_temporal_acceptance(tmp_path):
     temporal = _TemporalEvaluator("accept")
     boundary = _BoundaryEvaluator("reject", ("repair match boundary",))
-    gate = MeasuredFinalFilmGate(temporal, boundary)
+    gate = _gate(temporal, boundary)
     movie = tmp_path / "movie.mp4"
     movie.write_bytes(b"movie")
 
@@ -106,10 +139,22 @@ def test_boundary_rejection_overrides_temporal_acceptance(tmp_path):
     assert report.as_dict()["boundaries"]["decision"] == "reject"
 
 
+def test_duration_rejection_overrides_valid_pixels(tmp_path):
+    gate = _gate(duration=_DurationEvaluator("reject", ("rebuild assembly",)))
+    movie = tmp_path / "movie.mp4"
+    movie.write_bytes(b"movie")
+
+    report = gate.evaluate(movie, _plan())
+
+    assert report.decision == "reject"
+    assert report.directives == ("rebuild assembly",)
+    assert report.as_dict()["duration"]["decision"] == "reject"
+
+
 def test_temporal_warning_and_boundary_directives_are_deduplicated(tmp_path):
     temporal = _TemporalEvaluator("warn", ("review drift", "review drift"))
     boundary = _BoundaryEvaluator("warn", ("review drift", "inspect edit"))
-    gate = MeasuredFinalFilmGate(temporal, boundary)
+    gate = _gate(temporal, boundary)
     movie = tmp_path / "movie.mp4"
     movie.write_bytes(b"movie")
 
@@ -120,9 +165,7 @@ def test_temporal_warning_and_boundary_directives_are_deduplicated(tmp_path):
 
 
 def test_invalid_planned_transition_fails_closed(tmp_path):
-    temporal = _TemporalEvaluator()
-    boundary = _BoundaryEvaluator()
-    gate = MeasuredFinalFilmGate(temporal, boundary)
+    gate = _gate()
     movie = tmp_path / "movie.mp4"
     movie.write_bytes(b"movie")
     plan = [
