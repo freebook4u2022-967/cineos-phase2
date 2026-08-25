@@ -34,7 +34,9 @@ def test_manifest_rejects_unknown_schema() -> None:
     payload = _manifest().snapshot()
     payload["schema"] = "cineos-production-runtime/99"
 
-    with pytest.raises(ValueError, match="unsupported production runtime manifest schema"):
+    with pytest.raises(
+        ValueError, match="unsupported production runtime manifest schema"
+    ):
         ProductionRuntimeManifest.restore(payload)
 
 
