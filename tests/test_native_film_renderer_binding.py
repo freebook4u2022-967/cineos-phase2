@@ -116,9 +116,15 @@ def test_binding_passes_exact_active_temporal_state_to_renderer(tmp_path):
     )
 
     bridge.accept_attempt(planned, 0, 1)
-    assert bridge.memory.latest() is not None
-    assert bridge.memory.latest().shot_id == "shot-1"
-    assert bridge.memory.latest().latent.values == (2.0,) * bridge.model.latent_dim
+    anchor = bridge.memory.latest()
+    assert anchor is not None
+    assert anchor.shot_id == "shot-1"
+    assert anchor.latent.values == (2.0,) * bridge.model.latent_dim
+    assert anchor.native_artifact_bytes == len(b"native-shot")
+    assert (
+        anchor.native_artifact_sha256
+        == "1c7b54bea15174d5fa93a3689755184dfc8464cea7e73a4b6b36e5896863fa24"
+    )
 
 
 def test_binding_fails_closed_when_renderer_returns_missing_artifact(tmp_path):
