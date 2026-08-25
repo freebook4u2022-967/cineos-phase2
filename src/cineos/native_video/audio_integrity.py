@@ -199,12 +199,14 @@ class FinalFilmAudioIntegrityGate:
         if stream.sample_rate_hz < self.policy.min_sample_rate_hz:
             decision = "reject"
             directives.append(
-                f"raise final-film audio sample rate to at least {self.policy.min_sample_rate_hz} Hz"
+                "raise final-film audio sample rate to at least "
+                f"{self.policy.min_sample_rate_hz} Hz"
             )
         if stream.channels < self.policy.min_channels:
             decision = "reject"
             directives.append(
-                f"encode at least {self.policy.min_channels} final-film audio channel(s)"
+                f"encode at least {self.policy.min_channels} "
+                "final-film audio channel(s)"
             )
 
         duration_delta: float | None = None
@@ -213,7 +215,8 @@ class FinalFilmAudioIntegrityGate:
             if duration_delta > self.policy.max_duration_delta_seconds:
                 decision = "reject"
                 directives.append(
-                    "realign final-film audio duration with the authored picture timeline"
+                    "realign final-film audio duration with the authored "
+                    "picture timeline"
                 )
 
         return AudioIntegrityReport(
