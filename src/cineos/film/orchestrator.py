@@ -31,9 +31,9 @@ class FilmOrchestrator:
 
     Attempt lifecycle callbacks are deliberately transactional: a runtime receives
     ``shot_attempt_start`` before each render attempt, ``shot_attempt_accepted``
-    only after whole-shot validation succeeds, and ``shot_attempt_rejected`` for
-    any failed attempt. This prevents rejected whole-shot retries from advancing
-    long-range continuity state.
+    only after whole-shot validation and final artifact hashing succeed, and
+    ``shot_attempt_rejected`` for any failed attempt. This prevents rejected or
+    incomplete whole-shot retries from advancing long-range continuity state.
     """
 
     def __init__(
@@ -222,12 +222,18 @@ class FilmOrchestrator:
                     }
                 )
                 if approved:
+                    # Hash the exact artifact before committing model-specific
+                    # continuity state. Hashing can fail if the renderer returned a
+                    # missing/unreadable/transient artifact; such an attempt must be
+                    # rejected rather than promoted into durable scene memory.
+                    output_hash = file_hash(path)
                     if self.shot_attempt_accepted is not None:
                         self.shot_attempt_accepted(planned, scene_index, attempt_number)
                     state.validation_status = "approved"
                     state.selected_output = str(path)
-                    state.output_hash = file_hash(path)
+                    state.output_hash = output_hash
                     state.recovery_status = "recovered" if attempt else "not_required"
+                    state.failure_reason = None
                     state.attempt_history.append(
                         {
                             "attempt": attempt_number,
