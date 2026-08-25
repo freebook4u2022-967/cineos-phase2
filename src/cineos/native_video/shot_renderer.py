@@ -160,7 +160,9 @@ class CINEOSNativeTemporalShotRenderer:
     durable scene continuity memory.
     """
 
-    runtime: NativeTemporalRuntime = field(default_factory=NativeTemporalRuntime.default)
+    runtime: NativeTemporalRuntime = field(
+        default_factory=NativeTemporalRuntime.default
+    )
     decoder: NativeLatentRGBDecoder = field(default_factory=AnalyticLatentRGBDecoder)
     width: int = 320
     height: int = 180
@@ -317,7 +319,9 @@ class CINEOSNativeTemporalShotRenderer:
                     "FFmpeg failed to encode native frames: " + completed.stderr.strip()
                 )
             if not encoded.is_file() or encoded.stat().st_size <= 0:
-                raise NativeShotRenderError("native shot encoder produced no video output")
+                raise NativeShotRenderError(
+                    "native shot encoder produced no video output"
+                )
 
             # The staging directory lives under destination.parent so replace() is an
             # atomic same-filesystem promotion on supported platforms. An old durable

@@ -122,7 +122,9 @@ def test_renderer_rolls_back_temporal_state_when_encoding_fails(tmp_path: Path) 
     assert not target.exists()
 
 
-def test_renderer_preserves_existing_artifact_when_encoding_fails(tmp_path: Path) -> None:
+def test_renderer_preserves_existing_artifact_when_encoding_fails(
+    tmp_path: Path,
+) -> None:
     fake_ffmpeg = tmp_path / "ffmpeg-fail"
     fake_ffmpeg.write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
     fake_ffmpeg.chmod(0o755)
