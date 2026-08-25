@@ -151,6 +151,12 @@ def test_plan_scene_boundaries_fails_closed_on_unknown_transition() -> None:
         )
 
 
+@pytest.mark.parametrize("duration", [float("nan"), float("inf"), float("-inf")])
+def test_plan_scene_boundaries_rejects_non_finite_durations(duration: float) -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        plan_scene_boundaries((_shot("scene-a", duration), _shot("scene-b", 1.0)))
+
+
 def test_measured_final_film_gate_rejects_when_boundary_evidence_rejects(
     tmp_path,
 ) -> None:
