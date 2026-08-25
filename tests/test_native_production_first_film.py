@@ -8,10 +8,12 @@ from cineos.native_video.film_bridge import (
     NativeFilmContinuityBridge,
     temporal_model_fingerprint,
 )
+from cineos.native_video.final_eval import FFmpegTemporalFilmEvaluator, TemporalFilmEvalPolicy
 from cineos.native_video.final_gate import MeasuredFinalFilmGate
 from cineos.native_video.production_first_film import (
     PRODUCTION_FIRST_FILM_RUNTIME_KIND,
     build_production_first_film_runtime,
+    final_gate_policy_fingerprint,
 )
 from cineos.native_video.renderer_binding import NativeFilmRendererBinding
 
@@ -47,6 +49,9 @@ def test_production_runtime_wires_native_continuity_and_required_final_qc() -> N
     assert runtime.manifest.require_audio is True
     assert runtime.manifest.temporal_model_fingerprint == temporal_model_fingerprint(
         runtime.continuity.model
+    )
+    assert runtime.manifest.final_gate_policy_fingerprint == final_gate_policy_fingerprint(
+        runtime.final_gate
     )
 
     orchestrator = runtime.runner.orchestrator
@@ -111,6 +116,45 @@ def test_production_resume_rejects_changed_temporal_model_fingerprint() -> None:
     restorer = runtime.runner.orchestrator.checkpoint_state_restorer
     assert restorer is not None
     with pytest.raises(ValueError, match="temporal_model_fingerprint"):
+        restorer(payload)
+
+
+def test_production_resume_rejects_changed_final_gate_thresholds() -> None:
+    saved = build_production_first_film_runtime(_NativeRenderer())
+    stricter_gate = MeasuredFinalFilmGate(
+        temporal_evaluator=FFmpegTemporalFilmEvaluator(
+            policy=TemporalFilmEvalPolicy(max_black_ratio=0.01)
+        ),
+        require_audio=True,
+    )
+    current = build_production_first_film_runtime(
+        _NativeRenderer(), final_gate=stricter_gate
+    )
+
+    assert (
+        saved.manifest.final_gate_policy_fingerprint
+        != current.manifest.final_gate_policy_fingerprint
+    )
+    restorer = current.runner.orchestrator.checkpoint_state_restorer
+    assert restorer is not None
+    before = current.continuity.snapshot()
+
+    with pytest.raises(ValueError, match="final_gate_policy_fingerprint"):
+        restorer(_runtime_state(saved))
+
+    assert current.continuity.snapshot() == before
+
+
+def test_production_resume_rejects_legacy_unbound_final_gate_policy() -> None:
+    runtime = build_production_first_film_runtime(_NativeRenderer())
+    payload = _runtime_state(runtime)
+    saved_manifest = dict(payload["runtime_manifest"])  # type: ignore[arg-type]
+    saved_manifest.pop("final_gate_policy_fingerprint")
+    payload["runtime_manifest"] = saved_manifest
+
+    restorer = runtime.runner.orchestrator.checkpoint_state_restorer
+    assert restorer is not None
+    with pytest.raises(ValueError, match="final_gate_policy_fingerprint"):
         restorer(payload)
 
 
