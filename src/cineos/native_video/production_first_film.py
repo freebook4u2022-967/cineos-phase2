@@ -75,7 +75,9 @@ def _production_checkpoint_hooks(
             raise ValueError("unsupported production FIRST FILM runtime checkpoint")
         raw_manifest = payload.get("runtime_manifest")
         if not isinstance(raw_manifest, dict):
-            raise ValueError("production runtime checkpoint is missing runtime_manifest")
+            raise ValueError(
+                "production runtime checkpoint is missing runtime_manifest"
+            )
         raw_continuity = payload.get("continuity")
         if not isinstance(raw_continuity, dict):
             raise ValueError("production runtime checkpoint is missing continuity")
