@@ -38,13 +38,21 @@ class SceneTransitionPolicy:
 
 @dataclass(frozen=True, slots=True)
 class SceneContinuityAnchor:
-    """Accepted end-of-shot state eligible to seed a later shot."""
+    """Accepted end-of-shot state eligible to seed a later shot.
+
+    Native artifact provenance is optional for backwards compatibility with
+    checkpoints produced before the renderer-integrity boundary existed. New
+    native-film renders persist both values together so checkpoint/resume retains
+    a cryptographic link between the accepted visual state and its actual file.
+    """
 
     scene_index: int
     shot_id: str
     hidden: Tensor
     latent: Tensor
     frame_index: int
+    native_artifact_sha256: str | None = None
+    native_artifact_bytes: int | None = None
 
     def __post_init__(self) -> None:
         if self.scene_index < 0:
@@ -55,9 +63,21 @@ class SceneContinuityAnchor:
             raise ValueError("continuity anchor requires an accepted frame")
         if self.hidden.device != self.latent.device:
             raise ValueError("anchor hidden and latent tensors must share a device")
+        has_digest = self.native_artifact_sha256 is not None
+        has_size = self.native_artifact_bytes is not None
+        if has_digest != has_size:
+            raise ValueError("native artifact provenance must include digest and byte size")
+        if has_digest:
+            digest = str(self.native_artifact_sha256)
+            if len(digest) != 64 or any(
+                character not in "0123456789abcdef" for character in digest
+            ):
+                raise ValueError("native artifact sha256 must be a lowercase hex digest")
+            if int(self.native_artifact_bytes) <= 0:
+                raise ValueError("native artifact byte size must be positive")
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "scene_index": self.scene_index,
             "shot_id": self.shot_id,
             "hidden": list(self.hidden.values),
@@ -67,6 +87,10 @@ class SceneContinuityAnchor:
             "device": self.hidden.device,
             "frame_index": self.frame_index,
         }
+        if self.native_artifact_sha256 is not None:
+            payload["native_artifact_sha256"] = self.native_artifact_sha256
+            payload["native_artifact_bytes"] = self.native_artifact_bytes
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> SceneContinuityAnchor:
@@ -79,6 +103,8 @@ class SceneContinuityAnchor:
             for value in (hidden_values, hidden_shape, latent_values, latent_shape)
         ):
             raise ValueError("scene continuity anchor is missing tensor data")
+        raw_digest = payload.get("native_artifact_sha256")
+        raw_bytes = payload.get("native_artifact_bytes")
         device = str(payload.get("device", "cpu"))
         return cls(
             scene_index=int(payload.get("scene_index", -1)),
@@ -94,6 +120,10 @@ class SceneContinuityAnchor:
                 device,
             ),
             frame_index=int(payload.get("frame_index", -1)),
+            native_artifact_sha256=(
+                None if raw_digest is None else str(raw_digest)
+            ),
+            native_artifact_bytes=(None if raw_bytes is None else int(raw_bytes)),
         )
 
 
@@ -131,12 +161,18 @@ class SceneContinuityMemory:
             if state.shot_id == previous.shot_id:
                 raise ValueError("the same shot_id cannot be recorded twice")
 
+        raw_digest = state.metadata.get("native_artifact_sha256")
+        raw_bytes = state.metadata.get("native_artifact_bytes")
         anchor = SceneContinuityAnchor(
             scene_index=scene_index,
             shot_id=state.shot_id,
             hidden=state.hidden,
             latent=state.last_latent,
             frame_index=state.last_frame_index,
+            native_artifact_sha256=(
+                None if raw_digest is None else str(raw_digest)
+            ),
+            native_artifact_bytes=(None if raw_bytes is None else int(raw_bytes)),
         )
         self.anchors.append(anchor)
         return anchor
