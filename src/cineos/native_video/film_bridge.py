@@ -4,10 +4,18 @@ The bridge deliberately commits scene continuity only after whole-shot validatio
 passes. Each retry starts from the last durable accepted scene anchor, so a render
 attempt that later fails film-level QC cannot poison the next shot or a resumed
 production checkpoint.
+
+Durable checkpoints also carry a deterministic fingerprint of the exact temporal
+model architecture and parameters that produced their recurrent state. Restoring a
+checkpoint under different weights fails closed instead of silently mixing visual
+state from incompatible model generations. Legacy checkpoints remain readable so
+existing work is not stranded, while all newly written checkpoints are protected.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -17,6 +25,46 @@ from .scene_memory import SceneContinuityMemory, SceneTransitionPolicy
 from .temporal_model import NativeTemporalModel, TemporalSequenceState
 
 FILM_CONTINUITY_RUNTIME_KIND = "cineos-native-film-continuity/0.1"
+TEMPORAL_MODEL_FINGERPRINT_SCHEMA = "cineos-temporal-model-fingerprint/0.1"
+
+
+def temporal_model_fingerprint(model: NativeTemporalModel) -> str:
+    """Return a stable SHA-256 identity for temporal architecture and parameters.
+
+    The payload intentionally includes dimensions, layer topology, weights and
+    biases. Device placement is excluded because moving identical weights between
+    CPU and GPU must not invalidate a durable continuity checkpoint.
+    """
+    payload = {
+        "schema": TEMPORAL_MODEL_FINGERPRINT_SCHEMA,
+        "dimensions": {
+            "identity": model.identity_dim,
+            "scene": model.scene_dim,
+            "motion": model.motion_dim,
+            "hidden": model.hidden_dim,
+            "latent": model.latent_dim,
+        },
+        "recurrent": {
+            "input_dim": model.recurrent.input_dim,
+            "output_dim": model.recurrent.output_dim,
+            "weights": model.recurrent.weights,
+            "bias": model.recurrent.bias,
+        },
+        "decoder": {
+            "input_dim": model.decoder.input_dim,
+            "output_dim": model.decoder.output_dim,
+            "weights": model.decoder.weights,
+            "bias": model.decoder.bias,
+        },
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass(slots=True)
@@ -139,13 +187,28 @@ class NativeFilmContinuityBridge:
         """Return durable runtime state; in-flight attempts are intentionally absent."""
         return {
             "kind": FILM_CONTINUITY_RUNTIME_KIND,
+            "temporal_model_fingerprint": temporal_model_fingerprint(self.model),
             "memory": self.memory.snapshot(),
         }
 
     def restore(self, payload: dict[str, object]) -> None:
-        """Restore durable accepted continuity and clear any in-flight attempt."""
+        """Restore durable accepted continuity and clear any in-flight attempt.
+
+        New checkpoints are model-bound. A fingerprint mismatch means recurrent
+        state was produced by different temporal weights and is therefore unsafe to
+        reuse. Checkpoints written before fingerprinting existed are still accepted
+        for backwards compatibility and will become protected on their next save.
+        """
         if str(payload.get("kind", "")) != FILM_CONTINUITY_RUNTIME_KIND:
             raise ValueError("unsupported native film continuity runtime kind")
+        raw_fingerprint = payload.get("temporal_model_fingerprint")
+        if raw_fingerprint is not None:
+            expected = temporal_model_fingerprint(self.model)
+            if str(raw_fingerprint) != expected:
+                raise ValueError(
+                    "native film continuity checkpoint temporal model fingerprint "
+                    "does not match the active model"
+                )
         raw_memory = payload.get("memory")
         if not isinstance(raw_memory, dict):
             raise ValueError("native film continuity runtime is missing memory")
