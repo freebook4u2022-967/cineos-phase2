@@ -20,6 +20,7 @@ from .final_eval import (
     evaluate_sampled_frames,
     evaluate_scene_boundaries,
 )
+from .final_gate import MeasuredFinalFilmGate, MeasuredFinalFilmReport
 from .observability import (
     TEMPORAL_EVENT_SCHEMA,
     InMemoryTemporalObserver,
@@ -69,6 +70,8 @@ __all__ = [
     "FILM_CONTINUITY_RUNTIME_KIND",
     "InMemoryTemporalObserver",
     "JsonlTemporalObserver",
+    "MeasuredFinalFilmGate",
+    "MeasuredFinalFilmReport",
     "MotionDampingRetryPolicy",
     "NativeArtifactProvenance",
     "NativeFilmContinuityBridge",
