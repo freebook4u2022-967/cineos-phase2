@@ -7,6 +7,14 @@ from .artifact_integrity import (
     verify_continuity_artifact,
     verify_provenance,
 )
+from .audio_integrity import (
+    AudioIntegrityPolicy,
+    AudioIntegrityReport,
+    AudioInspector,
+    AudioStreamEvidence,
+    FFprobeAudioInspector,
+    FinalFilmAudioIntegrityGate,
+)
 from .boundary_eval import FFmpegSceneBoundaryEvaluator, SceneBoundaryPoint
 from .film_bridge import FILM_CONTINUITY_RUNTIME_KIND, NativeFilmContinuityBridge
 from .final_eval import (
@@ -64,10 +72,16 @@ from .temporal_qc import (
 __all__ = [
     "AnalyticLatentRGBDecoder",
     "ArtifactIntegrityError",
+    "AudioIntegrityPolicy",
+    "AudioIntegrityReport",
+    "AudioInspector",
+    "AudioStreamEvidence",
     "CINEOSNativeTemporalShotRenderer",
     "FFmpegSceneBoundaryEvaluator",
     "FFmpegTemporalFilmEvaluator",
+    "FFprobeAudioInspector",
     "FILM_CONTINUITY_RUNTIME_KIND",
+    "FinalFilmAudioIntegrityGate",
     "InMemoryTemporalObserver",
     "JsonlTemporalObserver",
     "MeasuredFinalFilmGate",
