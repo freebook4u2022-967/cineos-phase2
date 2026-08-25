@@ -60,6 +60,33 @@ def _payload(item: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+def _metadata_flag(payload: Mapping[str, Any], name: str) -> bool:
+    """Decode a persisted boolean flag without Python truthiness surprises.
+
+    Shot payloads commonly cross JSON/YAML/CLI boundaries. Treating their values
+    with ``bool(value)`` makes strings such as ``"false"`` true, which can silently
+    rewrite authored edit semantics. We accept conventional serialized boolean
+    forms for backwards compatibility and reject ambiguous values so production
+    assembly fails closed instead of guessing.
+    """
+    raw = payload.get(name, False)
+    if raw is None:
+        return False
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, int) and raw in {0, 1}:
+        return bool(raw)
+    if isinstance(raw, str):
+        normalized = raw.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+    raise ValueError(
+        f"{name} must be boolean metadata; got {raw!r}"
+    )
+
+
 def _transition_for_boundary(outgoing: Any, incoming: Any) -> str:
     """Resolve an authored edit contract without guessing from rendered pixels.
 
@@ -70,8 +97,8 @@ def _transition_for_boundary(outgoing: Any, incoming: Any) -> str:
     incoming_payload = _payload(incoming)
     outgoing_payload = _payload(outgoing)
 
-    if bool(incoming_payload.get("continuity_reset", False)) or bool(
-        incoming_payload.get("hard_cut", False)
+    if _metadata_flag(incoming_payload, "continuity_reset") or _metadata_flag(
+        incoming_payload, "hard_cut"
     ):
         return "cut"
 
