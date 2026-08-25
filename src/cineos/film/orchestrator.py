@@ -10,7 +10,7 @@ from typing import Any
 
 from .assembly import assemble
 from .build import BuildStatus, FilmBuild
-from .checkpoint import load_checkpoint_runtime_state, save_checkpoint
+from .checkpoint import load_checkpoint_bundle, save_checkpoint
 from .exceptions import BuildCancelled, FilmBuildError
 from .planner import plan_shots
 from .shot_state import ShotState
@@ -36,11 +36,14 @@ class FilmOrchestrator:
     ``shot_attempt_rejected`` for any failed attempt. This prevents rejected or
     incomplete whole-shot retries from advancing long-range continuity state.
 
-    Stateful resume is integrity-aware. If the persisted shot timeline is no longer
-    a contiguous reusable prefix (for example, an earlier approved artifact was
-    deleted or corrupted), the orchestrator must not restore continuity memory that
-    may already contain later-shot state. With a runtime reset hook it safely
-    restarts the timeline from shot zero; without one it fails closed.
+    Stateful resume is integrity-aware. The persisted ``FilmBuild`` and optional
+    renderer runtime state are loaded from the same checkpoint document, validated
+    against the requested build identity/creative contract, and only then reused.
+    If the persisted shot timeline is no longer a contiguous reusable prefix (for
+    example, an earlier approved artifact was deleted or corrupted), the
+    orchestrator must not restore continuity memory that may already contain
+    later-shot state. With a runtime reset hook it safely restarts the timeline from
+    shot zero; without one it fails closed.
     """
 
     def __init__(
@@ -90,7 +93,9 @@ class FilmOrchestrator:
         checkpoint = Path(checkpoint_path) if checkpoint_path is not None else None
         runtime_state = None
         if resume and checkpoint is not None and checkpoint.exists():
-            runtime_state = load_checkpoint_runtime_state(checkpoint)
+            saved_build, runtime_state = load_checkpoint_bundle(checkpoint)
+            self._assert_resume_build_compatible(build, saved_build)
+            build = saved_build
 
         plan = plan_shots(package)
         scene_indices: dict[str, int] = {}
@@ -175,6 +180,24 @@ class FilmOrchestrator:
             build.transition(BuildStatus.FAILED)
             self._checkpoint(build, checkpoint)
         return build
+
+    @staticmethod
+    def _assert_resume_build_compatible(requested: FilmBuild, saved: FilmBuild) -> None:
+        """Fail closed before reusing persisted work from a different build intent."""
+        mismatches = [
+            name
+            for name in ("project_id", "film_package_id", "renderer_id")
+            if getattr(requested, name) != getattr(saved, name)
+        ]
+        requested_contract = requested.metadata.get("resume_contract")
+        saved_contract = saved.metadata.get("resume_contract")
+        if requested_contract is not None and requested_contract != saved_contract:
+            mismatches.append("resume_contract")
+        if mismatches:
+            raise FilmBuildError(
+                "resume checkpoint is incompatible with requested build: "
+                + ", ".join(mismatches)
+            )
 
     def _restore_runtime_for_resume(
         self,
