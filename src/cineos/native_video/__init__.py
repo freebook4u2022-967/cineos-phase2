@@ -37,6 +37,10 @@ from .observability import (
     TemporalObserver,
     TemporalRuntimeEvent,
 )
+from .production_first_film import (
+    ProductionFirstFilmRuntime,
+    build_production_first_film_runtime,
+)
 from .renderer_binding import NativeFilmRendererBinding, NativeTemporalShotRenderer
 from .runtime import (
     MotionDampingRetryPolicy,
@@ -96,6 +100,7 @@ __all__ = [
     "NativeTemporalRuntime",
     "NativeTemporalShotRenderer",
     "NullTemporalObserver",
+    "ProductionFirstFilmRuntime",
     "SCENE_MEMORY_SCHEMA",
     "SceneBoundaryEvalPolicy",
     "SceneBoundaryEvalReport",
@@ -119,6 +124,7 @@ __all__ = [
     "TemporalRetryPolicy",
     "TemporalRuntimeEvent",
     "TemporalSequenceState",
+    "build_production_first_film_runtime",
     "evaluate_sampled_frames",
     "evaluate_scene_boundaries",
     "provenance_for",
