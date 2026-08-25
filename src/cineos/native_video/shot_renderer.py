@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from cineos.native_image.tensor_model import Tensor
 
@@ -27,6 +27,20 @@ from .temporal_model import TemporalFrameInput, TemporalSequenceState
 
 class NativeShotRenderError(RuntimeError):
     """Raised when native temporal shot rendering cannot complete safely."""
+
+
+class NativeLatentRGBDecoder(Protocol):
+    """Stable native boundary for converting CINEOS latents into RGB frames.
+
+    Implementations may be analytic or learned, but must be CINEOS-owned and must
+    return exactly ``width * height * 3`` RGB bytes. Keeping this contract separate
+    from shot orchestration allows a trained decoder to replace the bootstrap pixel
+    decoder without changing continuity, retry, checkpoint, or film assembly logic.
+    """
+
+    decoder_id: str
+
+    def decode(self, latent: Tensor, *, width: int, height: int) -> bytes: ...
 
 
 def _vector(text: str, size: int, *, device: str) -> Tensor:
@@ -64,10 +78,11 @@ def _motion_vector(
 def _latent_to_rgb(latent: Tensor, width: int, height: int) -> bytes:
     """Decode a native latent into deterministic RGB pixels without a provider.
 
-    This decoder is intentionally simple but real. It exists so the native video
-    runtime has an executable owned pixel path today; a learned VAE/RGB decoder can
-    implement the same boundary later. Spatial frequencies are derived from the
-    model latent rather than from canned frames or fixtures.
+    This bootstrap decoder is intentionally simple but real. It exists so the
+    native video runtime has an executable owned pixel path today; a learned
+    VAE/RGB decoder can implement :class:`NativeLatentRGBDecoder` later. Spatial
+    frequencies are derived from the model latent rather than canned frames or
+    fixtures.
     """
     if width <= 0 or height <= 0:
         raise ValueError("frame dimensions must be positive")
@@ -95,6 +110,16 @@ def _latent_to_rgb(latent: Tensor, width: int, height: int) -> bytes:
                 rgb[offset] = int(round(normalized * 255.0))
                 offset += 1
     return bytes(rgb)
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyticLatentRGBDecoder:
+    """Bootstrap CINEOS decoder used until a trained RGB decoder is supplied."""
+
+    decoder_id: str = "cineos-analytic-latent-rgb/1"
+
+    def decode(self, latent: Tensor, *, width: int, height: int) -> bytes:
+        return _latent_to_rgb(latent, width, height)
 
 
 def _write_ppm(path: Path, width: int, height: int, rgb: bytes) -> None:
@@ -135,9 +160,8 @@ class CINEOSNativeTemporalShotRenderer:
     durable scene continuity memory.
     """
 
-    runtime: NativeTemporalRuntime = field(
-        default_factory=NativeTemporalRuntime.default
-    )
+    runtime: NativeTemporalRuntime = field(default_factory=NativeTemporalRuntime.default)
+    decoder: NativeLatentRGBDecoder = field(default_factory=AnalyticLatentRGBDecoder)
     width: int = 320
     height: int = 180
     fps: int = 8
@@ -151,6 +175,9 @@ class CINEOSNativeTemporalShotRenderer:
             raise ValueError("native shot fps must be positive")
         if self.max_frames <= 0:
             raise ValueError("max_frames must be positive")
+        decoder_id = getattr(self.decoder, "decoder_id", "")
+        if not isinstance(decoder_id, str) or not decoder_id.strip():
+            raise ValueError("native RGB decoder requires a non-empty decoder_id")
 
     def _conditioning(
         self, planned: Any, state: TemporalSequenceState
@@ -220,12 +247,15 @@ class CINEOSNativeTemporalShotRenderer:
 
         # Whole-shot transaction boundary: frame-level QC may commit to this working
         # state, but no caller-visible continuity is advanced until the final encoded
-        # artifact exists and passes the basic durability check below.
+        # artifact exists and has been atomically promoted into place.
         working_state = TemporalSequenceState.restore(temporal_state.snapshot())
         identity, scene = self._conditioning(planned, working_state)
 
-        with tempfile.TemporaryDirectory(prefix=f"cineos-{shot_id}-") as temp_dir:
+        with tempfile.TemporaryDirectory(
+            prefix=f".cineos-{shot_id}-", dir=destination.parent
+        ) as temp_dir:
             frames = Path(temp_dir)
+            encoded = frames / "encoded.mp4"
             for frame_index in range(frame_count):
                 request = TemporalFrameInput(
                     shot_id=shot_id,
@@ -240,13 +270,23 @@ class CINEOSNativeTemporalShotRenderer:
                     ),
                 )
                 result = self.runtime.generate_frame(request, working_state)
-                rgb = _latent_to_rgb(result.candidate.latent, self.width, self.height)
-                _write_ppm(
-                    frames / f"frame-{frame_index:06d}.ppm",
-                    self.width,
-                    self.height,
-                    rgb,
-                )
+                try:
+                    rgb = self.decoder.decode(
+                        result.candidate.latent,
+                        width=self.width,
+                        height=self.height,
+                    )
+                    _write_ppm(
+                        frames / f"frame-{frame_index:06d}.ppm",
+                        self.width,
+                        self.height,
+                        rgb,
+                    )
+                except Exception as exc:
+                    raise NativeShotRenderError(
+                        "native RGB decoder "
+                        f"{self.decoder.decoder_id!r} failed at frame {frame_index}"
+                    ) from exc
 
             command = [
                 ffmpeg,
@@ -264,7 +304,7 @@ class CINEOSNativeTemporalShotRenderer:
                 "yuv420p",
                 "-movflags",
                 "+faststart",
-                str(destination),
+                str(encoded),
             ]
             completed = subprocess.run(
                 command,
@@ -273,16 +313,19 @@ class CINEOSNativeTemporalShotRenderer:
                 text=True,
             )
             if completed.returncode != 0:
-                destination.unlink(missing_ok=True)
                 raise NativeShotRenderError(
                     "FFmpeg failed to encode native frames: " + completed.stderr.strip()
                 )
+            if not encoded.is_file() or encoded.stat().st_size <= 0:
+                raise NativeShotRenderError("native shot encoder produced no video output")
 
-        if not destination.is_file() or destination.stat().st_size <= 0:
-            destination.unlink(missing_ok=True)
-            raise NativeShotRenderError("native shot encoder produced no video output")
+            # The staging directory lives under destination.parent so replace() is an
+            # atomic same-filesystem promotion on supported platforms. An old durable
+            # artifact is therefore never replaced by a partial/failed render.
+            encoded.replace(destination)
 
-        working_state.metadata["native_renderer"] = "cineos-temporal-pixel/0.2"
+        working_state.metadata["native_renderer"] = "cineos-temporal-pixel/0.3"
+        working_state.metadata["native_decoder"] = self.decoder.decoder_id
         working_state.metadata["native_width"] = self.width
         working_state.metadata["native_height"] = self.height
         working_state.metadata["native_fps"] = self.fps
