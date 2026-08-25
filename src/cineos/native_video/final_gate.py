@@ -81,7 +81,8 @@ def _planned_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, 
             )
             if transition not in {"cut", "match", "fade"}:
                 raise ValueError(
-                    f"unsupported planned scene transition {transition!r}; expected cut, match, or fade"
+                    f"unsupported planned scene transition {transition!r}; "
+                    "expected cut, match, or fade"
                 )
             boundaries.append(
                 SceneBoundaryPoint(
