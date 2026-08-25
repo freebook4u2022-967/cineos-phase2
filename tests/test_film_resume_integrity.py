@@ -231,7 +231,12 @@ def test_resume_rejects_changed_renderer_facing_shot_payload(tmp_path, monkeypat
             "scene-1",
             1.0,
             0,
-            {"shot_id": "shot-1", "scene_id": "scene-1", "duration": 1.0, "prompt": "old"},
+            {
+                "shot_id": "shot-1",
+                "scene_id": "scene-1",
+                "duration": 1.0,
+                "prompt": "old",
+            },
         )
     ]
     saved = FilmBuild("project", "package", "native")
@@ -245,7 +250,12 @@ def test_resume_rejects_changed_renderer_facing_shot_payload(tmp_path, monkeypat
             "scene-1",
             1.0,
             0,
-            {"shot_id": "shot-1", "scene_id": "scene-1", "duration": 1.0, "prompt": "new"},
+            {
+                "shot_id": "shot-1",
+                "scene_id": "scene-1",
+                "duration": 1.0,
+                "prompt": "new",
+            },
         )
     ]
     monkeypatch.setattr(orchestrator_module, "plan_shots", lambda package: changed)
