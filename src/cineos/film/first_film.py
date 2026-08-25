@@ -9,6 +9,8 @@ movie is accepted only after post-assembly temporal/edit QC.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +20,8 @@ from .audio import AudioTrack, available_tracks, mux_audio_tracks
 from .build import BuildStatus, FilmBuild
 from .orchestrator import FilmOrchestrator
 from .planner import plan_shots
+
+FIRST_FILM_RESUME_CONTRACT_SCHEMA = "cineos-first-film-resume/0.1"
 
 
 class FinalFilmEvaluator(Protocol):
@@ -115,6 +119,34 @@ class FastTrackAutoDirector:
         )
 
 
+def _resume_contract(
+    package: FirstFilmPackage,
+    *,
+    renderer_id: str,
+    require_final_film_evaluation: bool,
+) -> dict[str, str]:
+    """Fingerprint all render-significant FIRST FILM intent for safe resume."""
+    payload = {
+        "schema": FIRST_FILM_RESUME_CONTRACT_SCHEMA,
+        "renderer_id": renderer_id,
+        "premise": package.premise,
+        "shot_manifest": package.shot_manifest,
+        "timeline_manifest": package.timeline_manifest,
+        "character_manifest": package.character_manifest,
+        "final_film_qc_required": require_final_film_evaluation,
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return {
+        "schema": FIRST_FILM_RESUME_CONTRACT_SCHEMA,
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
 class FirstFilmRunner:
     """One-call Auto Director -> render -> QC/retry -> audio -> final-film QC runner.
 
@@ -184,6 +216,11 @@ class FirstFilmRunner:
             project_id=project_id,
             film_package_id=package.package_id,
             renderer_id=self.renderer_id,
+        )
+        build.metadata["resume_contract"] = _resume_contract(
+            package,
+            renderer_id=self.renderer_id,
+            require_final_film_evaluation=self.require_final_film_evaluation,
         )
         build.metadata["first_film"] = {
             "premise": package.premise,
