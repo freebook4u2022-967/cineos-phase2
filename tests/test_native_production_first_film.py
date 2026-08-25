@@ -67,6 +67,4 @@ def test_production_runtime_rejects_device_mismatch() -> None:
 
 def test_production_runtime_rejects_negative_recovery_budget() -> None:
     with pytest.raises(ValueError, match="non-negative"):
-        build_production_first_film_runtime(
-            _NativeRenderer(), max_recovery_attempts=-1
-        )
+        build_production_first_film_runtime(_NativeRenderer(), max_recovery_attempts=-1)
