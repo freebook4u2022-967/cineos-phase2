@@ -45,11 +45,11 @@ def provenance_for(path: str | Path) -> NativeArtifactProvenance:
     """Compute provenance for a real, non-empty artifact using streaming I/O."""
     artifact = Path(path)
     if not artifact.is_file():
-        raise ArtifactIntegrityError(f"native artifact does not exist: {artifact}")
+        raise ArtifactIntegrityError(f"native renderer returned missing artifact: {artifact}")
 
     byte_size = artifact.stat().st_size
     if byte_size <= 0:
-        raise ArtifactIntegrityError(f"native artifact is empty: {artifact}")
+        raise ArtifactIntegrityError(f"native renderer returned empty artifact: {artifact}")
 
     digest = hashlib.sha256()
     with artifact.open("rb") as handle:
