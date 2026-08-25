@@ -10,9 +10,14 @@ from .artifact_integrity import (
 from .film_bridge import FILM_CONTINUITY_RUNTIME_KIND, NativeFilmContinuityBridge
 from .final_eval import (
     FFmpegTemporalFilmEvaluator,
+    SceneBoundaryEvalPolicy,
+    SceneBoundaryEvalReport,
+    SceneBoundaryEvidence,
+    SceneBoundarySample,
     TemporalFilmEvalPolicy,
     TemporalFilmEvalReport,
     evaluate_sampled_frames,
+    evaluate_scene_boundaries,
 )
 from .observability import (
     TEMPORAL_EVENT_SCHEMA,
@@ -73,6 +78,10 @@ __all__ = [
     "NativeTemporalShotRenderer",
     "NullTemporalObserver",
     "SCENE_MEMORY_SCHEMA",
+    "SceneBoundaryEvalPolicy",
+    "SceneBoundaryEvalReport",
+    "SceneBoundaryEvidence",
+    "SceneBoundarySample",
     "SceneContinuityAnchor",
     "SceneContinuityMemory",
     "SceneTransitionPolicy",
@@ -91,6 +100,7 @@ __all__ = [
     "TemporalRuntimeEvent",
     "TemporalSequenceState",
     "evaluate_sampled_frames",
+    "evaluate_scene_boundaries",
     "provenance_for",
     "verify_continuity_artifact",
     "verify_provenance",
