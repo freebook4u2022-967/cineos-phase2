@@ -10,6 +10,7 @@ from cineos.native_video.film_bridge import (
 )
 from cineos.native_video.final_gate import MeasuredFinalFilmGate
 from cineos.native_video.production_first_film import (
+    PRODUCTION_FIRST_FILM_RUNTIME_KIND,
     build_production_first_film_runtime,
 )
 from cineos.native_video.renderer_binding import NativeFilmRendererBinding
@@ -18,6 +19,14 @@ from cineos.native_video.renderer_binding import NativeFilmRendererBinding
 class _NativeRenderer:
     def render(self, planned, target: str | Path, *, temporal_state):
         raise AssertionError("composition tests must not render video")
+
+
+def _runtime_state(runtime) -> dict[str, object]:
+    provider = runtime.runner.orchestrator.checkpoint_state_provider
+    assert provider is not None
+    state = provider()
+    assert state is not None
+    return state
 
 
 def test_production_runtime_wires_native_continuity_and_required_final_qc() -> None:
@@ -41,12 +50,17 @@ def test_production_runtime_wires_native_continuity_and_required_final_qc() -> N
     )
 
     orchestrator = runtime.runner.orchestrator
-    assert orchestrator.checkpoint_state_provider == runtime.continuity.snapshot
-    assert orchestrator.checkpoint_state_restorer == runtime.continuity.restore
+    assert orchestrator.checkpoint_state_provider is not None
+    assert orchestrator.checkpoint_state_restorer is not None
     assert orchestrator.checkpoint_state_resetter == runtime.continuity.reset
     assert orchestrator.shot_attempt_start == runtime.continuity.start_attempt
     assert orchestrator.shot_attempt_accepted == runtime.continuity.accept_attempt
     assert orchestrator.shot_attempt_rejected == runtime.continuity.reject_attempt
+
+    state = _runtime_state(runtime)
+    assert state["kind"] == PRODUCTION_FIRST_FILM_RUNTIME_KIND
+    assert state["runtime_manifest"] == runtime.manifest.snapshot()
+    assert state["continuity"] == runtime.continuity.snapshot()
 
 
 def test_production_runtime_preserves_explicit_policy_dependencies() -> None:
@@ -68,6 +82,77 @@ def test_production_runtime_preserves_explicit_policy_dependencies() -> None:
     assert runtime.runner.orchestrator.max_recovery_attempts == 4
     assert runtime.manifest.renderer_id == "cineos-native-v1"
     assert runtime.manifest.max_recovery_attempts == 4
+
+
+def test_production_resume_rejects_changed_renderer_before_continuity_restore() -> None:
+    runtime = build_production_first_film_runtime(_NativeRenderer())
+    payload = _runtime_state(runtime)
+    saved_manifest = dict(payload["runtime_manifest"])  # type: ignore[arg-type]
+    saved_manifest["renderer_id"] = "different-renderer"
+    payload["runtime_manifest"] = saved_manifest
+
+    restorer = runtime.runner.orchestrator.checkpoint_state_restorer
+    assert restorer is not None
+    before = runtime.continuity.snapshot()
+
+    with pytest.raises(ValueError, match="renderer_id"):
+        restorer(payload)
+
+    assert runtime.continuity.snapshot() == before
+
+
+def test_production_resume_rejects_changed_temporal_model_fingerprint() -> None:
+    runtime = build_production_first_film_runtime(_NativeRenderer())
+    payload = _runtime_state(runtime)
+    saved_manifest = dict(payload["runtime_manifest"])  # type: ignore[arg-type]
+    saved_manifest["temporal_model_fingerprint"] = "not-the-active-model"
+    payload["runtime_manifest"] = saved_manifest
+
+    restorer = runtime.runner.orchestrator.checkpoint_state_restorer
+    assert restorer is not None
+    with pytest.raises(ValueError, match="temporal_model_fingerprint"):
+        restorer(payload)
+
+
+def test_production_resume_allows_retry_budget_change() -> None:
+    saved = build_production_first_film_runtime(
+        _NativeRenderer(), max_recovery_attempts=1
+    )
+    current = build_production_first_film_runtime(
+        _NativeRenderer(), max_recovery_attempts=5
+    )
+
+    restorer = current.runner.orchestrator.checkpoint_state_restorer
+    assert restorer is not None
+    restorer(_runtime_state(saved))
+
+    assert current.continuity.snapshot() == saved.continuity.snapshot()
+
+
+def test_production_resume_rejects_unbound_legacy_runtime_state() -> None:
+    runtime = build_production_first_film_runtime(_NativeRenderer())
+    restorer = runtime.runner.orchestrator.checkpoint_state_restorer
+    assert restorer is not None
+
+    with pytest.raises(ValueError, match="unsupported production FIRST FILM"):
+        restorer(runtime.continuity.snapshot())
+
+
+def test_production_resume_rejects_missing_manifest_or_continuity() -> None:
+    runtime = build_production_first_film_runtime(_NativeRenderer())
+    restorer = runtime.runner.orchestrator.checkpoint_state_restorer
+    assert restorer is not None
+
+    with pytest.raises(ValueError, match="runtime_manifest"):
+        restorer({"kind": PRODUCTION_FIRST_FILM_RUNTIME_KIND})
+
+    with pytest.raises(ValueError, match="continuity"):
+        restorer(
+            {
+                "kind": PRODUCTION_FIRST_FILM_RUNTIME_KIND,
+                "runtime_manifest": runtime.manifest.snapshot(),
+            }
+        )
 
 
 def test_production_runtime_rejects_device_mismatch() -> None:
