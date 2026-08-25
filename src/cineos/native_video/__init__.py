@@ -49,6 +49,10 @@ from .runtime import (
     TemporalGenerationResult,
     TemporalRetryPolicy,
 )
+from .runtime_manifest import (
+    PRODUCTION_RUNTIME_MANIFEST_SCHEMA,
+    ProductionRuntimeManifest,
+)
 from .scene_memory import (
     SCENE_MEMORY_SCHEMA,
     SceneContinuityAnchor,
@@ -100,7 +104,9 @@ __all__ = [
     "NativeTemporalRuntime",
     "NativeTemporalShotRenderer",
     "NullTemporalObserver",
+    "PRODUCTION_RUNTIME_MANIFEST_SCHEMA",
     "ProductionFirstFilmRuntime",
+    "ProductionRuntimeManifest",
     "SCENE_MEMORY_SCHEMA",
     "SceneBoundaryEvalPolicy",
     "SceneBoundaryEvalReport",
