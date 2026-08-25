@@ -101,6 +101,47 @@ def test_scene_continuity_memory_checkpoint_roundtrip() -> None:
     assert resumed.metadata["previous_shot_id"] == "shot-x"
 
 
+def test_native_artifact_provenance_survives_checkpoint_roundtrip() -> None:
+    model = NativeTemporalModel.initialized()
+    memory = SceneContinuityMemory()
+    accepted = _accepted_state(model, "shot-native")
+    accepted.metadata["native_artifact_sha256"] = "a" * 64
+    accepted.metadata["native_artifact_bytes"] = 4096
+
+    anchor = memory.record_accepted_shot(scene_index=1, state=accepted)
+    restored = SceneContinuityMemory.restore(memory.snapshot())
+    restored_anchor = restored.latest()
+
+    assert anchor.native_artifact_sha256 == "a" * 64
+    assert anchor.native_artifact_bytes == 4096
+    assert restored_anchor is not None
+    assert restored_anchor.native_artifact_sha256 == "a" * 64
+    assert restored_anchor.native_artifact_bytes == 4096
+
+
+def test_restore_rejects_partial_or_invalid_native_artifact_provenance() -> None:
+    model = NativeTemporalModel.initialized()
+    memory = SceneContinuityMemory()
+    anchor = memory.record_accepted_shot(
+        scene_index=0,
+        state=_accepted_state(model, "shot-a"),
+    ).to_dict()
+
+    partial = dict(anchor)
+    partial["native_artifact_sha256"] = "a" * 64
+    payload = memory.snapshot()
+    payload["anchors"] = [partial]
+    with pytest.raises(ValueError, match="digest and byte size"):
+        SceneContinuityMemory.restore(payload)
+
+    malformed = dict(anchor)
+    malformed["native_artifact_sha256"] = "not-a-digest"
+    malformed["native_artifact_bytes"] = 10
+    payload["anchors"] = [malformed]
+    with pytest.raises(ValueError, match="lowercase hex digest"):
+        SceneContinuityMemory.restore(payload)
+
+
 def test_restore_rejects_duplicate_shot_ids() -> None:
     model = NativeTemporalModel.initialized()
     memory = SceneContinuityMemory()
