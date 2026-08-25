@@ -68,7 +68,9 @@ def _transition_for_boundary(outgoing: Any, incoming: Any) -> str:
         "scene_transition",
         incoming_payload.get(
             "transition",
-            outgoing_payload.get("scene_transition", outgoing_payload.get("transition")),
+            outgoing_payload.get(
+                "scene_transition", outgoing_payload.get("transition")
+            ),
         ),
     )
     if raw is None:
@@ -161,9 +163,7 @@ class MeasuredFinalFilmGate:
         temporal = self.temporal_evaluator.evaluate(source)
         boundaries = plan_scene_boundaries(plan)
         boundary_report = (
-            self.boundary_evaluator.evaluate(source, boundaries)
-            if boundaries
-            else None
+            self.boundary_evaluator.evaluate(source, boundaries) if boundaries else None
         )
 
         directives = list(temporal.directives)
