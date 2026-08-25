@@ -150,13 +150,7 @@ def _load_document(path: str | Path) -> tuple[Path, dict[str, Any]]:
     return source, document
 
 
-def load_checkpoint_runtime_state(path: str | Path) -> dict[str, Any] | None:
-    """Load optional runtime state after verifying its independent integrity hash.
-
-    Old checkpoints legitimately return ``None``.  A checkpoint that contains
-    only one half of the runtime-state/hash pair is malformed and rejected.
-    """
-    _, document = _load_document(path)
+def _restore_runtime_state(document: dict[str, Any]) -> dict[str, Any] | None:
     raw = document.get("runtime_state")
     recorded_hash = document.get("runtime_state_hash")
     if raw is None and recorded_hash is None:
@@ -170,9 +164,7 @@ def load_checkpoint_runtime_state(path: str | Path) -> dict[str, Any] | None:
     return raw
 
 
-def load_checkpoint(path: str | Path) -> FilmBuild:
-    """Load and validate a ``FilmBuild`` from a versioned checkpoint."""
-    _, document = _load_document(path)
+def _restore_build(document: dict[str, Any]) -> FilmBuild:
     raw = document.get("build")
     if not isinstance(raw, dict):
         raise CheckpointError("checkpoint is missing build state")
@@ -197,3 +189,33 @@ def load_checkpoint(path: str | Path) -> FilmBuild:
     if recorded_hash != build.content_hash:
         raise CheckpointError("checkpoint content hash mismatch")
     return build
+
+
+def load_checkpoint_bundle(
+    path: str | Path,
+) -> tuple[FilmBuild, dict[str, Any] | None]:
+    """Load build and renderer runtime state from one integrity-checked document.
+
+    Resuming a production render requires these two states to describe the same
+    checkpoint instant. Loading them through one document read avoids a race where
+    another process atomically replaces the checkpoint between two independent
+    loads. Existing single-state loaders remain backwards-compatible wrappers.
+    """
+    _, document = _load_document(path)
+    return _restore_build(document), _restore_runtime_state(document)
+
+
+def load_checkpoint_runtime_state(path: str | Path) -> dict[str, Any] | None:
+    """Load optional runtime state after verifying its independent integrity hash.
+
+    Old checkpoints legitimately return ``None``.  A checkpoint that contains
+    only one half of the runtime-state/hash pair is malformed and rejected.
+    """
+    _, document = _load_document(path)
+    return _restore_runtime_state(document)
+
+
+def load_checkpoint(path: str | Path) -> FilmBuild:
+    """Load and validate a ``FilmBuild`` from a versioned checkpoint."""
+    _, document = _load_document(path)
+    return _restore_build(document)
