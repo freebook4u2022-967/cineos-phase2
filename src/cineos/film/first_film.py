@@ -142,9 +142,7 @@ class FirstFilmRunner:
         require_final_film_evaluation: bool = False,
     ) -> None:
         if require_final_film_evaluation and final_film_evaluator is None:
-            raise ValueError(
-                "production FIRST FILM requires a final_film_evaluator"
-            )
+            raise ValueError("production FIRST FILM requires a final_film_evaluator")
         self.renderer = renderer
         self.renderer_id = renderer_id
         self.final_film_evaluator = final_film_evaluator
@@ -283,10 +281,15 @@ class FirstFilmRunner:
         }
         directives = tuple(getattr(report, "directives", ()) or ())
         if decision == "reject":
-            detail = "; ".join(str(item) for item in directives) or "quality gate rejected movie"
+            detail = (
+                "; ".join(str(item) for item in directives)
+                or "quality gate rejected movie"
+            )
             build.failures.append(f"final-film QC rejected assembled movie: {detail}")
             build.transition(BuildStatus.FAILED)
         elif decision == "warn":
-            detail = "; ".join(str(item) for item in directives) or "quality gate warning"
+            detail = (
+                "; ".join(str(item) for item in directives) or "quality gate warning"
+            )
             build.warnings.append(f"final-film QC warning: {detail}")
             build.transition(BuildStatus.COMPLETED_WITH_WARNINGS)
