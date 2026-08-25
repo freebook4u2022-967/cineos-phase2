@@ -82,9 +82,7 @@ def _metadata_flag(payload: Mapping[str, Any], name: str) -> bool:
             return True
         if normalized in {"false", "0", "no", "off", ""}:
             return False
-    raise ValueError(
-        f"{name} must be boolean metadata; got {raw!r}"
-    )
+    raise ValueError(f"{name} must be boolean metadata; got {raw!r}")
 
 
 def _transition_for_boundary(outgoing: Any, incoming: Any) -> str:
