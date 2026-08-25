@@ -66,13 +66,17 @@ class SceneContinuityAnchor:
         has_digest = self.native_artifact_sha256 is not None
         has_size = self.native_artifact_bytes is not None
         if has_digest != has_size:
-            raise ValueError("native artifact provenance must include digest and byte size")
+            raise ValueError(
+                "native artifact provenance must include digest and byte size"
+            )
         if has_digest:
             digest = str(self.native_artifact_sha256)
             if len(digest) != 64 or any(
                 character not in "0123456789abcdef" for character in digest
             ):
-                raise ValueError("native artifact sha256 must be a lowercase hex digest")
+                raise ValueError(
+                    "native artifact sha256 must be a lowercase hex digest"
+                )
             if int(self.native_artifact_bytes) <= 0:
                 raise ValueError("native artifact byte size must be positive")
 
@@ -120,9 +124,7 @@ class SceneContinuityAnchor:
                 device,
             ),
             frame_index=int(payload.get("frame_index", -1)),
-            native_artifact_sha256=(
-                None if raw_digest is None else str(raw_digest)
-            ),
+            native_artifact_sha256=(None if raw_digest is None else str(raw_digest)),
             native_artifact_bytes=(None if raw_bytes is None else int(raw_bytes)),
         )
 
@@ -169,9 +171,7 @@ class SceneContinuityMemory:
             hidden=state.hidden,
             latent=state.last_latent,
             frame_index=state.last_frame_index,
-            native_artifact_sha256=(
-                None if raw_digest is None else str(raw_digest)
-            ),
+            native_artifact_sha256=(None if raw_digest is None else str(raw_digest)),
             native_artifact_bytes=(None if raw_bytes is None else int(raw_bytes)),
         )
         self.anchors.append(anchor)
