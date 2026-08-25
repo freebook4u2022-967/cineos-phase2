@@ -168,7 +168,9 @@ class MeasuredFinalFilmGate:
         audio_report: AudioIntegrityReport | None = None
         if self.require_audio:
             if self.audio_evaluator is None:
-                raise RuntimeError("required final-film audio evaluator is not configured")
+                raise RuntimeError(
+                    "required final-film audio evaluator is not configured"
+                )
             audio_report = self.audio_evaluator.evaluate(
                 source,
                 expected_duration_seconds=_planned_duration_seconds(plan),
