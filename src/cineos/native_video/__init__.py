@@ -7,6 +7,7 @@ from .artifact_integrity import (
     verify_continuity_artifact,
     verify_provenance,
 )
+from .boundary_eval import FFmpegSceneBoundaryEvaluator, SceneBoundaryPoint
 from .film_bridge import FILM_CONTINUITY_RUNTIME_KIND, NativeFilmContinuityBridge
 from .final_eval import (
     FFmpegTemporalFilmEvaluator,
@@ -63,6 +64,7 @@ __all__ = [
     "AnalyticLatentRGBDecoder",
     "ArtifactIntegrityError",
     "CINEOSNativeTemporalShotRenderer",
+    "FFmpegSceneBoundaryEvaluator",
     "FFmpegTemporalFilmEvaluator",
     "FILM_CONTINUITY_RUNTIME_KIND",
     "InMemoryTemporalObserver",
@@ -81,6 +83,7 @@ __all__ = [
     "SceneBoundaryEvalPolicy",
     "SceneBoundaryEvalReport",
     "SceneBoundaryEvidence",
+    "SceneBoundaryPoint",
     "SceneBoundarySample",
     "SceneContinuityAnchor",
     "SceneContinuityMemory",
