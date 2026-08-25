@@ -3,6 +3,9 @@
 This module keeps quality claims tied to decoded frame evidence. The pure metric
 layer accepts sampled grayscale frames and is dependency-free for CI; the FFmpeg
 sampler is an explicit production adapter that extracts real pixels from a movie.
+Scene-boundary evaluation is edit-aware: it distinguishes an intended hard cut
+from transitions that are expected to preserve visual continuity, rather than
+mistaking every large frame delta for a defect.
 """
 
 from __future__ import annotations
@@ -56,14 +59,105 @@ class TemporalFilmEvalReport:
         return self.decision in {"accept", "warn"}
 
 
+@dataclass(frozen=True, slots=True)
+class SceneBoundarySample:
+    """Decoded pixel evidence around one planned scene/edit boundary.
+
+    ``transition`` is an edit-plan contract, not an inference from pixels:
+    ``cut`` permits a large visual delta, ``match`` requires continuity, and
+    ``fade`` permits a moderate delta while still rejecting broken/black edges.
+    """
+
+    from_scene_id: str
+    to_scene_id: str
+    outgoing_frame: bytes
+    incoming_frame: bytes
+    transition: str = "cut"
+
+    def __post_init__(self) -> None:
+        if not self.from_scene_id or not self.to_scene_id:
+            raise ValueError("scene boundary requires non-empty scene IDs")
+        if self.transition not in {"cut", "match", "fade"}:
+            raise ValueError("transition must be one of: cut, match, fade")
+        if not self.outgoing_frame or not self.incoming_frame:
+            raise ValueError("scene boundary frames cannot be empty")
+        if len(self.outgoing_frame) != len(self.incoming_frame):
+            raise ValueError("scene boundary frames must have identical sizes")
+
+
+@dataclass(frozen=True, slots=True)
+class SceneBoundaryEvalPolicy:
+    """Versionable thresholds for edit-aware scene-boundary evidence."""
+
+    black_luma: float = 8.0
+    match_warn_mad: float = 18.0
+    match_reject_mad: float = 42.0
+    fade_reject_mad: float = 96.0
+    cut_frozen_mad: float = 0.75
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.black_luma <= 255.0:
+            raise ValueError("black_luma must be in [0, 255]")
+        thresholds = (
+            self.match_warn_mad,
+            self.match_reject_mad,
+            self.fade_reject_mad,
+            self.cut_frozen_mad,
+        )
+        if any(value < 0.0 for value in thresholds):
+            raise ValueError("scene-boundary MAD thresholds must be non-negative")
+        if self.match_warn_mad > self.match_reject_mad:
+            raise ValueError("match_warn_mad cannot exceed match_reject_mad")
+
+
+@dataclass(frozen=True, slots=True)
+class SceneBoundaryEvidence:
+    """Measured result for one planned scene boundary."""
+
+    from_scene_id: str
+    to_scene_id: str
+    transition: str
+    outgoing_luma: float
+    incoming_luma: float
+    boundary_mad: float
+    decision: str
+    directives: tuple[str, ...] = ()
+
+    @property
+    def accepted(self) -> bool:
+        return self.decision in {"accept", "warn"}
+
+
+@dataclass(frozen=True, slots=True)
+class SceneBoundaryEvalReport:
+    """Aggregate scene-boundary QC with per-boundary auditable evidence."""
+
+    boundary_count: int
+    reject_count: int
+    warn_count: int
+    mean_boundary_mad: float
+    decision: str
+    boundaries: tuple[SceneBoundaryEvidence, ...]
+
+    @property
+    def accepted(self) -> bool:
+        return self.decision in {"accept", "warn"}
+
+
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+def _frame_luma(frame: bytes) -> float:
+    if not frame:
+        raise ValueError("sampled frame cannot be empty")
+    return sum(frame) / len(frame)
 
 
 def _variance(frame: bytes) -> float:
     if not frame:
         raise ValueError("sampled frame cannot be empty")
-    average = sum(frame) / len(frame)
+    average = _frame_luma(frame)
     return sum((value - average) ** 2 for value in frame) / len(frame)
 
 
@@ -71,6 +165,96 @@ def _mad(left: bytes, right: bytes) -> float:
     if len(left) != len(right) or not left:
         raise ValueError("sampled frames must have identical non-zero sizes")
     return sum(abs(a - b) for a, b in zip(left, right, strict=True)) / len(left)
+
+
+def evaluate_scene_boundaries(
+    boundaries: Sequence[SceneBoundarySample],
+    policy: SceneBoundaryEvalPolicy | None = None,
+) -> SceneBoundaryEvalReport:
+    """Evaluate planned edit boundaries using decoded frame evidence.
+
+    The evaluator never decides what edit *should* have been used. Instead it
+    checks generated pixels against the supplied edit-plan contract, allowing
+    intentional cuts while detecting continuity breaks on match/fade boundaries.
+    """
+
+    if not boundaries:
+        raise ValueError("at least one scene boundary is required")
+    active_policy = policy or SceneBoundaryEvalPolicy()
+    evidence: list[SceneBoundaryEvidence] = []
+
+    for boundary in boundaries:
+        outgoing_luma = _frame_luma(boundary.outgoing_frame)
+        incoming_luma = _frame_luma(boundary.incoming_frame)
+        delta = _mad(boundary.outgoing_frame, boundary.incoming_frame)
+        directives: list[str] = []
+        decision = "accept"
+
+        # A near-black edge at a scene boundary is suspicious regardless of edit
+        # type: it commonly indicates a failed render/assembly frame rather than
+        # a valid cinematic transition. Deliberate black should be represented in
+        # the edit plan as an authored shot, not smuggled through a boundary.
+        if (
+            outgoing_luma <= active_policy.black_luma
+            or incoming_luma <= active_policy.black_luma
+        ):
+            decision = "reject"
+            directives.append(
+                "rerender or replace near-black scene-boundary frame evidence"
+            )
+        elif boundary.transition == "match":
+            if delta >= active_policy.match_reject_mad:
+                decision = "reject"
+                directives.append(
+                    "rerender match boundary to preserve measured visual continuity"
+                )
+            elif delta >= active_policy.match_warn_mad:
+                decision = "warn"
+                directives.append(
+                    "review match boundary drift against scene continuity intent"
+                )
+        elif boundary.transition == "fade":
+            if delta >= active_policy.fade_reject_mad:
+                decision = "reject"
+                directives.append(
+                    "rerender fade boundary with a progressive visual transition"
+                )
+        elif delta <= active_policy.cut_frozen_mad:
+            decision = "warn"
+            directives.append(
+                "review planned cut: measured boundary is effectively frozen"
+            )
+
+        evidence.append(
+            SceneBoundaryEvidence(
+                from_scene_id=boundary.from_scene_id,
+                to_scene_id=boundary.to_scene_id,
+                transition=boundary.transition,
+                outgoing_luma=outgoing_luma,
+                incoming_luma=incoming_luma,
+                boundary_mad=delta,
+                decision=decision,
+                directives=tuple(directives),
+            )
+        )
+
+    reject_count = sum(item.decision == "reject" for item in evidence)
+    warn_count = sum(item.decision == "warn" for item in evidence)
+    if reject_count:
+        decision = "reject"
+    elif warn_count:
+        decision = "warn"
+    else:
+        decision = "accept"
+
+    return SceneBoundaryEvalReport(
+        boundary_count=len(evidence),
+        reject_count=reject_count,
+        warn_count=warn_count,
+        mean_boundary_mad=_mean([item.boundary_mad for item in evidence]),
+        decision=decision,
+        boundaries=tuple(evidence),
+    )
 
 
 def evaluate_sampled_frames(
@@ -86,7 +270,7 @@ def evaluate_sampled_frames(
         raise ValueError("all sampled frames must have the same non-zero size")
 
     active_policy = policy or TemporalFilmEvalPolicy()
-    lumas = [sum(frame) / len(frame) for frame in frames]
+    lumas = [_frame_luma(frame) for frame in frames]
     variances = [_variance(frame) for frame in frames]
     transitions = [_mad(left, right) for left, right in zip(frames, frames[1:])]
 
