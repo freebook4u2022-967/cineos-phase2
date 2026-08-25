@@ -126,7 +126,9 @@ class NativeFilmContinuityBridge:
         """
         anchor = self.memory.latest()
         if anchor is None:
-            raise ValueError("cannot verify native artifact without a continuity anchor")
+            raise ValueError(
+                "cannot verify native artifact without a continuity anchor"
+            )
         return verify_continuity_artifact(
             anchor,
             path,

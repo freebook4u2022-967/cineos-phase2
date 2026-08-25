@@ -111,7 +111,10 @@ def test_bridge_fails_closed_for_legacy_anchor_without_provenance(tmp_path):
     with pytest.raises(ArtifactIntegrityError, match="no native artifact provenance"):
         bridge.verify_latest_artifact(artifact)
 
-    assert bridge.verify_latest_artifact(
-        artifact,
-        require_provenance=False,
-    ) is None
+    assert (
+        bridge.verify_latest_artifact(
+            artifact,
+            require_provenance=False,
+        )
+        is None
+    )
