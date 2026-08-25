@@ -102,11 +102,12 @@ class FilmOrchestrator:
             existing.get(item.shot_id, ShotState(item.shot_id)) for item in plan
         ]
 
-        if (
-            resume
-            and runtime_state is not None
-            and self.checkpoint_state_restorer is not None
-        ):
+        if resume and runtime_state is not None:
+            if self.checkpoint_state_restorer is None:
+                raise FilmBuildError(
+                    "stateful resume checkpoint contains runtime state but no runtime "
+                    "state restorer is configured"
+                )
             self._restore_runtime_for_resume(build, runtime_state, dry_run=dry_run)
 
         self._checkpoint(build, checkpoint)
