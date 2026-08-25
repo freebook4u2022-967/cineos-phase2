@@ -4,16 +4,22 @@ The runtime owns the propose -> QC -> retry -> commit transaction. Rejected
 candidates never advance recurrent state, so a failed frame cannot poison later
 continuity or resumable checkpoints. Retry adaptation is explicit and versionable;
 it modifies only the requested frame inputs while preserving the last accepted
-sequence state.
+sequence state. Versioned observability events are emitted fail-open so telemetry
+failures never corrupt or halt native rendering.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from cineos.native_image.tensor_model import Tensor
 
+from .observability import (
+    NullTemporalObserver,
+    TemporalObserver,
+    TemporalRuntimeEvent,
+)
 from .temporal_model import (
     NativeTemporalModel,
     TemporalFrameInput,
@@ -111,6 +117,7 @@ class NativeTemporalRuntime:
     model: NativeTemporalModel
     gate: TemporalContinuityGate
     retry_policy: TemporalRetryPolicy
+    observer: TemporalObserver = field(default_factory=NullTemporalObserver)
     max_retries: int = 2
 
     def __post_init__(self) -> None:
@@ -123,14 +130,42 @@ class NativeTemporalRuntime:
         model: NativeTemporalModel | None = None,
         gate: TemporalContinuityGate | None = None,
         *,
+        observer: TemporalObserver | None = None,
         max_retries: int = 2,
     ) -> NativeTemporalRuntime:
         return cls(
             model=model or NativeTemporalModel.initialized(),
             gate=gate or TemporalContinuityGate(),
             retry_policy=MotionDampingRetryPolicy(),
+            observer=observer or NullTemporalObserver(),
             max_retries=max_retries,
         )
+
+    def _record(
+        self,
+        report: TemporalQCReport,
+        *,
+        attempt: int,
+        state: TemporalSequenceState,
+    ) -> None:
+        """Emit telemetry without allowing an observer failure to stop rendering."""
+        event = TemporalRuntimeEvent(
+            event_type=(
+                "candidate_accepted" if report.accepted else "candidate_rejected"
+            ),
+            shot_id=report.shot_id,
+            frame_index=report.frame_index,
+            attempt=attempt,
+            decision=report.decision,
+            continuity_delta=report.continuity_delta,
+            threshold=report.threshold,
+        )
+        try:
+            self.observer.record(event)
+        except Exception:
+            state.metadata["temporal_observer_errors"] = (
+                int(state.metadata.get("temporal_observer_errors", 0)) + 1
+            )
 
     def generate_frame(
         self,
@@ -145,6 +180,7 @@ class NativeTemporalRuntime:
             attempts += 1
             candidate = self.model.propose(request, state)
             report = self.gate.evaluate(candidate, state)
+            self._record(report, attempt=attempts, state=state)
 
             if report.accepted:
                 self.model.commit(candidate, state)
