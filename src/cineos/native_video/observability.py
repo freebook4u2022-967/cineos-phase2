@@ -8,13 +8,12 @@ so future analytics and migration tooling can distinguish historical formats.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 import json
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 from typing import Protocol
-
 
 TEMPORAL_EVENT_SCHEMA = "cineos.native_video.temporal_event.v1"
 
@@ -50,7 +49,7 @@ class TemporalRuntimeEvent:
             object.__setattr__(
                 self,
                 "occurred_at",
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
             )
 
     def to_record(self) -> dict[str, object]:
