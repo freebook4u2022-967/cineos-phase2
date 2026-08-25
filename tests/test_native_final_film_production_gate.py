@@ -157,6 +157,17 @@ def test_plan_scene_boundaries_rejects_non_finite_durations(duration: float) -> 
         plan_scene_boundaries((_shot("scene-a", duration), _shot("scene-b", 1.0)))
 
 
+def test_plan_scene_boundaries_rejects_cumulative_timeline_overflow() -> None:
+    with pytest.raises(ValueError, match="timeline must remain finite"):
+        plan_scene_boundaries(
+            (
+                _shot("scene-a", 1.0e308),
+                _shot("scene-a", 1.0e308),
+                _shot("scene-b", 1.0),
+            )
+        )
+
+
 def test_measured_final_film_gate_rejects_when_boundary_evidence_rejects(
     tmp_path,
 ) -> None:
