@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import cineos.film.orchestrator as orchestrator_module
@@ -50,6 +52,69 @@ def test_stateful_resume_run_fails_closed_without_runtime_restorer(
             object(),
             build,
             tmp_path / "output",
+            resume=True,
+            checkpoint_path=checkpoint,
+        )
+
+
+def test_resume_run_restores_persisted_build_before_planning_reuse(tmp_path, monkeypatch):
+    artifact = tmp_path / "shot.mp4"
+    artifact.write_bytes(b"approved-shot")
+    saved = FilmBuild("project", "package", "native")
+    saved.shot_states = [_approved("shot-1", artifact)]
+    saved.metadata["resume_contract"] = {"schema": "test", "sha256": "same"}
+    checkpoint = save_checkpoint(saved, tmp_path / "film.checkpoint.json")
+
+    requested = FilmBuild("project", "package", "native")
+    requested.metadata["resume_contract"] = {"schema": "test", "sha256": "same"}
+    planned = SimpleNamespace(
+        shot_id="shot-1", scene_id="scene-1", index=0, duration=1.0
+    )
+    monkeypatch.setattr(orchestrator_module, "plan_shots", lambda package: [planned])
+
+    result = FilmOrchestrator(renderer=object()).run(
+        object(),
+        requested,
+        tmp_path / "output",
+        dry_run=True,
+        resume=True,
+        checkpoint_path=checkpoint,
+    )
+
+    assert result.build_id == saved.build_id
+    assert result.shot("shot-1").approved
+    assert result.shot("shot-1").selected_output == str(artifact)
+
+
+def test_resume_run_rejects_different_build_identity_before_reuse(tmp_path):
+    saved = FilmBuild("project", "package", "native")
+    checkpoint = save_checkpoint(saved, tmp_path / "film.checkpoint.json")
+    requested = FilmBuild("other-project", "package", "native")
+
+    with pytest.raises(FilmBuildError, match="project_id"):
+        FilmOrchestrator(renderer=object()).run(
+            object(),
+            requested,
+            tmp_path / "output",
+            dry_run=True,
+            resume=True,
+            checkpoint_path=checkpoint,
+        )
+
+
+def test_resume_run_rejects_changed_creative_contract(tmp_path):
+    saved = FilmBuild("project", "package", "native")
+    saved.metadata["resume_contract"] = {"schema": "test", "sha256": "old"}
+    checkpoint = save_checkpoint(saved, tmp_path / "film.checkpoint.json")
+    requested = FilmBuild("project", "package", "native")
+    requested.metadata["resume_contract"] = {"schema": "test", "sha256": "new"}
+
+    with pytest.raises(FilmBuildError, match="resume_contract"):
+        FilmOrchestrator(renderer=object()).run(
+            object(),
+            requested,
+            tmp_path / "output",
+            dry_run=True,
             resume=True,
             checkpoint_path=checkpoint,
         )
