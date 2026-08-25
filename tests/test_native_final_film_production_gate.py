@@ -109,6 +109,41 @@ def test_plan_scene_boundaries_defaults_unmarked_scene_change_to_match() -> None
     assert boundaries[0].transition == "match"
 
 
+def test_serialized_false_flags_do_not_override_authored_transition() -> None:
+    boundaries = plan_scene_boundaries(
+        (
+            _shot("scene-a", 1.0),
+            _shot(
+                "scene-b",
+                1.0,
+                transition="crossfade",
+                hard_cut="false",
+                continuity_reset="0",
+            ),
+        )
+    )
+
+    assert boundaries[0].transition == "fade"
+
+
+def test_serialized_true_flag_forces_cut() -> None:
+    boundaries = plan_scene_boundaries(
+        (
+            _shot("scene-a", 1.0, transition="fade"),
+            _shot("scene-b", 1.0, continuity_reset="yes"),
+        )
+    )
+
+    assert boundaries[0].transition == "cut"
+
+
+def test_plan_scene_boundaries_fails_closed_on_ambiguous_boolean_metadata() -> None:
+    with pytest.raises(ValueError, match="hard_cut must be boolean metadata"):
+        plan_scene_boundaries(
+            (_shot("scene-a", 1.0), _shot("scene-b", 1.0, hard_cut="sometimes"))
+        )
+
+
 def test_plan_scene_boundaries_fails_closed_on_unknown_transition() -> None:
     with pytest.raises(ValueError, match="unsupported scene transition"):
         plan_scene_boundaries(
