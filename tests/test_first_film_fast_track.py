@@ -1,4 +1,5 @@
 from cineos.film.audio import mux_primary_audio
+from cineos.film.build import BuildStatus, FilmBuild
 from cineos.film.first_film import (
     DirectorCharacter,
     FastTrackAutoDirector,
@@ -8,6 +9,25 @@ from cineos.film.first_film import (
 
 class _Renderer:
     pass
+
+
+class _FinalReport:
+    def __init__(self, decision, directives=()):
+        self.decision = decision
+        self.directives = tuple(directives)
+
+    def as_dict(self):
+        return {"decision": self.decision, "directives": list(self.directives)}
+
+
+class _FinalEvaluator:
+    def __init__(self, report):
+        self.report = report
+        self.calls = []
+
+    def evaluate(self, movie_path, plan):
+        self.calls.append((movie_path, tuple(plan)))
+        return self.report
 
 
 def test_fast_track_director_locks_character_ids_across_all_shots():
@@ -43,8 +63,9 @@ def test_first_film_runner_dry_run_reaches_renderable_plan(tmp_path):
     assert build.metadata["dry_run"]["shot_count"] == 3
     assert build.metadata["dry_run"]["renderer_compatible"] is True
     assert build.metadata["first_film"]["character_ids"] == ["lead"]
-    assert build.metadata["first_film"]["critical_path"][-1] == "audio_mux"
+    assert build.metadata["first_film"]["critical_path"][-1] == "final_film_qc"
     assert build.metadata["first_film"]["runtime_checkpointing"] is False
+    assert build.metadata["first_film"]["final_film_qc_enabled"] is False
 
 
 def test_first_film_runner_binds_provider_neutral_runtime_hooks():
@@ -114,6 +135,79 @@ def test_first_film_runner_rejects_runtime_hooks_that_override_runner_policy():
         assert "cannot override runner policy" in str(error)
     else:
         raise AssertionError("runner policy override should be rejected")
+
+
+def test_first_film_production_mode_requires_final_film_evaluator():
+    try:
+        FirstFilmRunner(_Renderer(), require_final_film_evaluation=True)
+    except ValueError as error:
+        assert "requires a final_film_evaluator" in str(error)
+    else:
+        raise AssertionError("production mode must fail closed without final-film QC")
+
+
+def test_final_film_qc_rejects_assembled_movie_and_persists_evidence(tmp_path):
+    evaluator = _FinalEvaluator(_FinalReport("reject", ("temporal drift",)))
+    runner = FirstFilmRunner(
+        _Renderer(),
+        final_film_evaluator=evaluator,
+        require_final_film_evaluation=True,
+    )
+    package = FastTrackAutoDirector().direct(
+        "A fugitive returns home before dawn.",
+        [DirectorCharacter("arif", "Arif")],
+    )
+    build = FilmBuild("project", package.package_id, "native-test")
+    build.transition(BuildStatus.COMPLETED)
+    movie = tmp_path / "movie.mp4"
+    movie.write_bytes(b"movie")
+
+    runner._evaluate_final_movie(build, movie, package)
+
+    assert build.status == BuildStatus.FAILED
+    assert evaluator.calls
+    assert len(evaluator.calls[0][1]) == 3
+    assert build.metadata["final_film_qc"]["decision"] == "reject"
+    assert build.metadata["final_film_qc"]["evidence"]["directives"] == [
+        "temporal drift"
+    ]
+    assert "temporal drift" in build.failures[-1]
+
+
+def test_final_film_qc_warning_preserves_deliverable_with_warning(tmp_path):
+    evaluator = _FinalEvaluator(_FinalReport("warn", ("minor edit discontinuity",)))
+    runner = FirstFilmRunner(_Renderer(), final_film_evaluator=evaluator)
+    package = FastTrackAutoDirector().direct(
+        "A courier reaches the final checkpoint before sunrise.",
+        [DirectorCharacter("courier", "Courier")],
+    )
+    build = FilmBuild("project", package.package_id, "native-test")
+    build.transition(BuildStatus.COMPLETED)
+    movie = tmp_path / "movie.mp4"
+    movie.write_bytes(b"movie")
+
+    runner._evaluate_final_movie(build, movie, package)
+
+    assert build.status == BuildStatus.COMPLETED_WITH_WARNINGS
+    assert "minor edit discontinuity" in build.warnings[-1]
+
+
+def test_final_film_qc_invalid_decision_fails_closed(tmp_path):
+    evaluator = _FinalEvaluator(_FinalReport("maybe"))
+    runner = FirstFilmRunner(_Renderer(), final_film_evaluator=evaluator)
+    package = FastTrackAutoDirector().direct(
+        "A final signal appears over the city.",
+        [DirectorCharacter("lead", "Lead")],
+    )
+    build = FilmBuild("project", package.package_id, "native-test")
+    build.transition(BuildStatus.COMPLETED)
+    movie = tmp_path / "movie.mp4"
+    movie.write_bytes(b"movie")
+
+    runner._evaluate_final_movie(build, movie, package)
+
+    assert build.status == BuildStatus.FAILED
+    assert "invalid decision" in build.failures[-1]
 
 
 def test_director_rejects_duplicate_character_ids():
