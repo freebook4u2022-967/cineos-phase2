@@ -38,6 +38,7 @@ from .observability import (
     TemporalRuntimeEvent,
 )
 from .production_first_film import (
+    PRODUCTION_FIRST_FILM_RUNTIME_KIND,
     ProductionFirstFilmRuntime,
     build_production_first_film_runtime,
 )
@@ -104,6 +105,7 @@ __all__ = [
     "NativeTemporalRuntime",
     "NativeTemporalShotRenderer",
     "NullTemporalObserver",
+    "PRODUCTION_FIRST_FILM_RUNTIME_KIND",
     "PRODUCTION_RUNTIME_MANIFEST_SCHEMA",
     "ProductionFirstFilmRuntime",
     "ProductionRuntimeManifest",
