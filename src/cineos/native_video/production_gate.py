@@ -61,24 +61,30 @@ def _payload(item: Any) -> Mapping[str, Any]:
 
 
 def _transition_for_boundary(outgoing: Any, incoming: Any) -> str:
-    """Resolve an authored edit contract without guessing from rendered pixels."""
+    """Resolve an authored edit contract without guessing from rendered pixels.
+
+    Incoming shot metadata has precedence because it describes how the new scene
+    enters. Explicit hard-cut/reset flags must never be masked by transition
+    metadata inherited from the preceding scene.
+    """
     incoming_payload = _payload(incoming)
     outgoing_payload = _payload(outgoing)
-    raw = incoming_payload.get(
-        "scene_transition",
-        incoming_payload.get(
-            "transition",
-            outgoing_payload.get(
-                "scene_transition", outgoing_payload.get("transition")
-            ),
-        ),
-    )
+
+    if bool(incoming_payload.get("continuity_reset", False)) or bool(
+        incoming_payload.get("hard_cut", False)
+    ):
+        return "cut"
+
+    raw = incoming_payload.get("scene_transition")
     if raw is None:
-        if bool(incoming_payload.get("continuity_reset", False)) or bool(
-            incoming_payload.get("hard_cut", False)
-        ):
-            return "cut"
+        raw = incoming_payload.get("transition")
+    if raw is None:
+        raw = outgoing_payload.get("scene_transition")
+    if raw is None:
+        raw = outgoing_payload.get("transition")
+    if raw is None:
         return "match"
+
     transition = str(raw).strip().lower()
     aliases = {
         "hard_cut": "cut",
