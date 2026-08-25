@@ -8,7 +8,10 @@ from cineos.native_video.film_bridge import (
     NativeFilmContinuityBridge,
     temporal_model_fingerprint,
 )
-from cineos.native_video.final_eval import FFmpegTemporalFilmEvaluator, TemporalFilmEvalPolicy
+from cineos.native_video.final_eval import (
+    FFmpegTemporalFilmEvaluator,
+    TemporalFilmEvalPolicy,
+)
 from cineos.native_video.final_gate import MeasuredFinalFilmGate
 from cineos.native_video.production_first_film import (
     PRODUCTION_FIRST_FILM_RUNTIME_KIND,
@@ -50,8 +53,9 @@ def test_production_runtime_wires_native_continuity_and_required_final_qc() -> N
     assert runtime.manifest.temporal_model_fingerprint == temporal_model_fingerprint(
         runtime.continuity.model
     )
-    assert runtime.manifest.final_gate_policy_fingerprint == final_gate_policy_fingerprint(
-        runtime.final_gate
+    assert (
+        runtime.manifest.final_gate_policy_fingerprint
+        == final_gate_policy_fingerprint(runtime.final_gate)
     )
 
     orchestrator = runtime.runner.orchestrator
