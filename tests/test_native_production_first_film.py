@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from cineos.native_video.film_bridge import NativeFilmContinuityBridge
+from cineos.native_video.film_bridge import (
+    NativeFilmContinuityBridge,
+    temporal_model_fingerprint,
+)
 from cineos.native_video.final_gate import MeasuredFinalFilmGate
 from cineos.native_video.production_first_film import (
     build_production_first_film_runtime,
@@ -27,6 +30,15 @@ def test_production_runtime_wires_native_continuity_and_required_final_qc() -> N
     assert runtime.runner.require_final_film_evaluation is True
     assert runtime.final_gate.require_audio is True
     assert runtime.final_gate.audio_evaluator is not None
+
+    assert runtime.manifest.renderer_id == "cineos-native"
+    assert runtime.manifest.device == "cpu"
+    assert runtime.manifest.max_recovery_attempts == 2
+    assert runtime.manifest.require_final_film_evaluation is True
+    assert runtime.manifest.require_audio is True
+    assert runtime.manifest.temporal_model_fingerprint == temporal_model_fingerprint(
+        runtime.continuity.model
+    )
 
     orchestrator = runtime.runner.orchestrator
     assert orchestrator.checkpoint_state_provider == runtime.continuity.snapshot
@@ -54,6 +66,8 @@ def test_production_runtime_preserves_explicit_policy_dependencies() -> None:
     assert runtime.final_gate is gate
     assert runtime.runner.renderer_id == "cineos-native-v1"
     assert runtime.runner.orchestrator.max_recovery_attempts == 4
+    assert runtime.manifest.renderer_id == "cineos-native-v1"
+    assert runtime.manifest.max_recovery_attempts == 4
 
 
 def test_production_runtime_rejects_device_mismatch() -> None:
@@ -68,3 +82,11 @@ def test_production_runtime_rejects_device_mismatch() -> None:
 def test_production_runtime_rejects_negative_recovery_budget() -> None:
     with pytest.raises(ValueError, match="non-negative"):
         build_production_first_film_runtime(_NativeRenderer(), max_recovery_attempts=-1)
+
+
+def test_production_runtime_rejects_empty_runtime_identity() -> None:
+    with pytest.raises(ValueError, match="renderer_id"):
+        build_production_first_film_runtime(_NativeRenderer(), renderer_id=" ")
+
+    with pytest.raises(ValueError, match="device"):
+        build_production_first_film_runtime(_NativeRenderer(), device=" ")
