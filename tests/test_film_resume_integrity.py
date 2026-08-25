@@ -9,6 +9,7 @@ from cineos.film.build import FilmBuild
 from cineos.film.checkpoint import save_checkpoint
 from cineos.film.exceptions import FilmBuildError
 from cineos.film.orchestrator import FilmOrchestrator
+from cineos.film.planner import PlannedShot, shot_plan_fingerprint
 from cineos.film.shot_state import ShotState
 from cineos.film.validator import file_hash, validate_reusable_output
 from cineos.native_video.film_bridge import NativeFilmContinuityBridge
@@ -86,6 +87,7 @@ def test_resume_run_restores_persisted_build_before_planning_reuse(
     assert result.build_id == saved.build_id
     assert result.shot("shot-1").approved
     assert result.shot("shot-1").selected_output == str(artifact)
+    assert result.metadata["shot_plan_fingerprint"] == shot_plan_fingerprint([planned])
 
 
 def test_resume_run_rejects_different_build_identity_before_reuse(tmp_path):
@@ -198,3 +200,78 @@ def test_stateful_resume_fails_closed_without_runtime_reset_hook(tmp_path):
         orchestrator._restore_runtime_for_resume(
             build, {"kind": "test-runtime"}, dry_run=False
         )
+
+
+def test_resume_rejects_reordered_legacy_shot_timeline(tmp_path, monkeypatch):
+    saved = FilmBuild("project", "package", "native")
+    saved.shot_states = [ShotState("shot-1"), ShotState("shot-2")]
+    checkpoint = save_checkpoint(saved, tmp_path / "film.checkpoint.json")
+    requested = FilmBuild("project", "package", "native")
+    plan = [
+        PlannedShot("shot-2", "scene", 1.0, 0),
+        PlannedShot("shot-1", "scene", 1.0, 1),
+    ]
+    monkeypatch.setattr(orchestrator_module, "plan_shots", lambda package: plan)
+
+    with pytest.raises(FilmBuildError, match="legacy resume checkpoint shot order"):
+        FilmOrchestrator(renderer=object()).run(
+            object(),
+            requested,
+            tmp_path / "output",
+            dry_run=True,
+            resume=True,
+            checkpoint_path=checkpoint,
+        )
+
+
+def test_resume_rejects_changed_renderer_facing_shot_payload(tmp_path, monkeypatch):
+    original = [
+        PlannedShot(
+            "shot-1",
+            "scene-1",
+            1.0,
+            0,
+            {"shot_id": "shot-1", "scene_id": "scene-1", "duration": 1.0, "prompt": "old"},
+        )
+    ]
+    saved = FilmBuild("project", "package", "native")
+    saved.shot_states = [ShotState("shot-1")]
+    saved.metadata["shot_plan_fingerprint"] = shot_plan_fingerprint(original)
+    checkpoint = save_checkpoint(saved, tmp_path / "film.checkpoint.json")
+    requested = FilmBuild("project", "package", "native")
+    changed = [
+        PlannedShot(
+            "shot-1",
+            "scene-1",
+            1.0,
+            0,
+            {"shot_id": "shot-1", "scene_id": "scene-1", "duration": 1.0, "prompt": "new"},
+        )
+    ]
+    monkeypatch.setattr(orchestrator_module, "plan_shots", lambda package: changed)
+
+    with pytest.raises(FilmBuildError, match="shot plan differs"):
+        FilmOrchestrator(renderer=object()).run(
+            object(),
+            requested,
+            tmp_path / "output",
+            dry_run=True,
+            resume=True,
+            checkpoint_path=checkpoint,
+        )
+
+
+def test_new_build_checkpoints_full_shot_plan_fingerprint(tmp_path, monkeypatch):
+    build = FilmBuild("project", "package", "native")
+    plan = [PlannedShot("shot-1", "scene-1", 1.5, 0, {"prompt": "frame"})]
+    monkeypatch.setattr(orchestrator_module, "plan_shots", lambda package: plan)
+
+    result = FilmOrchestrator(renderer=object()).run(
+        object(),
+        build,
+        tmp_path / "output",
+        dry_run=True,
+        checkpoint_path=tmp_path / "film.checkpoint.json",
+    )
+
+    assert result.metadata["shot_plan_fingerprint"] == shot_plan_fingerprint(plan)
