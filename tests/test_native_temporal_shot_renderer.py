@@ -84,11 +84,16 @@ def test_renderer_fails_closed_without_encoder(tmp_path: Path) -> None:
 
 
 def test_renderer_rolls_back_temporal_state_when_decoder_fails(tmp_path: Path) -> None:
+    fake_ffmpeg = tmp_path / "ffmpeg-unused"
+    fake_ffmpeg.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_ffmpeg.chmod(0o755)
+
     renderer = CINEOSNativeTemporalShotRenderer(
         decoder=BrokenDecoder(),
         width=16,
         height=16,
         fps=2,
+        ffmpeg_binary=str(fake_ffmpeg),
     )
     state = renderer.runtime.model.initial_state("shot-001")
     original = state.snapshot()
