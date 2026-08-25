@@ -133,8 +133,8 @@ def plan_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, ...]
 
     A boundary is emitted only when the authored ``scene_id`` changes. The edit
     timestamp is the cumulative duration of all shots before the incoming scene.
-    Durations must be finite and positive so boundary timestamps are deterministic
-    and safe for decoder sampling.
+    Durations and their cumulative timeline must remain finite and positive so
+    boundary timestamps are deterministic and safe for decoder sampling.
     """
     if not plan:
         raise ValueError("final-film quality gate requires at least one planned shot")
@@ -161,7 +161,11 @@ def plan_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, ...]
                         transition=_transition_for_boundary(previous, item),
                     )
                 )
-        elapsed += duration
+
+        next_elapsed = elapsed + duration
+        if not math.isfinite(next_elapsed):
+            raise ValueError("planned shot timeline must remain finite")
+        elapsed = next_elapsed
         previous = item
 
     return tuple(boundaries)
