@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from .boundary_eval import FFmpegSceneBoundaryEvaluator, SceneBoundaryPoint
-from .final_eval import FFmpegTemporalFilmEvaluator, SceneBoundaryEvalReport, TemporalFilmEvalReport
+from .final_eval import (
+    FFmpegTemporalFilmEvaluator,
+    SceneBoundaryEvalReport,
+    TemporalFilmEvalReport,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +39,9 @@ class MeasuredFinalFilmReport:
             "decision": self.decision,
             "directives": list(self.directives),
             "temporal": asdict(self.temporal),
-            "boundaries": asdict(self.boundaries) if self.boundaries is not None else None,
+            "boundaries": (
+                asdict(self.boundaries) if self.boundaries is not None else None
+            ),
         }
 
 
@@ -61,12 +67,18 @@ def _planned_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, 
         if previous_scene is not None and scene_id != previous_scene:
             payload = getattr(shot, "payload", {}) or {}
             previous_payload = getattr(previous_shot, "payload", {}) or {}
-            transition = str(
-                payload.get(
-                    "transition_in",
-                    payload.get("transition", previous_payload.get("transition_out", "cut")),
+            transition = (
+                str(
+                    payload.get(
+                        "transition_in",
+                        payload.get(
+                            "transition", previous_payload.get("transition_out", "cut")
+                        ),
+                    )
                 )
-            ).strip().lower()
+                .strip()
+                .lower()
+            )
             if transition not in {"cut", "match", "fade"}:
                 raise ValueError(
                     f"unsupported planned scene transition {transition!r}; expected cut, match, or fade"
@@ -105,7 +117,9 @@ class MeasuredFinalFilmGate:
         if self.boundary_evaluator is None:
             self.boundary_evaluator = FFmpegSceneBoundaryEvaluator()
 
-    def evaluate(self, movie_path: str | Path, plan: Sequence[Any]) -> MeasuredFinalFilmReport:
+    def evaluate(
+        self, movie_path: str | Path, plan: Sequence[Any]
+    ) -> MeasuredFinalFilmReport:
         source = Path(movie_path)
         temporal = self.temporal_evaluator.evaluate(source)
         boundary_points = _planned_scene_boundaries(plan)

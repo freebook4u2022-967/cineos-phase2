@@ -4,7 +4,10 @@ from cineos.native_video.final_eval import (
     SceneBoundaryEvidence,
     TemporalFilmEvalReport,
 )
-from cineos.native_video.final_gate import MeasuredFinalFilmGate, _planned_scene_boundaries
+from cineos.native_video.final_gate import (
+    MeasuredFinalFilmGate,
+    _planned_scene_boundaries,
+)
 
 
 class _TemporalEvaluator:
