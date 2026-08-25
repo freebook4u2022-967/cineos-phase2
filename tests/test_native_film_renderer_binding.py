@@ -46,6 +46,21 @@ class RecordingNativeRenderer:
         self.cancelled = True
 
 
+class MissingArtifactRenderer(RecordingNativeRenderer):
+    def render(self, planned, target, *, temporal_state):
+        del planned, temporal_state
+        return Path(target)
+
+
+class EmptyArtifactRenderer(RecordingNativeRenderer):
+    def render(self, planned, target, *, temporal_state):
+        del planned, temporal_state
+        path = Path(target)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+        return path
+
+
 class RejectThenApprove:
     def __init__(self) -> None:
         self.calls = 0
@@ -94,11 +109,50 @@ def test_binding_passes_exact_active_temporal_state_to_renderer(tmp_path):
 
     assert renderer.states == [active]
     assert output.read_bytes() == b"native-shot"
+    assert active.metadata["native_artifact_bytes"] == len(b"native-shot")
+    assert (
+        active.metadata["native_artifact_sha256"]
+        == "1c7b54bea15174d5fa93a3689755184dfc8464cea7e73a4b6b36e5896863fa24"
+    )
 
     bridge.accept_attempt(planned, 0, 1)
     assert bridge.memory.latest() is not None
     assert bridge.memory.latest().shot_id == "shot-1"
     assert bridge.memory.latest().latent.values == (2.0,) * bridge.model.latent_dim
+
+
+def test_binding_fails_closed_when_renderer_returns_missing_artifact(tmp_path):
+    bridge = NativeFilmContinuityBridge(model=NativeTemporalModel.initialized())
+    planned = _planned("shot-missing-artifact")
+    bridge.start_attempt(planned, 0, 1)
+    binding = NativeFilmRendererBinding(
+        renderer=MissingArtifactRenderer(latent_dim=bridge.model.latent_dim),
+        continuity=bridge,
+    )
+
+    with pytest.raises(RuntimeError, match="missing artifact"):
+        binding.render(planned, tmp_path / "missing.mp4")
+
+    state = bridge.state_for(planned.shot_id)
+    assert "native_artifact_sha256" not in state.metadata
+    assert "native_artifact_bytes" not in state.metadata
+
+
+def test_binding_fails_closed_when_renderer_returns_empty_artifact(tmp_path):
+    bridge = NativeFilmContinuityBridge(model=NativeTemporalModel.initialized())
+    planned = _planned("shot-empty-artifact")
+    bridge.start_attempt(planned, 0, 1)
+    binding = NativeFilmRendererBinding(
+        renderer=EmptyArtifactRenderer(latent_dim=bridge.model.latent_dim),
+        continuity=bridge,
+    )
+
+    with pytest.raises(RuntimeError, match="empty artifact"):
+        binding.render(planned, tmp_path / "empty.mp4")
+
+    state = bridge.state_for(planned.shot_id)
+    assert "native_artifact_sha256" not in state.metadata
+    assert "native_artifact_bytes" not in state.metadata
 
 
 def test_orchestrator_retry_rebinds_last_durable_continuity_state(tmp_path):
