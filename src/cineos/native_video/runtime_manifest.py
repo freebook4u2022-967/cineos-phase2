@@ -1,9 +1,9 @@
 """Versioned production runtime identity for durable CINEOS film jobs.
 
 Long-running native film generation must fail closed when a resumed job is bound to
-materially different renderer/continuity policy.  This manifest captures the small
+materially different renderer/continuity policy. This manifest captures the small
 set of production invariants that affect durable temporal state and acceptance
-semantics, while deliberately excluding incidental process details.
+semantics, while also recording operational settings for auditability.
 """
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ class ProductionRuntimeManifest:
 
     @classmethod
     def restore(cls, payload: dict[str, object]) -> ProductionRuntimeManifest:
-        """Restore a manifest, rejecting unknown schemas or incomplete payloads."""
-        if str(payload.get("schema", "")) != PRODUCTION_RUNTIME_MANIFEST_SCHEMA:
+        """Restore a manifest, rejecting unknown schemas or malformed payloads."""
+        if payload.get("schema") != PRODUCTION_RUNTIME_MANIFEST_SCHEMA:
             raise ValueError("unsupported production runtime manifest schema")
         required = {
             "renderer_id",
@@ -60,30 +60,53 @@ class ProductionRuntimeManifest:
             raise ValueError(
                 "production runtime manifest is missing: " + ", ".join(missing)
             )
+
+        renderer_id = payload["renderer_id"]
+        fingerprint = payload["temporal_model_fingerprint"]
+        device = payload["device"]
+        recovery_budget = payload["max_recovery_attempts"]
+        require_final = payload["require_final_film_evaluation"]
+        require_audio = payload["require_audio"]
+        if not isinstance(renderer_id, str):
+            raise ValueError("production runtime renderer_id must be a string")
+        if not isinstance(fingerprint, str):
+            raise ValueError(
+                "production runtime temporal_model_fingerprint must be a string"
+            )
+        if not isinstance(device, str):
+            raise ValueError("production runtime device must be a string")
+        if isinstance(recovery_budget, bool) or not isinstance(recovery_budget, int):
+            raise ValueError(
+                "production runtime max_recovery_attempts must be an integer"
+            )
+        if not isinstance(require_final, bool):
+            raise ValueError(
+                "production runtime require_final_film_evaluation must be boolean"
+            )
+        if not isinstance(require_audio, bool):
+            raise ValueError("production runtime require_audio must be boolean")
+
         return cls(
-            renderer_id=str(payload["renderer_id"]),
-            temporal_model_fingerprint=str(payload["temporal_model_fingerprint"]),
-            device=str(payload["device"]),
-            max_recovery_attempts=int(payload["max_recovery_attempts"]),
-            require_final_film_evaluation=bool(
-                payload["require_final_film_evaluation"]
-            ),
-            require_audio=bool(payload["require_audio"]),
+            renderer_id=renderer_id,
+            temporal_model_fingerprint=fingerprint,
+            device=device,
+            max_recovery_attempts=recovery_budget,
+            require_final_film_evaluation=require_final,
+            require_audio=require_audio,
         )
 
     def assert_resume_compatible(self, saved: ProductionRuntimeManifest) -> None:
-        """Fail closed when a durable job cannot safely resume on this runtime.
+        """Fail closed when durable production semantics changed across a resume.
 
-        Recovery budget changes are intentionally compatible: they affect how many
-        future retries are permitted, not the semantics of already accepted shots.
-        Renderer identity, model weights, device policy and final acceptance gates
-        are treated as production invariants.
+        Device placement and recovery-budget changes are intentionally compatible.
+        Identical temporal weights can move between CPU/GPU without invalidating
+        recurrent state, and retry budget only controls future attempts. Renderer
+        identity, model weights and final acceptance requirements remain invariants.
         """
         mismatches: list[str] = []
         for field_name in (
             "renderer_id",
             "temporal_model_fingerprint",
-            "device",
             "require_final_film_evaluation",
             "require_audio",
         ):
