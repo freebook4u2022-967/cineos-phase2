@@ -12,6 +12,7 @@ generates or repairs visual content. Missing evidence fails closed.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -132,8 +133,8 @@ def plan_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, ...]
 
     A boundary is emitted only when the authored ``scene_id`` changes. The edit
     timestamp is the cumulative duration of all shots before the incoming scene.
-    Durations must be positive so boundary timestamps are deterministic and safe
-    for decoder sampling.
+    Durations must be finite and positive so boundary timestamps are deterministic
+    and safe for decoder sampling.
     """
     if not plan:
         raise ValueError("final-film quality gate requires at least one planned shot")
@@ -146,8 +147,8 @@ def plan_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, ...]
         if not scene_id:
             raise ValueError("planned shots require non-empty scene_id values")
         duration = float(getattr(item, "duration", 0.0))
-        if duration <= 0.0:
-            raise ValueError("planned shot durations must be positive")
+        if not math.isfinite(duration) or duration <= 0.0:
+            raise ValueError("planned shot durations must be finite and positive")
 
         if previous is not None:
             previous_scene_id = str(getattr(previous, "scene_id", "")).strip()
