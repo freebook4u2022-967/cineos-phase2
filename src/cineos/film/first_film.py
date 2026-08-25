@@ -1,9 +1,10 @@
-"""Fast-track end-to-end FIRST FILM coordinator.
+"""End-to-end FIRST FILM coordinator.
 
-This module intentionally keeps the critical path small: a premise becomes a
-renderable shot package, continuity is locked through stable character IDs, the
-existing FilmOrchestrator performs render/QC/retry/assembly, and the result is a
-single FilmBuild with an explicit final MP4 path.
+A premise becomes a renderable shot package, continuity is locked through stable
+character IDs, the existing FilmOrchestrator performs render/QC/retry/assembly,
+and the result is a single FilmBuild with an explicit final MP4 path. Production
+callers may additionally inject a measured final-film evaluator so the fully muxed
+movie is accepted only after post-assembly temporal/edit QC.
 """
 
 from __future__ import annotations
@@ -11,11 +12,18 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .audio import AudioTrack, available_tracks, mux_audio_tracks
 from .build import BuildStatus, FilmBuild
 from .orchestrator import FilmOrchestrator
+from .planner import plan_shots
+
+
+class FinalFilmEvaluator(Protocol):
+    """Renderer-neutral post-assembly quality evaluator contract."""
+
+    def evaluate(self, movie_path: str | Path, plan: Any) -> Any: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,13 +116,18 @@ class FastTrackAutoDirector:
 
 
 class FirstFilmRunner:
-    """One-call Auto Director -> render -> QC/retry -> audio -> final MP4 runner.
+    """One-call Auto Director -> render -> QC/retry -> audio -> final-film QC runner.
 
     ``orchestrator_kwargs`` is the provider-neutral extension boundary for durable
     runtime state and transactional shot lifecycle hooks. Native temporal video can
     pass ``NativeFilmContinuityBridge.orchestrator_kwargs()`` here without coupling
-    the film layer to model-specific tensors or devices. The same boundary remains
-    available to future renderer generations and continuity implementations.
+    the film layer to model-specific tensors or devices.
+
+    ``final_film_evaluator`` is intentionally another neutral boundary. Production
+    native video can inject ``MeasuredFinalFilmGate`` to evaluate decoded pixels of
+    the *fully muxed movie*. ``require_final_film_evaluation`` fails closed when a
+    production caller accidentally omits that gate, while remaining opt-in for
+    backwards compatibility with older integrations and lightweight test renderers.
     """
 
     def __init__(
@@ -125,9 +138,17 @@ class FirstFilmRunner:
         renderer_id: str = "atlas",
         max_recovery_attempts: int = 2,
         orchestrator_kwargs: Mapping[str, Any] | None = None,
+        final_film_evaluator: FinalFilmEvaluator | None = None,
+        require_final_film_evaluation: bool = False,
     ) -> None:
+        if require_final_film_evaluation and final_film_evaluator is None:
+            raise ValueError(
+                "production FIRST FILM requires a final_film_evaluator"
+            )
         self.renderer = renderer
         self.renderer_id = renderer_id
+        self.final_film_evaluator = final_film_evaluator
+        self.require_final_film_evaluation = require_final_film_evaluation
         runtime_hooks = dict(orchestrator_kwargs or {})
         reserved = {"max_recovery_attempts", "manual_review_on_failure"}
         conflicts = sorted(reserved.intersection(runtime_hooks))
@@ -178,8 +199,11 @@ class FirstFilmRunner:
                 "qc_retry",
                 "assembly",
                 "audio_mux",
+                "final_film_qc",
             ],
             "runtime_checkpointing": checkpoint_path is not None,
+            "final_film_qc_required": self.require_final_film_evaluation,
+            "final_film_qc_enabled": self.final_film_evaluator is not None,
         }
         result = self.orchestrator.run(
             package,
@@ -217,4 +241,52 @@ class FirstFilmRunner:
                 "kinds": [track.kind for track in usable_audio],
             },
         )
+        self._evaluate_final_movie(result, final_with_audio, package)
         return result
+
+    def _evaluate_final_movie(
+        self,
+        build: FilmBuild,
+        movie_path: str | Path,
+        package: FirstFilmPackage,
+    ) -> None:
+        evaluator = self.final_film_evaluator
+        if evaluator is None:
+            build.metadata["final_film_qc"] = {
+                "enabled": False,
+                "required": self.require_final_film_evaluation,
+            }
+            return
+
+        report = evaluator.evaluate(movie_path, plan_shots(package))
+        decision = str(getattr(report, "decision", "")).strip().lower()
+        if decision not in {"accept", "warn", "reject"}:
+            build.failures.append(
+                "final-film evaluator returned an invalid decision; expected "
+                "accept, warn, or reject"
+            )
+            build.metadata["final_film_qc"] = {
+                "enabled": True,
+                "required": self.require_final_film_evaluation,
+                "decision": decision or None,
+            }
+            build.transition(BuildStatus.FAILED)
+            return
+
+        as_dict = getattr(report, "as_dict", None)
+        evidence = as_dict() if callable(as_dict) else {"decision": decision}
+        build.metadata["final_film_qc"] = {
+            "enabled": True,
+            "required": self.require_final_film_evaluation,
+            "decision": decision,
+            "evidence": evidence,
+        }
+        directives = tuple(getattr(report, "directives", ()) or ())
+        if decision == "reject":
+            detail = "; ".join(str(item) for item in directives) or "quality gate rejected movie"
+            build.failures.append(f"final-film QC rejected assembled movie: {detail}")
+            build.transition(BuildStatus.FAILED)
+        elif decision == "warn":
+            detail = "; ".join(str(item) for item in directives) or "quality gate warning"
+            build.warnings.append(f"final-film QC warning: {detail}")
+            build.transition(BuildStatus.COMPLETED_WITH_WARNINGS)
