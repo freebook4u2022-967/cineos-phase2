@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from hashlib import sha256
+import json
 from typing import Any
 
 
@@ -34,3 +36,31 @@ def plan_shots(package) -> list[PlannedShot]:
         )
         for index, item in enumerate(order)
     ]
+
+
+def shot_plan_fingerprint(plan: list[PlannedShot]) -> str:
+    """Return a deterministic identity for the complete planned shot timeline.
+
+    Resume safety requires more than stable shot IDs: scene assignment, duration,
+    ordering, and renderer-facing payload can all change the visual contract. The
+    fingerprint therefore covers the canonicalized full plan and is persisted with
+    film checkpoints before any output is reused.
+    """
+    canonical = [
+        {
+            "shot_id": item.shot_id,
+            "scene_id": item.scene_id,
+            "duration": item.duration,
+            "index": item.index,
+            "payload": item.payload,
+        }
+        for item in plan
+    ]
+    encoded = json.dumps(
+        canonical,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
