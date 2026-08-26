@@ -91,7 +91,7 @@ def test_release_registry_rejects_pointer_tampering(tmp_path) -> None:
     )
     (tmp_path / ACTIVE_SNAPSHOT_FILE).write_text("../escape\n", encoding="utf-8")
 
-    with pytest.raises(ReleaseRegistryError, match="SHA-256 generation id"):
+    with pytest.raises(ReleaseRegistryError, match="SHA-256"):
         load_verified_release_snapshot(tmp_path, key=_key())
 
 
@@ -128,4 +128,73 @@ def test_key_rotation_creates_distinct_authenticated_generation(tmp_path) -> Non
             tmp_path,
             key=_key(1),
             expected_key_id="kms-prod-v1",
+        )
+
+
+def test_trusted_generation_guard_rejects_valid_snapshot_rollback(tmp_path) -> None:
+    first = commit_release_snapshot(
+        _entries("film-v1"),
+        tmp_path,
+        key=_key(),
+        key_id="kms-prod-v1",
+    )
+    second_entries = append_release(
+        first.entries,
+        release_id="film-v2",
+        receipt_sha256=_sha("c"),
+        native_model_manifest_sha256=_sha("d"),
+    )
+    second = commit_release_snapshot(
+        second_entries,
+        tmp_path,
+        key=_key(),
+        key_id="kms-prod-v1",
+    )
+
+    # Simulate an attacker rolling CURRENT back to a historical snapshot whose
+    # chain and HMAC seal are both still completely valid.
+    (tmp_path / ACTIVE_SNAPSHOT_FILE).write_text(
+        first.generation_id + "\n", encoding="utf-8"
+    )
+
+    historical = load_verified_release_snapshot(tmp_path, key=_key())
+    assert historical.generation_id == first.generation_id
+
+    with pytest.raises(ReleaseRegistryError, match="trusted generation"):
+        load_verified_release_snapshot(
+            tmp_path,
+            key=_key(),
+            expected_generation_id=second.generation_id,
+        )
+
+
+def test_trusted_generation_guard_accepts_current_generation(tmp_path) -> None:
+    committed = commit_release_snapshot(
+        _entries(),
+        tmp_path,
+        key=_key(),
+        key_id="kms-prod-v1",
+    )
+
+    loaded = load_verified_release_snapshot(
+        tmp_path,
+        key=_key(),
+        expected_generation_id=committed.generation_id.upper(),
+    )
+    assert loaded.generation_id == committed.generation_id
+
+
+def test_trusted_generation_guard_rejects_malformed_trust_anchor(tmp_path) -> None:
+    commit_release_snapshot(
+        _entries(),
+        tmp_path,
+        key=_key(),
+        key_id="kms-prod-v1",
+    )
+
+    with pytest.raises(ReleaseRegistryError, match="SHA-256"):
+        load_verified_release_snapshot(
+            tmp_path,
+            key=_key(),
+            expected_generation_id="not-a-generation",
         )
