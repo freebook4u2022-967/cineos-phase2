@@ -11,10 +11,12 @@ from cineos.native_video.final_audit import (
     FinalFilmAuditRecord,
     load_final_film_audit,
     verify_production_final_film_audit,
+    verify_production_final_film_audit_for_runtime,
     write_final_film_audit,
 )
 from cineos.native_video.final_eval import TemporalFilmEvalReport
 from cineos.native_video.final_gate import MeasuredFinalFilmReport
+from cineos.native_video.runtime_manifest import ProductionRuntimeManifest
 
 
 def _accepted_report() -> MeasuredFinalFilmReport:
@@ -34,6 +36,21 @@ def _accepted_report() -> MeasuredFinalFilmReport:
         directives=(),
         temporal=temporal,
     )
+
+
+def _production_manifest(**overrides: object) -> ProductionRuntimeManifest:
+    values: dict[str, object] = {
+        "renderer_id": "cineos-native",
+        "temporal_model_fingerprint": "temporal:abc",
+        "device": "cpu",
+        "max_recovery_attempts": 2,
+        "require_final_film_evaluation": True,
+        "require_audio": True,
+        "final_gate_policy_fingerprint": "gate:def",
+        "native_model_manifest_sha256": "model-release:123",
+    }
+    values.update(overrides)
+    return ProductionRuntimeManifest(**values)  # type: ignore[arg-type]
 
 
 def test_final_film_audit_binds_report_to_exact_movie_bytes(tmp_path) -> None:
@@ -232,4 +249,59 @@ def test_production_audit_verifier_requires_explicit_bindings(tmp_path) -> None:
             movie_path=movie,
             expected_model_fingerprint="model-release:abc",
             expected_runtime_fingerprint="runtime-contract:def",
+        )
+
+
+def test_production_runtime_audit_round_trip_is_fail_closed(tmp_path) -> None:
+    movie = tmp_path / "film.mp4"
+    movie.write_bytes(b"cineos-runtime-bound-release")
+    runtime = _production_manifest()
+    record = FinalFilmAuditRecord.from_production_runtime(
+        movie,
+        _accepted_report(),
+        runtime,
+    )
+    audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
+
+    verified = verify_production_final_film_audit_for_runtime(
+        audit,
+        movie_path=movie,
+        runtime_manifest=runtime,
+    )
+
+    assert verified.model_fingerprint == runtime.native_model_manifest_sha256
+    assert verified.runtime_fingerprint == runtime.fingerprint
+
+
+def test_production_runtime_audit_rejects_changed_runtime_identity(tmp_path) -> None:
+    movie = tmp_path / "film.mp4"
+    movie.write_bytes(b"cineos-runtime-bound-release")
+    runtime = _production_manifest()
+    record = FinalFilmAuditRecord.from_production_runtime(
+        movie,
+        _accepted_report(),
+        runtime,
+    )
+    audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
+
+    with pytest.raises(FinalFilmAuditError, match="runtime fingerprint"):
+        verify_production_final_film_audit_for_runtime(
+            audit,
+            movie_path=movie,
+            runtime_manifest=_production_manifest(device="cuda"),
+        )
+
+
+def test_production_runtime_audit_requires_released_model_binding(tmp_path) -> None:
+    movie = tmp_path / "film.mp4"
+    movie.write_bytes(b"cineos-runtime-bound-release")
+    runtime = _production_manifest(
+        native_model_manifest_sha256="legacy-unbound-native-model-manifest"
+    )
+
+    with pytest.raises(FinalFilmAuditError, match="bound native model manifest"):
+        FinalFilmAuditRecord.from_production_runtime(
+            movie,
+            _accepted_report(),
+            runtime,
         )
