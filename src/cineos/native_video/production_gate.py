@@ -91,7 +91,9 @@ def _transition_for_boundary(outgoing: Any, incoming: Any) -> str:
 
     Incoming shot metadata has precedence because it describes how the new scene
     enters. Explicit hard-cut/reset flags must never be masked by transition
-    metadata inherited from the preceding scene.
+    metadata inherited from the preceding scene. Legacy ``transition_in`` and
+    ``transition_out`` keys are supported so persisted plans keep their authored
+    semantics across CINEOS versions.
     """
     incoming_payload = _payload(incoming)
     outgoing_payload = _payload(outgoing)
@@ -101,15 +103,22 @@ def _transition_for_boundary(outgoing: Any, incoming: Any) -> str:
     ):
         return "cut"
 
-    raw = incoming_payload.get("scene_transition")
+    raw = incoming_payload.get("transition_in")
+    if raw is None:
+        raw = incoming_payload.get("scene_transition")
     if raw is None:
         raw = incoming_payload.get("transition")
+    if raw is None:
+        raw = outgoing_payload.get("transition_out")
     if raw is None:
         raw = outgoing_payload.get("scene_transition")
     if raw is None:
         raw = outgoing_payload.get("transition")
     if raw is None:
-        return "match"
+        # An unmarked scene change is an ordinary edit, not an implicit match cut.
+        # Assuming "match" incorrectly penalizes intentional discontinuity and can
+        # reject a valid assembled film. This mirrors the canonical final_gate path.
+        return "cut"
 
     transition = str(raw).strip().lower()
     aliases = {
