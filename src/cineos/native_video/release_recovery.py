@@ -89,9 +89,7 @@ def recover_activation_lock(
     # or filesystem intervention between authentication and recovery.
     current = read_activation_lock(registry_root)
     if current != expected_lock_contents:
-        raise ReleaseRegistryError(
-            "release activation lock changed during recovery"
-        )
+        raise ReleaseRegistryError("release activation lock changed during recovery")
 
     lock_path = registry_root / ACTIVATION_LOCK_FILE
     try:

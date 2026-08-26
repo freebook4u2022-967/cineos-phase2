@@ -35,7 +35,9 @@ def _leave_stale_lock(tmp_path) -> str:
     return contents
 
 
-def test_recovery_authenticates_active_snapshot_before_removing_stale_lock(tmp_path) -> None:
+def test_recovery_authenticates_active_snapshot_before_removing_stale_lock(
+    tmp_path,
+) -> None:
     active = commit_release_snapshot(
         _entries(),
         tmp_path,
@@ -77,7 +79,9 @@ def test_recovery_rejects_lock_changed_since_operator_inspection(tmp_path) -> No
     assert (tmp_path / ACTIVATION_LOCK_FILE).exists()
 
 
-def test_recovery_rejects_untrusted_active_generation_and_preserves_lock(tmp_path) -> None:
+def test_recovery_rejects_untrusted_active_generation_and_preserves_lock(
+    tmp_path,
+) -> None:
     commit_release_snapshot(
         _entries(),
         tmp_path,
