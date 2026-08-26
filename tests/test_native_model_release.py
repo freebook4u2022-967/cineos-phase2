@@ -112,7 +112,9 @@ def test_incompatible_candidate_is_rejected_before_activation(tmp_path: Path) ->
     assert active.manifest_sha256 == incumbent_manifest.manifest_sha256
 
 
-def test_promoted_model_can_rollback_to_previous_compatible_model(tmp_path: Path) -> None:
+def test_promoted_model_can_rollback_to_previous_compatible_model(
+    tmp_path: Path,
+) -> None:
     controller = _controller(tmp_path)
     incumbent_manifest = _manifest("1.0.0")
     controller.registry.activate(incumbent_manifest)
@@ -139,5 +141,7 @@ def test_registry_still_fails_closed_if_runtime_changes_between_eval_and_activat
     assert decision.promoted is True
 
     controller.registry.supported_component_contracts = {}
-    with pytest.raises(ModelManifestError, match="refusing incompatible model activation"):
+    with pytest.raises(
+        ModelManifestError, match="refusing incompatible model activation"
+    ):
         controller.registry.activate(candidate)

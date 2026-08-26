@@ -104,7 +104,8 @@ class NativeModelReleaseController:
                 model_id=manifest.model_id,
                 model_version=manifest.model_version,
                 quality=quality,
-                reason="runtime compatibility rejected candidate: " + incompatible_reason,
+                reason="runtime compatibility rejected candidate: "
+                + incompatible_reason,
                 previous_manifest_sha256=previous_digest,
             )
         if not quality.promoted:
