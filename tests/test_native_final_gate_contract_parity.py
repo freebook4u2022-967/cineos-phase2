@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from cineos.native_video.edit_contract import planned_scene_boundaries
 from cineos.native_video.final_gate import _planned_scene_boundaries
 from cineos.native_video.production_gate import plan_scene_boundaries
 
@@ -22,6 +23,13 @@ def _normalized(boundaries: object) -> tuple[tuple[str, str, float, str], ...]:
         )
         for item in boundaries
     )
+
+
+def test_final_film_gate_paths_bind_to_one_edit_contract_implementation() -> None:
+    """Public migration paths must not grow independent edit-contract logic again."""
+
+    assert _planned_scene_boundaries is planned_scene_boundaries
+    assert plan_scene_boundaries is planned_scene_boundaries
 
 
 @pytest.mark.parametrize(
