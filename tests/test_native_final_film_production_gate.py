@@ -104,8 +104,28 @@ def test_plan_scene_boundaries_uses_cumulative_timeline_and_authored_transition(
     assert boundaries[1].transition == "cut"
 
 
-def test_plan_scene_boundaries_defaults_unmarked_scene_change_to_match() -> None:
+def test_plan_scene_boundaries_defaults_unmarked_scene_change_to_cut() -> None:
     boundaries = plan_scene_boundaries((_shot("scene-a", 1.5), _shot("scene-b", 2.0)))
+    assert boundaries[0].transition == "cut"
+
+
+def test_transition_in_takes_precedence_over_outgoing_transition_metadata() -> None:
+    boundaries = plan_scene_boundaries(
+        (
+            _shot("scene-a", 1.0, transition_out="match"),
+            _shot("scene-b", 1.0, transition_in="crossfade"),
+        )
+    )
+    assert boundaries[0].transition == "fade"
+
+
+def test_transition_out_is_used_when_incoming_transition_is_unset() -> None:
+    boundaries = plan_scene_boundaries(
+        (
+            _shot("scene-a", 1.0, transition_out="match_cut"),
+            _shot("scene-b", 1.0),
+        )
+    )
     assert boundaries[0].transition == "match"
 
 
@@ -134,6 +154,21 @@ def test_serialized_true_flag_forces_cut() -> None:
         )
     )
 
+    assert boundaries[0].transition == "cut"
+
+
+def test_serialized_true_flag_overrides_transition_in() -> None:
+    boundaries = plan_scene_boundaries(
+        (
+            _shot("scene-a", 1.0, transition_out="fade"),
+            _shot(
+                "scene-b",
+                1.0,
+                transition_in="match",
+                continuity_reset="true",
+            ),
+        )
+    )
     assert boundaries[0].transition == "cut"
 
 
@@ -187,6 +222,7 @@ def test_measured_final_film_gate_rejects_when_boundary_evidence_rejects(
 
     assert temporal.calls == 1
     assert len(boundary.boundaries) == 1
+    assert boundary.boundaries[0].transition == "cut"
     assert report.decision == "reject"
     assert report.accepted is False
     assert report.directives == ("repair boundary continuity",)
