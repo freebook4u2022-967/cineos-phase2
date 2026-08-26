@@ -43,7 +43,9 @@ def _canonical_json_hash(payload: Any) -> str:
             allow_nan=False,
         ).encode("utf-8")
     except (TypeError, ValueError) as error:
-        raise RenderWorkspaceError("render workspace contract must be finite JSON data") from error
+        raise RenderWorkspaceError(
+            "render workspace contract must be finite JSON data"
+        ) from error
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -102,9 +104,13 @@ class RenderContract:
         if not self.base_state_hash:
             raise ValueError("render contract requires a base_state_hash")
         if min(self.width, self.height, self.fps, self.frame_count) <= 0:
-            raise ValueError("render contract dimensions, fps and frame_count must be positive")
+            raise ValueError(
+                "render contract dimensions, fps and frame_count must be positive"
+            )
         if not self.decoder_id or not self.renderer_id:
-            raise ValueError("render contract requires decoder and renderer identifiers")
+            raise ValueError(
+                "render contract requires decoder and renderer identifiers"
+            )
         if not self.conditioning_hash:
             raise ValueError("render contract requires a conditioning_hash")
 
@@ -175,9 +181,13 @@ class NativeRenderWorkspace:
         try:
             document = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            raise RenderWorkspaceError(f"cannot read render workspace manifest: {error}") from error
+            raise RenderWorkspaceError(
+                f"cannot read render workspace manifest: {error}"
+            ) from error
         if not isinstance(document, dict):
-            raise RenderWorkspaceError("render workspace manifest root must be an object")
+            raise RenderWorkspaceError(
+                "render workspace manifest root must be an object"
+            )
         if document.get("schema_version") != RENDER_WORKSPACE_SCHEMA_VERSION:
             raise RenderWorkspaceError("unsupported render workspace schema")
         raw_contract = document.get("contract")
@@ -186,8 +196,13 @@ class NativeRenderWorkspace:
             raise RenderWorkspaceError("render workspace manifest is incomplete")
         if _canonical_json_hash(raw_contract) != recorded_hash:
             raise RenderWorkspaceError("render workspace contract hash mismatch")
-        if recorded_hash != self.contract.fingerprint or raw_contract != self.contract.payload():
-            raise RenderWorkspaceError("render workspace belongs to a different render contract")
+        if (
+            recorded_hash != self.contract.fingerprint
+            or raw_contract != self.contract.payload()
+        ):
+            raise RenderWorkspaceError(
+                "render workspace belongs to a different render contract"
+            )
 
     def save_state(self, state: TemporalSequenceState) -> Path:
         if state.shot_id != self.contract.shot_id:
@@ -201,13 +216,19 @@ class NativeRenderWorkspace:
         try:
             document = json.loads(self.checkpoint_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            raise RenderWorkspaceError(f"cannot read temporal render checkpoint: {error}") from error
+            raise RenderWorkspaceError(
+                f"cannot read temporal render checkpoint: {error}"
+            ) from error
         try:
             state = restore_temporal_checkpoint(document)
         except TemporalCheckpointError as error:
-            raise RenderWorkspaceError(f"invalid temporal render checkpoint: {error}") from error
+            raise RenderWorkspaceError(
+                f"invalid temporal render checkpoint: {error}"
+            ) from error
         if state.shot_id != self.contract.shot_id:
-            raise RenderWorkspaceError("temporal render checkpoint belongs to a different shot")
+            raise RenderWorkspaceError(
+                "temporal render checkpoint belongs to a different shot"
+            )
         return state
 
     def next_frame_index(self) -> int:
@@ -216,12 +237,16 @@ class NativeRenderWorkspace:
         if state is None:
             existing = tuple(self.frames_dir.glob("frame-*.ppm"))
             if existing:
-                raise RenderWorkspaceError("render workspace has frames but no temporal checkpoint")
+                raise RenderWorkspaceError(
+                    "render workspace has frames but no temporal checkpoint"
+                )
             return 0
 
         next_index = state.last_frame_index + 1
         if next_index < 0 or next_index > self.contract.frame_count:
-            raise RenderWorkspaceError("temporal checkpoint frame index exceeds render contract")
+            raise RenderWorkspaceError(
+                "temporal checkpoint frame index exceeds render contract"
+            )
 
         for index in range(next_index):
             frame = self.frame_path(index)
@@ -236,7 +261,9 @@ class NativeRenderWorkspace:
             )
         return next_index
 
-    def commit_frame(self, frame_index: int, rgb_ppm: bytes, state: TemporalSequenceState) -> Path:
+    def commit_frame(
+        self, frame_index: int, rgb_ppm: bytes, state: TemporalSequenceState
+    ) -> Path:
         """Atomically persist one decoded frame, then checkpoint the matching state.
 
         The frame is promoted first and the checkpoint second.  A crash between the
@@ -246,7 +273,9 @@ class NativeRenderWorkspace:
         if frame_index < 0 or frame_index >= self.contract.frame_count:
             raise RenderWorkspaceError("frame index is outside render contract")
         if state.last_frame_index != frame_index:
-            raise RenderWorkspaceError("temporal state does not commit the requested frame")
+            raise RenderWorkspaceError(
+                "temporal state does not commit the requested frame"
+            )
         target = self.frame_path(frame_index)
         target.parent.mkdir(parents=True, exist_ok=True)
         fd, temp_name = tempfile.mkstemp(
