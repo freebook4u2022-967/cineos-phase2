@@ -7,7 +7,7 @@ import pytest
 from cineos.native_video import FFmpegSceneBoundaryEvaluator, SceneBoundaryPoint
 
 
-def test_ffmpeg_scene_boundary_evaluator_measures_real_boundary_pixels(
+def test_ffmpeg_scene_boundary_evaluator_measures_temporal_boundary_pixels(
     tmp_path, monkeypatch
 ) -> None:
     movie = tmp_path / "film.mp4"
@@ -16,6 +16,8 @@ def test_ffmpeg_scene_boundary_evaluator_measures_real_boundary_pixels(
         sample_width=4,
         sample_height=2,
         sample_offset_seconds=0.05,
+        sample_count=3,
+        sample_stride_seconds=0.04,
     )
     calls: list[list[str]] = []
 
@@ -52,9 +54,60 @@ def test_ffmpeg_scene_boundary_evaluator_measures_real_boundary_pixels(
     assert report.decision == "accept"
     assert report.boundary_count == 1
     assert report.boundaries[0].boundary_mad == pytest.approx(8.0)
-    assert len(calls) == 2
-    assert float(calls[0][calls[0].index("-ss") + 1]) == pytest.approx(1.95)
-    assert float(calls[1][calls[1].index("-ss") + 1]) == pytest.approx(2.05)
+    assert len(calls) == 6
+    timestamps = [float(call[call.index("-ss") + 1]) for call in calls]
+    assert timestamps == pytest.approx([1.87, 1.91, 1.95, 2.05, 2.09, 2.13])
+
+
+def test_temporal_window_rejects_transient_match_boundary_drift(
+    tmp_path, monkeypatch
+) -> None:
+    movie = tmp_path / "film.mp4"
+    movie.write_bytes(b"cineos-movie")
+    evaluator = FFmpegSceneBoundaryEvaluator(
+        sample_width=4,
+        sample_height=2,
+        sample_offset_seconds=0.05,
+        sample_count=3,
+        sample_stride_seconds=0.04,
+    )
+
+    monkeypatch.setattr(
+        "cineos.native_video.boundary_eval.shutil.which",
+        lambda _name: "/usr/bin/ffmpeg",
+    )
+
+    def fake_run(command, *, check, capture_output):
+        assert check is True
+        assert capture_output is True
+        timestamp = float(command[command.index("-ss") + 1])
+        if timestamp < 2.0:
+            value = 80
+        elif timestamp == pytest.approx(2.09):
+            value = 220
+        else:
+            value = 88
+        return SimpleNamespace(stdout=bytes([value]) * evaluator.frame_size)
+
+    monkeypatch.setattr(
+        "cineos.native_video.boundary_eval.subprocess.run",
+        fake_run,
+    )
+
+    report = evaluator.evaluate(
+        movie,
+        (
+            SceneBoundaryPoint(
+                from_scene_id="scene-01",
+                to_scene_id="scene-02",
+                boundary_seconds=2.0,
+                transition="match",
+            ),
+        ),
+    )
+
+    assert report.decision == "reject"
+    assert report.boundaries[0].boundary_mad > evaluator.policy.match_reject_mad
 
 
 def test_ffmpeg_scene_boundary_evaluator_rejects_incomplete_decoded_evidence(
@@ -103,6 +156,14 @@ def test_ffmpeg_scene_boundary_evaluator_fails_closed_on_invalid_timeline(
                 SceneBoundaryPoint("scene-b", "scene-c", 3.0),
             ),
         )
+
+
+def test_scene_boundary_evaluator_validates_temporal_sampling_policy() -> None:
+    with pytest.raises(ValueError, match="sample_count"):
+        FFmpegSceneBoundaryEvaluator(sample_count=0)
+
+    with pytest.raises(ValueError, match="sample_stride_seconds"):
+        FFmpegSceneBoundaryEvaluator(sample_stride_seconds=0.0)
 
 
 def test_scene_boundary_point_validates_timestamp_and_transition() -> None:
