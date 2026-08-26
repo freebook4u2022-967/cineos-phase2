@@ -193,7 +193,9 @@ def create_production_film_receipt(
 
     decision, qc_payload = _qc_payload(final_qc_report)
     if decision == "reject":
-        raise ProductionReleaseError("rejected final QC cannot produce a release receipt")
+        raise ProductionReleaseError(
+            "rejected final QC cannot produce a release receipt"
+        )
 
     movie_hash, movie_size = artifact_sha256(movie_path)
     runtime_payload = runtime_manifest.snapshot()
@@ -229,8 +231,7 @@ def verify_production_film_receipt(
         final_qc_report,
         build_content_hash=build_content_hash,
         require_released_model=(
-            receipt.native_model_manifest_sha256
-            != LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST
+            receipt.native_model_manifest_sha256 != LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST
         ),
     )
     mismatches = [
@@ -290,21 +291,29 @@ def load_production_film_receipt(path: str | Path) -> ProductionFilmReceipt:
     try:
         document = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise ProductionReleaseError(f"cannot read production film receipt: {error}") from error
+        raise ProductionReleaseError(
+            f"cannot read production film receipt: {error}"
+        ) from error
     if not isinstance(document, dict):
         raise ProductionReleaseError("production film receipt root must be an object")
     payload = document.get("receipt")
     recorded_hash = document.get("receipt_sha256")
     if not isinstance(payload, dict):
-        raise ProductionReleaseError("production film receipt is missing receipt payload")
+        raise ProductionReleaseError(
+            "production film receipt is missing receipt payload"
+        )
     if not isinstance(recorded_hash, str) or not recorded_hash:
-        raise ProductionReleaseError("production film receipt is missing integrity hash")
+        raise ProductionReleaseError(
+            "production film receipt is missing integrity hash"
+        )
     if canonical_sha256(payload) != recorded_hash:
         raise ProductionReleaseError("production film receipt integrity hash mismatch")
     try:
         return ProductionFilmReceipt(**payload)
     except (TypeError, ValueError) as error:
-        raise ProductionReleaseError(f"invalid production film receipt: {error}") from error
+        raise ProductionReleaseError(
+            f"invalid production film receipt: {error}"
+        ) from error
 
 
 __all__ = [
