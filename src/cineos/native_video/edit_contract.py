@@ -95,9 +95,10 @@ def transition_for_boundary(outgoing: Any, incoming: Any) -> str:
     transition = str(raw).strip().lower()
     transition = _TRANSITION_ALIASES.get(transition, transition)
     if transition not in _SUPPORTED_TRANSITIONS:
+        # Keep the long-standing public error phrase used by the legacy gate while
+        # both legacy and canonical paths share this one implementation.
         raise ValueError(
-            f"unsupported planned scene transition {raw!r}; "
-            "expected cut, match, or fade"
+            f"unsupported scene transition {raw!r}; expected cut, match, or fade"
         )
     return transition
 
