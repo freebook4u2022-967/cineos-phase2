@@ -111,7 +111,10 @@ class ProductionRuntimeManifest:
                 "production runtime final_gate_policy_fingerprint must be a "
                 "non-empty string"
             )
-        if not isinstance(native_model_manifest, str) or not native_model_manifest.strip():
+        if (
+            not isinstance(native_model_manifest, str)
+            or not native_model_manifest.strip()
+        ):
             raise ValueError(
                 "production runtime native_model_manifest_sha256 must be a "
                 "non-empty string"
