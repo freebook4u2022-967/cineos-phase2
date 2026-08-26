@@ -111,7 +111,9 @@ def commit_release_snapshot(
     snapshots_root = registry_root / SNAPSHOTS_DIRECTORY
     snapshots_root.mkdir(parents=True, exist_ok=True)
 
-    stage = Path(tempfile.mkdtemp(prefix=".staging-", dir=str(snapshots_root)))
+    stage: Path | None = Path(
+        tempfile.mkdtemp(prefix=".staging-", dir=str(snapshots_root))
+    )
     try:
         chain_path = save_release_chain(entries, stage / CHAIN_FILE)
         seal = seal_release_chain_file(
@@ -129,7 +131,7 @@ def commit_release_snapshot(
             # authentication with the supplied key. Never silently trust an
             # existing directory with the same name.
             shutil.rmtree(stage)
-            stage = Path()
+            stage = None
             verify_release_chain_file(
                 destination / CHAIN_FILE,
                 destination / SEAL_FILE,
@@ -138,7 +140,7 @@ def commit_release_snapshot(
             )
         else:
             os.replace(stage, destination)
-            stage = Path()
+            stage = None
             _fsync_directory(snapshots_root)
 
         _atomic_write_text(registry_root / ACTIVE_SNAPSHOT_FILE, generation_id + "\n")
@@ -148,7 +150,7 @@ def commit_release_snapshot(
             expected_key_id=seal.key_id,
         )
     finally:
-        if stage and stage.exists():
+        if stage is not None and stage.exists():
             shutil.rmtree(stage, ignore_errors=True)
 
 
