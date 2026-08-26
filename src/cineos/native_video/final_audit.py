@@ -59,6 +59,9 @@ class FinalFilmAuditRecord:
             raise ValueError("decision must be accept, warn, or reject")
         if self.schema_version != FINAL_FILM_AUDIT_SCHEMA:
             raise ValueError("unsupported final-film audit schema")
+        report_decision = str(self.report.get("decision", ""))
+        if report_decision != self.decision:
+            raise ValueError("audit decision must match measured report decision")
         if not self.created_at:
             object.__setattr__(self, "created_at", datetime.now(UTC).isoformat())
 
@@ -156,6 +159,9 @@ def load_final_film_audit(
     if not isinstance(payload, dict):
         raise FinalFilmAuditError("final-film audit must contain a JSON object")
     try:
+        report = payload["report"]
+        if not isinstance(report, dict):
+            raise TypeError("report must be a JSON object")
         record = FinalFilmAuditRecord(
             schema_version=str(payload["schema_version"]),
             created_at=str(payload["created_at"]),
@@ -164,14 +170,10 @@ def load_final_film_audit(
             decision=str(payload["decision"]),
             model_fingerprint=str(payload.get("model_fingerprint", "")),
             runtime_fingerprint=str(payload.get("runtime_fingerprint", "")),
-            report=payload["report"],
+            report=report,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise FinalFilmAuditError("invalid final-film audit record") from exc
-    if not isinstance(record.report, dict):
-        raise FinalFilmAuditError("final-film audit report must be a JSON object")
-    if str(record.report.get("decision", "")) != record.decision:
-        raise FinalFilmAuditError("audit decision disagrees with measured report")
     if movie_path is not None:
         record.verify_movie(movie_path)
     return record
