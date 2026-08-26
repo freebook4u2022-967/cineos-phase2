@@ -168,7 +168,9 @@ def _production_checkpoint_hooks(
     }
 
 
-def _compatible_active_manifest(model_registry: NativeModelRegistry) -> NativeModelManifest:
+def _compatible_active_manifest(
+    model_registry: NativeModelRegistry,
+) -> NativeModelManifest:
     """Return the active release only when it is compatible with *this* runtime.
 
     Registry activation is compatibility-gated, but a persisted registry can outlive
@@ -189,8 +191,7 @@ def _compatible_active_manifest(model_registry: NativeModelRegistry) -> NativeMo
     )
     if not compatibility.compatible:
         raise ModelManifestError(
-            "refusing incompatible active native model release: "
-            + compatibility.reason
+            "refusing incompatible active native model release: " + compatibility.reason
         )
     return active
 
