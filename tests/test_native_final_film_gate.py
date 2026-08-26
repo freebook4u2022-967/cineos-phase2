@@ -179,3 +179,85 @@ def test_invalid_planned_transition_fails_closed(tmp_path):
         assert "unsupported planned scene transition" in str(error)
     else:
         raise AssertionError("invalid transition contract must fail closed")
+
+
+def test_continuity_reset_overrides_stale_match_transition():
+    plan = [
+        PlannedShot("a", "scene-a", 1.0, 0, {"transition_out": "match"}),
+        PlannedShot(
+            "b",
+            "scene-b",
+            1.0,
+            1,
+            {"continuity_reset": True, "transition_in": "match"},
+        ),
+    ]
+
+    boundaries = _planned_scene_boundaries(plan)
+
+    assert boundaries[0].transition == "cut"
+
+
+def test_hard_cut_serialized_true_overrides_transition_hint():
+    plan = [
+        PlannedShot("a", "scene-a", 1.0, 0, {}),
+        PlannedShot(
+            "b",
+            "scene-b",
+            1.0,
+            1,
+            {"hard_cut": "true", "transition_in": "fade"},
+        ),
+    ]
+
+    boundaries = _planned_scene_boundaries(plan)
+
+    assert boundaries[0].transition == "cut"
+
+
+def test_serialized_false_does_not_force_hard_cut():
+    plan = [
+        PlannedShot("a", "scene-a", 1.0, 0, {}),
+        PlannedShot(
+            "b",
+            "scene-b",
+            1.0,
+            1,
+            {"hard_cut": "false", "transition_in": "match"},
+        ),
+    ]
+
+    boundaries = _planned_scene_boundaries(plan)
+
+    assert boundaries[0].transition == "match"
+
+
+def test_ambiguous_boolean_edit_metadata_fails_closed():
+    plan = [
+        PlannedShot("a", "scene-a", 1.0, 0, {}),
+        PlannedShot(
+            "b",
+            "scene-b",
+            1.0,
+            1,
+            {"continuity_reset": "sometimes", "transition_in": "match"},
+        ),
+    ]
+
+    try:
+        _planned_scene_boundaries(plan)
+    except ValueError as error:
+        assert "continuity_reset must be boolean metadata" in str(error)
+    else:
+        raise AssertionError("ambiguous continuity-reset metadata must fail closed")
+
+
+def test_transition_aliases_are_normalized_for_boundary_evaluation():
+    plan = [
+        PlannedShot("a", "scene-a", 1.0, 0, {}),
+        PlannedShot("b", "scene-b", 1.0, 1, {"transition_in": "crossfade"}),
+    ]
+
+    boundaries = _planned_scene_boundaries(plan)
+
+    assert boundaries[0].transition == "fade"
