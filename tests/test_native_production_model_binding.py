@@ -120,10 +120,11 @@ def test_released_runtime_rechecks_compatibility_after_runtime_upgrade(
         supported_component_contracts={"other-component": 1},
     )
 
-    with pytest.raises(
-        ModelManifestError,
-        match="refusing incompatible active native model release: unsupported component: temporal",
-    ):
+    error = (
+        "refusing incompatible active native model release: "
+        "unsupported component: temporal"
+    )
+    with pytest.raises(ModelManifestError, match=error):
         build_released_production_first_film_runtime(
             _NativeRenderer(), upgraded_runtime
         )
