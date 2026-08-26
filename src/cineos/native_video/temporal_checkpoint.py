@@ -102,7 +102,9 @@ def restore_temporal_checkpoint(document: dict[str, Any]) -> TemporalSequenceSta
     frames_generated = state.metadata.get("frames_generated")
     if frames_generated is not None:
         if not isinstance(frames_generated, int) or isinstance(frames_generated, bool):
-            raise TemporalCheckpointError("frames_generated metadata must be an integer")
+            raise TemporalCheckpointError(
+                "frames_generated metadata must be an integer"
+            )
         expected = state.last_frame_index + 1
         if frames_generated != expected:
             raise TemporalCheckpointError(

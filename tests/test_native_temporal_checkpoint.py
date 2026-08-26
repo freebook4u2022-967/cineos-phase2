@@ -57,7 +57,9 @@ def test_temporal_checkpoint_rejects_unknown_schema() -> None:
     document = temporal_checkpoint_payload(model.initial_state("shot-001"))
     document["schema_version"] = TEMPORAL_CHECKPOINT_SCHEMA_VERSION + 1
 
-    with pytest.raises(TemporalCheckpointError, match="unsupported temporal checkpoint"):
+    with pytest.raises(
+        TemporalCheckpointError, match="unsupported temporal checkpoint"
+    ):
         restore_temporal_checkpoint(document)
 
 
