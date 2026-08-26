@@ -101,7 +101,8 @@ class ProductionRuntimeManifest:
             raise ValueError("production runtime require_audio must be boolean")
         if not isinstance(final_gate_policy, str) or not final_gate_policy.strip():
             raise ValueError(
-                "production runtime final_gate_policy_fingerprint must be a non-empty string"
+                "production runtime final_gate_policy_fingerprint must be a "
+                "non-empty string"
             )
 
         return cls(
