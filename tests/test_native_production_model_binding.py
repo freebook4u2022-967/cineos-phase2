@@ -57,9 +57,7 @@ def test_released_runtime_binds_active_native_model_manifest(tmp_path: Path) -> 
     active = _manifest("1.0.0", "a" * 64)
     registry.activate(active)
 
-    runtime = build_released_production_first_film_runtime(
-        _NativeRenderer(), registry
-    )
+    runtime = build_released_production_first_film_runtime(_NativeRenderer(), registry)
 
     assert runtime.manifest.native_model_manifest_sha256 == active.manifest_sha256
 
