@@ -232,7 +232,7 @@ class NativeRenderWorkspace:
         return state
 
     def next_frame_index(self) -> int:
-        """Return the first frame that may be generated after validating durable frames."""
+        """Return first frame allowed after durable-frame validation."""
         state = self.load_state()
         if state is None:
             existing = tuple(self.frames_dir.glob("frame-*.ppm"))
