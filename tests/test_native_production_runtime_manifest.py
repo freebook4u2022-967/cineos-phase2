@@ -30,6 +30,20 @@ def test_manifest_snapshot_round_trip() -> None:
     assert restored.schema == PRODUCTION_RUNTIME_MANIFEST_SCHEMA
 
 
+def test_manifest_fingerprint_is_deterministic_and_binds_complete_snapshot() -> None:
+    manifest = _manifest()
+    restored = ProductionRuntimeManifest.restore(manifest.snapshot())
+
+    assert len(manifest.fingerprint) == 64
+    assert restored.fingerprint == manifest.fingerprint
+    assert _manifest(device="cuda").fingerprint != manifest.fingerprint
+    assert _manifest(max_recovery_attempts=3).fingerprint != manifest.fingerprint
+    assert (
+        _manifest(temporal_model_fingerprint="different").fingerprint
+        != manifest.fingerprint
+    )
+
+
 def test_manifest_rejects_unknown_schema() -> None:
     payload = _manifest().snapshot()
     payload["schema"] = "cineos-production-runtime/99"
