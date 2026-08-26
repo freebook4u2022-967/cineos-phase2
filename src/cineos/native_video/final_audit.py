@@ -12,10 +12,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .final_gate import MeasuredFinalFilmReport
 
@@ -69,7 +70,7 @@ class FinalFilmAuditRecord:
         *,
         model_fingerprint: str = "",
         runtime_fingerprint: str = "",
-    ) -> "FinalFilmAuditRecord":
+    ) -> FinalFilmAuditRecord:
         """Bind a measured report to the exact bytes that were evaluated."""
         source = Path(movie_path)
         if not source.is_file():
