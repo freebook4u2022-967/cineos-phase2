@@ -29,6 +29,7 @@ from .final_eval import (
     evaluate_scene_boundaries,
 )
 from .final_gate import MeasuredFinalFilmGate, MeasuredFinalFilmReport
+from .learned_decoder import CheckpointLatentRGBDecoder
 from .observability import (
     TEMPORAL_EVENT_SCHEMA,
     InMemoryTemporalObserver,
@@ -88,6 +89,7 @@ __all__ = [
     "AudioInspector",
     "AudioStreamEvidence",
     "CINEOSNativeTemporalShotRenderer",
+    "CheckpointLatentRGBDecoder",
     "FFmpegSceneBoundaryEvaluator",
     "FFmpegTemporalFilmEvaluator",
     "FFprobeAudioInspector",
