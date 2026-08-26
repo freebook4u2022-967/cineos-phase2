@@ -45,6 +45,11 @@ from .production_first_film import (
     build_production_first_film_runtime,
     build_released_production_first_film_runtime,
 )
+from .release_recovery import (
+    ReleaseLockRecovery,
+    read_activation_lock,
+    recover_activation_lock,
+)
 from .release_registry import (
     RELEASE_REGISTRY_SCHEMA,
     ReleaseRegistryError,
@@ -123,6 +128,7 @@ __all__ = [
     "ProductionFirstFilmRuntime",
     "ProductionRuntimeManifest",
     "RELEASE_REGISTRY_SCHEMA",
+    "ReleaseLockRecovery",
     "ReleaseRegistryError",
     "SCENE_MEMORY_SCHEMA",
     "SceneBoundaryEvalPolicy",
@@ -156,6 +162,8 @@ __all__ = [
     "evaluate_scene_boundaries",
     "load_verified_release_snapshot",
     "provenance_for",
+    "read_activation_lock",
+    "recover_activation_lock",
     "verify_continuity_artifact",
     "verify_provenance",
 ]
