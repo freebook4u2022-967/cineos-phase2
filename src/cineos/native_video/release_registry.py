@@ -9,6 +9,12 @@ with a single atomic ``CURRENT`` pointer replacement. A failed update therefore
 leaves the previously active release fully readable and authenticated. Snapshot
 identifiers are content-derived and bind both the chain bytes and signing key id,
 which also makes explicit key rotation safe.
+
+Authentication alone cannot distinguish a legitimate historical snapshot from an
+attacker-induced rollback of ``CURRENT``. Callers that persist the last trusted
+active generation can therefore pass ``expected_generation_id`` when loading. The
+registry then fails closed before accepting any different (even otherwise valid)
+snapshot.
 """
 
 from __future__ import annotations
@@ -57,7 +63,7 @@ def _generation_id(chain_bytes: bytes, key_id: str) -> str:
 def _validate_generation_id(value: str) -> str:
     normalized = value.strip().lower()
     if len(normalized) != 64 or any(ch not in "0123456789abcdef" for ch in normalized):
-        raise ReleaseRegistryError("CURRENT must contain one SHA-256 generation id")
+        raise ReleaseRegistryError("generation id must be one SHA-256 hex digest")
     return normalized
 
 
@@ -148,6 +154,7 @@ def commit_release_snapshot(
             registry_root,
             key=key,
             expected_key_id=seal.key_id,
+            expected_generation_id=generation_id,
         )
     finally:
         if stage is not None and stage.exists():
@@ -159,8 +166,15 @@ def load_verified_release_snapshot(
     *,
     key: bytes | bytearray | memoryview,
     expected_key_id: str | None = None,
+    expected_generation_id: str | None = None,
 ) -> VerifiedReleaseSnapshot:
-    """Load the active snapshot and fail closed on pointer, chain, or seal tampering."""
+    """Load the active snapshot and fail closed on tampering or trusted rollback.
+
+    ``expected_generation_id`` is an optional caller-held trust anchor. It should
+    come from state protected independently of this registry (for example a
+    deployment database, KMS metadata, or release controller). Supplying it makes
+    a rollback of ``CURRENT`` to an older but correctly signed snapshot detectable.
+    """
 
     registry_root = Path(root)
     pointer = registry_root / ACTIVE_SNAPSHOT_FILE
@@ -170,6 +184,13 @@ def load_verified_release_snapshot(
         raise ReleaseRegistryError(
             f"cannot read active release pointer: {error}"
         ) from error
+
+    if expected_generation_id is not None:
+        trusted_generation_id = _validate_generation_id(expected_generation_id)
+        if generation_id != trusted_generation_id:
+            raise ReleaseRegistryError(
+                "active release generation differs from trusted generation"
+            )
 
     snapshot_path = registry_root / SNAPSHOTS_DIRECTORY / generation_id
     chain_path = snapshot_path / CHAIN_FILE
