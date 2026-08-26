@@ -16,6 +16,7 @@ from .audio_integrity import (
     FinalFilmAudioIntegrityGate,
 )
 from .boundary_eval import FFmpegSceneBoundaryEvaluator, SceneBoundaryPoint
+from .deployment import build_checkpoint_temporal_shot_renderer
 from .film_bridge import FILM_CONTINUITY_RUNTIME_KIND, NativeFilmContinuityBridge
 from .final_eval import (
     FFmpegTemporalFilmEvaluator,
@@ -137,6 +138,7 @@ __all__ = [
     "TemporalRetryPolicy",
     "TemporalRuntimeEvent",
     "TemporalSequenceState",
+    "build_checkpoint_temporal_shot_renderer",
     "build_production_first_film_runtime",
     "build_released_production_first_film_runtime",
     "evaluate_sampled_frames",
