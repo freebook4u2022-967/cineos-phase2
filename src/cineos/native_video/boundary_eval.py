@@ -122,7 +122,9 @@ class FFmpegSceneBoundaryEvaluator:
             )
         return payload
 
-    def _sample_outgoing(self, binary: str, source: Path, boundary_seconds: float) -> bytes:
+    def _sample_outgoing(
+        self, binary: str, source: Path, boundary_seconds: float
+    ) -> bytes:
         nearest = boundary_seconds - self.sample_offset_seconds
         timestamps = [
             max(
@@ -131,15 +133,21 @@ class FFmpegSceneBoundaryEvaluator:
             )
             for index in reversed(range(self.sample_count))
         ]
-        return b"".join(self._decode_frame(binary, source, timestamp) for timestamp in timestamps)
+        return b"".join(
+            self._decode_frame(binary, source, timestamp) for timestamp in timestamps
+        )
 
-    def _sample_incoming(self, binary: str, source: Path, boundary_seconds: float) -> bytes:
+    def _sample_incoming(
+        self, binary: str, source: Path, boundary_seconds: float
+    ) -> bytes:
         nearest = boundary_seconds + self.sample_offset_seconds
         timestamps = [
             nearest + self.sample_stride_seconds * index
             for index in range(self.sample_count)
         ]
-        return b"".join(self._decode_frame(binary, source, timestamp) for timestamp in timestamps)
+        return b"".join(
+            self._decode_frame(binary, source, timestamp) for timestamp in timestamps
+        )
 
     @staticmethod
     def _validate_boundaries(boundaries: Sequence[SceneBoundaryPoint]) -> None:
@@ -179,7 +187,10 @@ class FFmpegSceneBoundaryEvaluator:
         for boundary in boundaries:
             outgoing = self._sample_outgoing(binary, source, boundary.boundary_seconds)
             incoming = self._sample_incoming(binary, source, boundary.boundary_seconds)
-            if len(outgoing) != self.evidence_size or len(incoming) != self.evidence_size:
+            if (
+                len(outgoing) != self.evidence_size
+                or len(incoming) != self.evidence_size
+            ):
                 raise RuntimeError("scene-boundary temporal evidence is incomplete")
             samples.append(
                 SceneBoundarySample(
