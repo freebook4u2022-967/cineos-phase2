@@ -48,7 +48,9 @@ def _signature(boundaries: object) -> tuple[tuple[str, str, float, str], ...]:
         ),
     ],
 )
-def test_final_film_gate_paths_share_scene_boundary_contract(plan: tuple[object, ...]) -> None:
+def test_final_film_gate_paths_share_scene_boundary_contract(
+    plan: tuple[object, ...],
+) -> None:
     """Both public/legacy final-film paths must interpret authored edits identically.
 
     CINEOS currently exposes a richer production final gate while retaining the
@@ -78,9 +80,13 @@ def test_final_film_gate_paths_fail_closed_on_same_invalid_plans(
     for planner in (_planned_scene_boundaries, plan_scene_boundaries):
         try:
             planner(plan)
-        except BaseException as exc:  # noqa: BLE001 - parity test records exact failure class.
+        except (
+            BaseException
+        ) as exc:  # noqa: BLE001 - parity test records exact failure class.
             errors.append(type(exc))
         else:
-            pytest.fail(f"{planner.__module__}.{planner.__name__} accepted invalid plan")
+            pytest.fail(
+                f"{planner.__module__}.{planner.__name__} accepted invalid plan"
+            )
 
     assert errors == [ValueError, ValueError]
