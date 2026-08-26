@@ -113,7 +113,9 @@ def test_final_film_audit_rejects_report_tampering_even_when_decision_matches(
         load_final_film_audit(audit)
 
 
-def test_final_film_audit_can_read_legacy_v1_but_strict_mode_rejects_it(tmp_path) -> None:
+def test_final_film_audit_can_read_legacy_v1_but_strict_mode_rejects_it(
+    tmp_path,
+) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"cineos-film")
     record = FinalFilmAuditRecord.from_report(movie, _accepted_report())

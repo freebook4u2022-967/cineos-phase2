@@ -69,7 +69,9 @@ def _validate_record_digest(payload: Mapping[str, Any], *, required: bool) -> No
         raise FinalFilmAuditError("final-film audit record digest is malformed")
     expected = _canonical_record_sha256(payload)
     if supplied_text != expected:
-        raise FinalFilmAuditError("final-film audit record digest does not match payload")
+        raise FinalFilmAuditError(
+            "final-film audit record digest does not match payload"
+        )
 
 
 @dataclass(frozen=True, slots=True)
