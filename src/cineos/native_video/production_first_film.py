@@ -25,11 +25,15 @@ from pathlib import Path
 from typing import Any
 
 from cineos.film.first_film import FirstFilmRunner
+from cineos.native_image.model_manifest import ModelManifestError, NativeModelRegistry
 
 from .film_bridge import NativeFilmContinuityBridge, temporal_model_fingerprint
 from .final_gate import MeasuredFinalFilmGate
 from .renderer_binding import NativeFilmRendererBinding, NativeTemporalShotRenderer
-from .runtime_manifest import ProductionRuntimeManifest
+from .runtime_manifest import (
+    LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST,
+    ProductionRuntimeManifest,
+)
 
 PRODUCTION_FIRST_FILM_RUNTIME_KIND = "cineos-production-first-film-runtime/0.1"
 
@@ -168,6 +172,7 @@ def build_production_first_film_runtime(
     renderer_id: str = "cineos-native",
     max_recovery_attempts: int = 2,
     device: str = "cpu",
+    native_model_manifest_sha256: str = LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST,
 ) -> ProductionFirstFilmRuntime:
     """Build the fail-closed native CINEOS FIRST FILM production path.
 
@@ -179,8 +184,13 @@ def build_production_first_film_runtime(
 
     Durable production checkpoints contain both continuity memory and this runtime's
     versioned manifest. Resume therefore fails before recurrent state is restored if
-    renderer identity, temporal weights, final-gate policy, or final acceptance
-    requirements changed.
+    renderer identity, temporal weights, released native-model manifest, final-gate
+    policy, or final acceptance requirements changed.
+
+    ``native_model_manifest_sha256`` defaults to an explicit legacy-unbound marker
+    for backwards compatibility. New production deployments should use
+    :func:`build_released_production_first_film_runtime`, which requires a compatible
+    active entry in the native model registry and binds its digest automatically.
     """
 
     if max_recovery_attempts < 0:
@@ -189,6 +199,8 @@ def build_production_first_film_runtime(
         raise ValueError("renderer_id must not be empty")
     if not device.strip():
         raise ValueError("device must not be empty")
+    if not native_model_manifest_sha256.strip():
+        raise ValueError("native_model_manifest_sha256 must not be empty")
 
     active_continuity = continuity or NativeFilmContinuityBridge.default(device=device)
     if continuity is not None and continuity.device != device:
@@ -206,6 +218,7 @@ def build_production_first_film_runtime(
         require_final_film_evaluation=True,
         require_audio=active_gate.require_audio,
         final_gate_policy_fingerprint=final_gate_policy_fingerprint(active_gate),
+        native_model_manifest_sha256=native_model_manifest_sha256,
     )
     runner = FirstFilmRunner(
         binding,
@@ -225,9 +238,41 @@ def build_production_first_film_runtime(
     )
 
 
+def build_released_production_first_film_runtime(
+    native_renderer: NativeTemporalShotRenderer,
+    model_registry: NativeModelRegistry,
+    validator: Any | None = None,
+    **kwargs: Any,
+) -> ProductionFirstFilmRuntime:
+    """Build production FIRST FILM bound to the registry's active model release.
+
+    The registry re-validates the persisted manifest hash while loading ``active``.
+    Requiring that manifest here makes model release identity part of durable film
+    state, so a checkpoint cannot silently resume after any released component has
+    changed even when the temporal sub-model itself happens to be identical.
+    """
+    active = model_registry.active()
+    if active is None:
+        raise ModelManifestError(
+            "production FIRST FILM requires an active native model release"
+        )
+    requested_digest = kwargs.pop("native_model_manifest_sha256", None)
+    if requested_digest is not None and requested_digest != active.manifest_sha256:
+        raise ModelManifestError(
+            "explicit native model manifest does not match active registry release"
+        )
+    return build_production_first_film_runtime(
+        native_renderer,
+        validator,
+        native_model_manifest_sha256=active.manifest_sha256,
+        **kwargs,
+    )
+
+
 __all__ = [
     "PRODUCTION_FIRST_FILM_RUNTIME_KIND",
     "ProductionFirstFilmRuntime",
     "build_production_first_film_runtime",
+    "build_released_production_first_film_runtime",
     "final_gate_policy_fingerprint",
 ]
