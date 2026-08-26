@@ -15,11 +15,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
-from .artifact_integrity import NativeArtifactProvenance, provenance_for, verify_provenance
+from .artifact_integrity import (
+    NativeArtifactProvenance,
+    provenance_for,
+    verify_provenance,
+)
 from .runtime_manifest import ProductionRuntimeManifest
 
 FINAL_FILM_RELEASE_RECORD_SCHEMA = "cineos-final-film-release/0.1"
@@ -107,10 +112,12 @@ class FinalFilmReleaseRecord:
         return asdict(self)
 
     @classmethod
-    def restore(cls, payload: Mapping[str, Any]) -> "FinalFilmReleaseRecord":
+    def restore(cls, payload: Mapping[str, Any]) -> FinalFilmReleaseRecord:
         """Restore a release record while rejecting unknown schemas/fields."""
         if payload.get("schema") != FINAL_FILM_RELEASE_RECORD_SCHEMA:
-            raise FinalFilmReleaseRecordError("unsupported final-film release record schema")
+            raise FinalFilmReleaseRecordError(
+                "unsupported final-film release record schema"
+            )
         expected = {
             "artifact_sha256",
             "artifact_bytes",

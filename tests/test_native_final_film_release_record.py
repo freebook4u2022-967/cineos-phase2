@@ -93,7 +93,9 @@ def test_release_record_rejects_changed_movie_bytes(tmp_path: Path) -> None:
         )
 
 
-def test_release_record_rejects_changed_plan_or_quality_evidence(tmp_path: Path) -> None:
+def test_release_record_rejects_changed_plan_or_quality_evidence(
+    tmp_path: Path,
+) -> None:
     movie = tmp_path / "movie.mp4"
     movie.write_bytes(b"film")
     plan = [_Shot("s1", 1.0)]
