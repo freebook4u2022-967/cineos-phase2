@@ -162,16 +162,21 @@ def load_final_film_audit(
         report = payload["report"]
         if not isinstance(report, dict):
             raise TypeError("report must be a JSON object")
+        decision = str(payload["decision"])
+        if str(report.get("decision", "")) != decision:
+            raise FinalFilmAuditError("audit decision disagrees with measured report")
         record = FinalFilmAuditRecord(
             schema_version=str(payload["schema_version"]),
             created_at=str(payload["created_at"]),
             movie_sha256=str(payload["movie_sha256"]),
             movie_size_bytes=int(payload["movie_size_bytes"]),
-            decision=str(payload["decision"]),
+            decision=decision,
             model_fingerprint=str(payload.get("model_fingerprint", "")),
             runtime_fingerprint=str(payload.get("runtime_fingerprint", "")),
             report=report,
         )
+    except FinalFilmAuditError:
+        raise
     except (KeyError, TypeError, ValueError) as exc:
         raise FinalFilmAuditError("invalid final-film audit record") from exc
     if movie_path is not None:
