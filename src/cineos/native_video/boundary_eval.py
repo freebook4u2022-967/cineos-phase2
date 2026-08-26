@@ -10,6 +10,11 @@ FFmpeg is used only as a decoder/sampler. It does not generate or modify visual
 content. Sampling is fail-closed: missing media, unavailable FFmpeg, incomplete
 frames, invalid timestamps, or duplicate/out-of-order boundary times abort the
 quality gate instead of silently weakening final-film continuity validation.
+
+Production sampling uses a short temporal window on both sides of an edit rather
+than trusting one frame. The samples are concatenated in timeline order before
+metric evaluation, preserving the dependency-free metric contract while making
+transient corruption or continuity drift adjacent to the edit measurable.
 """
 
 from __future__ import annotations
@@ -50,15 +55,19 @@ class SceneBoundaryPoint:
 class FFmpegSceneBoundaryEvaluator:
     """Measure assembled-film scene boundaries from real decoded frame evidence.
 
-    ``sample_offset_seconds`` places the outgoing sample before the edit and the
-    incoming sample after it. The default is intentionally larger than one frame
-    at 24 fps so timestamp rounding cannot accidentally sample the same encoded
-    frame on both sides of a boundary.
+    ``sample_offset_seconds`` places the nearest outgoing sample before the edit
+    and the nearest incoming sample after it. ``sample_count`` and
+    ``sample_stride_seconds`` extend those points into short temporal windows so
+    production QC cannot pass solely because one sampled frame happened to look
+    healthy. Three samples per side remain inexpensive while covering roughly a
+    tenth of a second around a 24 fps edit with the defaults.
     """
 
     sample_width: int = 32
     sample_height: int = 18
     sample_offset_seconds: float = 0.05
+    sample_count: int = 3
+    sample_stride_seconds: float = 0.04
     ffmpeg_binary: str = "ffmpeg"
     policy: SceneBoundaryEvalPolicy = SceneBoundaryEvalPolicy()
 
@@ -67,10 +76,18 @@ class FFmpegSceneBoundaryEvaluator:
             raise ValueError("sample dimensions must be positive")
         if self.sample_offset_seconds <= 0.0:
             raise ValueError("sample_offset_seconds must be positive")
+        if self.sample_count <= 0:
+            raise ValueError("sample_count must be positive")
+        if self.sample_stride_seconds <= 0.0:
+            raise ValueError("sample_stride_seconds must be positive")
 
     @property
     def frame_size(self) -> int:
         return self.sample_width * self.sample_height
+
+    @property
+    def evidence_size(self) -> int:
+        return self.frame_size * self.sample_count
 
     def _decode_frame(self, binary: str, source: Path, timestamp: float) -> bytes:
         if timestamp < 0.0:
@@ -105,6 +122,25 @@ class FFmpegSceneBoundaryEvaluator:
             )
         return payload
 
+    def _sample_outgoing(self, binary: str, source: Path, boundary_seconds: float) -> bytes:
+        nearest = boundary_seconds - self.sample_offset_seconds
+        timestamps = [
+            max(
+                0.0,
+                nearest - self.sample_stride_seconds * index,
+            )
+            for index in reversed(range(self.sample_count))
+        ]
+        return b"".join(self._decode_frame(binary, source, timestamp) for timestamp in timestamps)
+
+    def _sample_incoming(self, binary: str, source: Path, boundary_seconds: float) -> bytes:
+        nearest = boundary_seconds + self.sample_offset_seconds
+        timestamps = [
+            nearest + self.sample_stride_seconds * index
+            for index in range(self.sample_count)
+        ]
+        return b"".join(self._decode_frame(binary, source, timestamp) for timestamp in timestamps)
+
     @staticmethod
     def _validate_boundaries(boundaries: Sequence[SceneBoundaryPoint]) -> None:
         if not boundaries:
@@ -127,7 +163,7 @@ class FFmpegSceneBoundaryEvaluator:
         movie_path: str | Path,
         boundaries: Sequence[SceneBoundaryPoint],
     ) -> SceneBoundaryEvalReport:
-        """Decode both sides of every planned edit and run boundary QC."""
+        """Decode temporal windows on both sides of every planned edit and run QC."""
 
         source = Path(movie_path)
         if not source.is_file():
@@ -141,12 +177,10 @@ class FFmpegSceneBoundaryEvaluator:
 
         samples: list[SceneBoundarySample] = []
         for boundary in boundaries:
-            outgoing_time = max(
-                0.0, boundary.boundary_seconds - self.sample_offset_seconds
-            )
-            incoming_time = boundary.boundary_seconds + self.sample_offset_seconds
-            outgoing = self._decode_frame(binary, source, outgoing_time)
-            incoming = self._decode_frame(binary, source, incoming_time)
+            outgoing = self._sample_outgoing(binary, source, boundary.boundary_seconds)
+            incoming = self._sample_incoming(binary, source, boundary.boundary_seconds)
+            if len(outgoing) != self.evidence_size or len(incoming) != self.evidence_size:
+                raise RuntimeError("scene-boundary temporal evidence is incomplete")
             samples.append(
                 SceneBoundarySample(
                     from_scene_id=boundary.from_scene_id,
