@@ -23,6 +23,10 @@ from pathlib import Path
 from typing import Any
 
 from .final_gate import MeasuredFinalFilmReport
+from .runtime_manifest import (
+    LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST,
+    ProductionRuntimeManifest,
+)
 
 FINAL_FILM_AUDIT_SCHEMA = "cineos.native_video.final_film_audit.v1"
 AUDIT_RECORD_SHA256_FIELD = "record_sha256"
@@ -127,6 +131,36 @@ class FinalFilmAuditRecord:
             report=report.as_dict(),
             model_fingerprint=model_fingerprint,
             runtime_fingerprint=runtime_fingerprint,
+        )
+
+    @classmethod
+    def from_production_runtime(
+        cls,
+        movie_path: str | Path,
+        report: MeasuredFinalFilmReport,
+        runtime_manifest: ProductionRuntimeManifest,
+    ) -> FinalFilmAuditRecord:
+        """Create fail-closed audit evidence from one concrete production runtime.
+
+        Production callers should prefer this constructor over manually passing hash
+        strings. It binds the audit to both the released native model manifest and
+        the canonical fingerprint of the complete runtime composition, preventing
+        accidental acceptance under a different device/retry/policy configuration.
+        """
+        if not isinstance(runtime_manifest, ProductionRuntimeManifest):
+            raise TypeError("runtime_manifest must be a ProductionRuntimeManifest")
+        if (
+            runtime_manifest.native_model_manifest_sha256
+            == LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST
+        ):
+            raise FinalFilmAuditError(
+                "production final-film audit requires a bound native model manifest"
+            )
+        return cls.from_report(
+            movie_path,
+            report,
+            model_fingerprint=runtime_manifest.native_model_manifest_sha256,
+            runtime_fingerprint=runtime_manifest.fingerprint,
         )
 
     def to_record(self) -> dict[str, Any]:
@@ -287,6 +321,32 @@ def verify_production_final_film_audit(
     return record
 
 
+def verify_production_final_film_audit_for_runtime(
+    path: str | Path,
+    *,
+    movie_path: str | Path,
+    runtime_manifest: ProductionRuntimeManifest,
+    allow_warn: bool = False,
+) -> FinalFilmAuditRecord:
+    """Verify release evidence against one concrete runtime/model composition."""
+    if not isinstance(runtime_manifest, ProductionRuntimeManifest):
+        raise TypeError("runtime_manifest must be a ProductionRuntimeManifest")
+    if (
+        runtime_manifest.native_model_manifest_sha256
+        == LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST
+    ):
+        raise FinalFilmAuditError(
+            "production final-film verification requires a bound native model manifest"
+        )
+    return verify_production_final_film_audit(
+        path,
+        movie_path=movie_path,
+        expected_model_fingerprint=runtime_manifest.native_model_manifest_sha256,
+        expected_runtime_fingerprint=runtime_manifest.fingerprint,
+        allow_warn=allow_warn,
+    )
+
+
 __all__ = [
     "AUDIT_RECORD_SHA256_FIELD",
     "FINAL_FILM_AUDIT_SCHEMA",
@@ -294,5 +354,6 @@ __all__ = [
     "FinalFilmAuditRecord",
     "load_final_film_audit",
     "verify_production_final_film_audit",
+    "verify_production_final_film_audit_for_runtime",
     "write_final_film_audit",
 ]
