@@ -15,6 +15,12 @@ attacker-induced rollback of ``CURRENT``. Callers that persist the last trusted
 active generation can therefore pass ``expected_generation_id`` when loading. The
 registry then fails closed before accepting any different (even otherwise valid)
 snapshot.
+
+Activation writers are serialized with an exclusive registry lock. Release
+controllers may also supply ``expected_active_generation_id`` when committing to
+perform a fail-closed compare-and-swap against their independently trusted view of
+the active generation. This prevents stale or concurrent controllers from silently
+replacing a newer release.
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ from .release_seal import (
 
 RELEASE_REGISTRY_SCHEMA = "cineos-release-registry/0.1"
 ACTIVE_SNAPSHOT_FILE = "CURRENT"
+ACTIVATION_LOCK_FILE = ".ACTIVATION.lock"
 SNAPSHOTS_DIRECTORY = "snapshots"
 CHAIN_FILE = "release-chain.json"
 SEAL_FILE = "release-chain.seal.json"
@@ -99,28 +106,101 @@ def _atomic_write_text(path: Path, content: str) -> None:
         raise
 
 
+def _read_active_generation_id(root: Path) -> str | None:
+    pointer = root / ACTIVE_SNAPSHOT_FILE
+    try:
+        content = pointer.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise ReleaseRegistryError(
+            f"cannot read active release pointer: {error}"
+        ) from error
+    return _validate_generation_id(content)
+
+
+def _acquire_activation_lock(root: Path) -> int:
+    """Acquire the fail-closed single-writer activation lock.
+
+    The lock intentionally does not auto-break stale files. A process or host crash
+    can leave the lock behind, and production recovery must then explicitly verify
+    the active registry before removing it. Failing closed is safer than guessing
+    that an interrupted activation is harmless.
+    """
+
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = root / ACTIVATION_LOCK_FILE
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except FileExistsError as error:
+        raise ReleaseRegistryError(
+            "release activation is already locked by another writer"
+        ) from error
+    try:
+        payload = f"pid={os.getpid()}\n".encode("ascii")
+        os.write(descriptor, payload)
+        os.fsync(descriptor)
+        _fsync_directory(root)
+    except Exception:
+        os.close(descriptor)
+        lock_path.unlink(missing_ok=True)
+        _fsync_directory(root)
+        raise
+    return descriptor
+
+
+def _release_activation_lock(root: Path, descriptor: int) -> None:
+    os.close(descriptor)
+    (root / ACTIVATION_LOCK_FILE).unlink(missing_ok=True)
+    _fsync_directory(root)
+
+
+def _assert_expected_active_generation(
+    root: Path, expected_active_generation_id: str | None
+) -> None:
+    if expected_active_generation_id is None:
+        return
+    trusted = _validate_generation_id(expected_active_generation_id)
+    active = _read_active_generation_id(root)
+    if active is None:
+        raise ReleaseRegistryError(
+            "active release generation is missing but a trusted generation was expected"
+        )
+    if active != trusted:
+        raise ReleaseRegistryError(
+            "active release generation differs from expected activation generation"
+        )
+
+
 def commit_release_snapshot(
     entries: tuple[ReleaseChainEntry, ...] | list[ReleaseChainEntry],
     root: str | Path,
     *,
     key: bytes | bytearray | memoryview,
     key_id: str,
+    expected_active_generation_id: str | None = None,
 ) -> VerifiedReleaseSnapshot:
     """Persist and atomically activate an authenticated immutable release snapshot.
 
-    The old ``CURRENT`` pointer is not changed until the new chain and seal have
-    both been persisted. If any earlier step fails, readers continue to observe
-    the previous active snapshot.
+    Writers are serialized by an exclusive activation lock. If
+    ``expected_active_generation_id`` is provided, activation proceeds only when
+    ``CURRENT`` still equals that independently trusted generation. The old
+    ``CURRENT`` pointer is not changed until the new chain and seal have both been
+    persisted and authenticated.
     """
 
     registry_root = Path(root)
-    snapshots_root = registry_root / SNAPSHOTS_DIRECTORY
-    snapshots_root.mkdir(parents=True, exist_ok=True)
-
-    stage: Path | None = Path(
-        tempfile.mkdtemp(prefix=".staging-", dir=str(snapshots_root))
-    )
+    lock_descriptor = _acquire_activation_lock(registry_root)
+    stage: Path | None = None
     try:
+        _assert_expected_active_generation(
+            registry_root, expected_active_generation_id
+        )
+        snapshots_root = registry_root / SNAPSHOTS_DIRECTORY
+        snapshots_root.mkdir(parents=True, exist_ok=True)
+
+        stage = Path(tempfile.mkdtemp(prefix=".staging-", dir=str(snapshots_root)))
         chain_path = save_release_chain(entries, stage / CHAIN_FILE)
         seal = seal_release_chain_file(
             chain_path,
@@ -149,6 +229,12 @@ def commit_release_snapshot(
             stage = None
             _fsync_directory(snapshots_root)
 
+        # Re-check the trusted activation generation immediately before changing
+        # CURRENT. The exclusive writer lock makes this a real serialized CAS for
+        # cooperative production release controllers.
+        _assert_expected_active_generation(
+            registry_root, expected_active_generation_id
+        )
         _atomic_write_text(registry_root / ACTIVE_SNAPSHOT_FILE, generation_id + "\n")
         return load_verified_release_snapshot(
             registry_root,
@@ -159,6 +245,7 @@ def commit_release_snapshot(
     finally:
         if stage is not None and stage.exists():
             shutil.rmtree(stage, ignore_errors=True)
+        _release_activation_lock(registry_root, lock_descriptor)
 
 
 def load_verified_release_snapshot(
@@ -177,13 +264,9 @@ def load_verified_release_snapshot(
     """
 
     registry_root = Path(root)
-    pointer = registry_root / ACTIVE_SNAPSHOT_FILE
-    try:
-        generation_id = _validate_generation_id(pointer.read_text(encoding="utf-8"))
-    except OSError as error:
-        raise ReleaseRegistryError(
-            f"cannot read active release pointer: {error}"
-        ) from error
+    generation_id = _read_active_generation_id(registry_root)
+    if generation_id is None:
+        raise ReleaseRegistryError("cannot read active release pointer: file is missing")
 
     if expected_generation_id is not None:
         trusted_generation_id = _validate_generation_id(expected_generation_id)
@@ -223,6 +306,7 @@ def load_verified_release_snapshot(
 
 __all__ = [
     "ACTIVE_SNAPSHOT_FILE",
+    "ACTIVATION_LOCK_FILE",
     "CHAIN_FILE",
     "RELEASE_REGISTRY_SCHEMA",
     "SEAL_FILE",
