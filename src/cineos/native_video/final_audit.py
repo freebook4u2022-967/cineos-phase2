@@ -92,8 +92,8 @@ class FinalFilmAuditRecord:
             char not in "0123456789abcdef" for char in self.movie_sha256
         ):
             raise ValueError("movie_sha256 must be a lowercase SHA-256 hex digest")
-        if self.movie_size_bytes <= 0:
-            raise ValueError("movie_size_bytes must be positive")
+        if isinstance(self.movie_size_bytes, bool) or self.movie_size_bytes <= 0:
+            raise ValueError("movie_size_bytes must be a positive integer")
         if self.decision not in {"accept", "warn", "reject"}:
             raise ValueError("decision must be accept, warn, or reject")
         if self.schema_version != FINAL_FILM_AUDIT_SCHEMA:
@@ -216,11 +216,14 @@ def load_final_film_audit(
         decision = str(payload["decision"])
         if str(report.get("decision", "")) != decision:
             raise FinalFilmAuditError("audit decision disagrees with measured report")
+        raw_movie_size = payload["movie_size_bytes"]
+        if isinstance(raw_movie_size, bool) or not isinstance(raw_movie_size, int):
+            raise TypeError("movie_size_bytes must be an integer")
         record = FinalFilmAuditRecord(
             schema_version=str(payload["schema_version"]),
             created_at=str(payload["created_at"]),
             movie_sha256=str(payload["movie_sha256"]),
-            movie_size_bytes=int(payload["movie_size_bytes"]),
+            movie_size_bytes=raw_movie_size,
             decision=decision,
             model_fingerprint=str(payload.get("model_fingerprint", "")),
             runtime_fingerprint=str(payload.get("runtime_fingerprint", "")),
@@ -235,11 +238,61 @@ def load_final_film_audit(
     return record
 
 
+def verify_production_final_film_audit(
+    path: str | Path,
+    *,
+    movie_path: str | Path,
+    expected_model_fingerprint: str,
+    expected_runtime_fingerprint: str,
+    allow_warn: bool = False,
+) -> FinalFilmAuditRecord:
+    """Verify one final film against the exact production release contract.
+
+    This is the release boundary, not a migration helper. It always requires the
+    audit payload integrity digest, re-hashes the encoded movie, requires explicit
+    model/runtime bindings, and compares them to caller-held expected fingerprints.
+    By default only a measured ``accept`` decision is releasable; an operator may
+    deliberately permit ``warn`` through ``allow_warn=True`` without ever allowing
+    ``reject``.
+    """
+    expected_model = expected_model_fingerprint.strip()
+    expected_runtime = expected_runtime_fingerprint.strip()
+    if not expected_model:
+        raise ValueError("expected_model_fingerprint must not be empty")
+    if not expected_runtime:
+        raise ValueError("expected_runtime_fingerprint must not be empty")
+
+    record = load_final_film_audit(
+        path,
+        movie_path=movie_path,
+        require_record_digest=True,
+    )
+    if not record.model_fingerprint:
+        raise FinalFilmAuditError("final-film audit has no model fingerprint binding")
+    if not record.runtime_fingerprint:
+        raise FinalFilmAuditError("final-film audit has no runtime fingerprint binding")
+    if record.model_fingerprint != expected_model:
+        raise FinalFilmAuditError(
+            "final-film audit model fingerprint does not match production release"
+        )
+    if record.runtime_fingerprint != expected_runtime:
+        raise FinalFilmAuditError(
+            "final-film audit runtime fingerprint does not match production release"
+        )
+    accepted_decisions = {"accept", "warn"} if allow_warn else {"accept"}
+    if record.decision not in accepted_decisions:
+        raise FinalFilmAuditError(
+            f"final-film audit decision is not releasable: {record.decision}"
+        )
+    return record
+
+
 __all__ = [
     "AUDIT_RECORD_SHA256_FIELD",
     "FINAL_FILM_AUDIT_SCHEMA",
     "FinalFilmAuditError",
     "FinalFilmAuditRecord",
     "load_final_film_audit",
+    "verify_production_final_film_audit",
     "write_final_film_audit",
 ]
