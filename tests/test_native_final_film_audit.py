@@ -10,6 +10,7 @@ from cineos.native_video.final_audit import (
     FinalFilmAuditError,
     FinalFilmAuditRecord,
     load_final_film_audit,
+    verify_production_final_film_audit,
     write_final_film_audit,
 )
 from cineos.native_video.final_eval import TemporalFilmEvalReport
@@ -151,3 +152,84 @@ def test_final_film_audit_refuses_empty_movie(tmp_path) -> None:
 
     with pytest.raises(FinalFilmAuditError, match="empty movie"):
         FinalFilmAuditRecord.from_report(movie, _accepted_report())
+
+
+def test_final_film_audit_rejects_boolean_movie_size(tmp_path) -> None:
+    movie = tmp_path / "film.mp4"
+    movie.write_bytes(b"cineos-film")
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    payload = record.to_record()
+    payload["movie_size_bytes"] = True
+    payload.pop(AUDIT_RECORD_SHA256_FIELD)
+    audit = tmp_path / "audit.json"
+    audit.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(FinalFilmAuditError, match="invalid final-film audit"):
+        load_final_film_audit(audit)
+
+
+def test_production_audit_verifier_binds_movie_model_runtime_and_acceptance(
+    tmp_path,
+) -> None:
+    movie = tmp_path / "film.mp4"
+    movie.write_bytes(b"cineos-release-candidate")
+    record = FinalFilmAuditRecord.from_report(
+        movie,
+        _accepted_report(),
+        model_fingerprint="model-release:abc",
+        runtime_fingerprint="runtime-contract:def",
+    )
+    audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
+
+    verified = verify_production_final_film_audit(
+        audit,
+        movie_path=movie,
+        expected_model_fingerprint="model-release:abc",
+        expected_runtime_fingerprint="runtime-contract:def",
+    )
+
+    assert verified.movie_sha256 == record.movie_sha256
+    assert verified.decision == "accept"
+
+
+def test_production_audit_verifier_rejects_wrong_release_binding(tmp_path) -> None:
+    movie = tmp_path / "film.mp4"
+    movie.write_bytes(b"cineos-release-candidate")
+    record = FinalFilmAuditRecord.from_report(
+        movie,
+        _accepted_report(),
+        model_fingerprint="model-release:abc",
+        runtime_fingerprint="runtime-contract:def",
+    )
+    audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
+
+    with pytest.raises(FinalFilmAuditError, match="model fingerprint"):
+        verify_production_final_film_audit(
+            audit,
+            movie_path=movie,
+            expected_model_fingerprint="model-release:other",
+            expected_runtime_fingerprint="runtime-contract:def",
+        )
+
+    with pytest.raises(FinalFilmAuditError, match="runtime fingerprint"):
+        verify_production_final_film_audit(
+            audit,
+            movie_path=movie,
+            expected_model_fingerprint="model-release:abc",
+            expected_runtime_fingerprint="runtime-contract:other",
+        )
+
+
+def test_production_audit_verifier_requires_explicit_bindings(tmp_path) -> None:
+    movie = tmp_path / "film.mp4"
+    movie.write_bytes(b"cineos-release-candidate")
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
+
+    with pytest.raises(FinalFilmAuditError, match="no model fingerprint"):
+        verify_production_final_film_audit(
+            audit,
+            movie_path=movie,
+            expected_model_fingerprint="model-release:abc",
+            expected_runtime_fingerprint="runtime-contract:def",
+        )
