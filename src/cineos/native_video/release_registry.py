@@ -194,9 +194,7 @@ def commit_release_snapshot(
     lock_descriptor = _acquire_activation_lock(registry_root)
     stage: Path | None = None
     try:
-        _assert_expected_active_generation(
-            registry_root, expected_active_generation_id
-        )
+        _assert_expected_active_generation(registry_root, expected_active_generation_id)
         snapshots_root = registry_root / SNAPSHOTS_DIRECTORY
         snapshots_root.mkdir(parents=True, exist_ok=True)
 
@@ -232,9 +230,7 @@ def commit_release_snapshot(
         # Re-check the trusted activation generation immediately before changing
         # CURRENT. The exclusive writer lock makes this a real serialized CAS for
         # cooperative production release controllers.
-        _assert_expected_active_generation(
-            registry_root, expected_active_generation_id
-        )
+        _assert_expected_active_generation(registry_root, expected_active_generation_id)
         _atomic_write_text(registry_root / ACTIVE_SNAPSHOT_FILE, generation_id + "\n")
         return load_verified_release_snapshot(
             registry_root,
@@ -266,7 +262,9 @@ def load_verified_release_snapshot(
     registry_root = Path(root)
     generation_id = _read_active_generation_id(registry_root)
     if generation_id is None:
-        raise ReleaseRegistryError("cannot read active release pointer: file is missing")
+        raise ReleaseRegistryError(
+            "cannot read active release pointer: file is missing"
+        )
 
     if expected_generation_id is not None:
         trusted_generation_id = _validate_generation_id(expected_generation_id)
