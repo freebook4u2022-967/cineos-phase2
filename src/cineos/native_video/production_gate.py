@@ -12,13 +12,13 @@ generates or repairs visual content. Missing evidence fails closed.
 
 from __future__ import annotations
 
-import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from .boundary_eval import FFmpegSceneBoundaryEvaluator, SceneBoundaryPoint
+from .edit_contract import planned_scene_boundaries as plan_scene_boundaries
 from .final_eval import (
     FFmpegTemporalFilmEvaluator,
     SceneBoundaryEvalReport,
@@ -54,130 +54,6 @@ class FinalFilmQualityReport:
     def as_dict(self) -> dict[str, Any]:
         """Return JSON-safe evidence suitable for FilmBuild metadata/checkpoints."""
         return asdict(self)
-
-
-def _payload(item: Any) -> Mapping[str, Any]:
-    value = getattr(item, "payload", None)
-    return value if isinstance(value, Mapping) else {}
-
-
-def _metadata_flag(payload: Mapping[str, Any], name: str) -> bool:
-    """Decode a persisted boolean flag without Python truthiness surprises.
-
-    Shot payloads commonly cross JSON/YAML/CLI boundaries. Treating their values
-    with ``bool(value)`` makes strings such as ``"false"`` true, which can silently
-    rewrite authored edit semantics. We accept conventional serialized boolean
-    forms for backwards compatibility and reject ambiguous values so production
-    assembly fails closed instead of guessing.
-    """
-    raw = payload.get(name, False)
-    if raw is None:
-        return False
-    if isinstance(raw, bool):
-        return raw
-    if isinstance(raw, int) and raw in {0, 1}:
-        return bool(raw)
-    if isinstance(raw, str):
-        normalized = raw.strip().lower()
-        if normalized in {"true", "1", "yes", "on"}:
-            return True
-        if normalized in {"false", "0", "no", "off", ""}:
-            return False
-    raise ValueError(f"{name} must be boolean metadata; got {raw!r}")
-
-
-def _transition_for_boundary(outgoing: Any, incoming: Any) -> str:
-    """Resolve an authored edit contract without guessing from rendered pixels.
-
-    Incoming shot metadata has precedence because it describes how the new scene
-    enters. Explicit hard-cut/reset flags must never be masked by transition
-    metadata inherited from the preceding scene. Legacy ``transition_in`` and
-    ``transition_out`` keys are supported so persisted plans keep their authored
-    semantics across CINEOS versions.
-    """
-    incoming_payload = _payload(incoming)
-    outgoing_payload = _payload(outgoing)
-
-    if _metadata_flag(incoming_payload, "continuity_reset") or _metadata_flag(
-        incoming_payload, "hard_cut"
-    ):
-        return "cut"
-
-    raw = incoming_payload.get("transition_in")
-    if raw is None:
-        raw = incoming_payload.get("scene_transition")
-    if raw is None:
-        raw = incoming_payload.get("transition")
-    if raw is None:
-        raw = outgoing_payload.get("transition_out")
-    if raw is None:
-        raw = outgoing_payload.get("scene_transition")
-    if raw is None:
-        raw = outgoing_payload.get("transition")
-    if raw is None:
-        # An unmarked scene change is an ordinary edit, not an implicit match cut.
-        # Assuming "match" incorrectly penalizes intentional discontinuity and can
-        # reject a valid assembled film. This mirrors the canonical final_gate path.
-        return "cut"
-
-    transition = str(raw).strip().lower()
-    aliases = {
-        "hard_cut": "cut",
-        "hard-cut": "cut",
-        "crossfade": "fade",
-        "cross_fade": "fade",
-        "match_cut": "match",
-        "match-cut": "match",
-    }
-    transition = aliases.get(transition, transition)
-    if transition not in {"cut", "match", "fade"}:
-        raise ValueError(
-            f"unsupported scene transition {raw!r}; expected cut, match, or fade"
-        )
-    return transition
-
-
-def plan_scene_boundaries(plan: Sequence[Any]) -> tuple[SceneBoundaryPoint, ...]:
-    """Convert a shot timeline into measured scene-boundary sample points.
-
-    A boundary is emitted only when the authored ``scene_id`` changes. The edit
-    timestamp is the cumulative duration of all shots before the incoming scene.
-    Durations and their cumulative timeline must remain finite and positive so
-    boundary timestamps are deterministic and safe for decoder sampling.
-    """
-    if not plan:
-        raise ValueError("final-film quality gate requires at least one planned shot")
-
-    elapsed = 0.0
-    boundaries: list[SceneBoundaryPoint] = []
-    previous: Any | None = None
-    for item in plan:
-        scene_id = str(getattr(item, "scene_id", "")).strip()
-        if not scene_id:
-            raise ValueError("planned shots require non-empty scene_id values")
-        duration = float(getattr(item, "duration", 0.0))
-        if not math.isfinite(duration) or duration <= 0.0:
-            raise ValueError("planned shot durations must be finite and positive")
-
-        if previous is not None:
-            previous_scene_id = str(getattr(previous, "scene_id", "")).strip()
-            if scene_id != previous_scene_id:
-                boundaries.append(
-                    SceneBoundaryPoint(
-                        from_scene_id=previous_scene_id,
-                        to_scene_id=scene_id,
-                        boundary_seconds=elapsed,
-                        transition=_transition_for_boundary(previous, item),
-                    )
-                )
-
-        next_elapsed = elapsed + duration
-        if not math.isfinite(next_elapsed):
-            raise ValueError("planned shot timeline must remain finite")
-        elapsed = next_elapsed
-        previous = item
-
-    return tuple(boundaries)
 
 
 @dataclass(slots=True)
