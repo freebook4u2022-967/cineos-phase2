@@ -18,6 +18,13 @@ from .audio_integrity import (
 from .boundary_eval import FFmpegSceneBoundaryEvaluator, SceneBoundaryPoint
 from .deployment import build_checkpoint_temporal_shot_renderer
 from .film_bridge import FILM_CONTINUITY_RUNTIME_KIND, NativeFilmContinuityBridge
+from .final_audit import (
+    FINAL_FILM_AUDIT_SCHEMA,
+    FinalFilmAuditError,
+    FinalFilmAuditRecord,
+    load_final_film_audit,
+    write_final_film_audit,
+)
 from .final_eval import (
     FFmpegTemporalFilmEvaluator,
     SceneBoundaryEvalPolicy,
@@ -107,7 +114,10 @@ __all__ = [
     "FFmpegTemporalFilmEvaluator",
     "FFprobeAudioInspector",
     "FILM_CONTINUITY_RUNTIME_KIND",
+    "FINAL_FILM_AUDIT_SCHEMA",
     "FinalFilmAudioIntegrityGate",
+    "FinalFilmAuditError",
+    "FinalFilmAuditRecord",
     "InMemoryTemporalObserver",
     "JsonlTemporalObserver",
     "LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST",
@@ -160,10 +170,12 @@ __all__ = [
     "commit_release_snapshot",
     "evaluate_sampled_frames",
     "evaluate_scene_boundaries",
+    "load_final_film_audit",
     "load_verified_release_snapshot",
     "provenance_for",
     "read_activation_lock",
     "recover_activation_lock",
     "verify_continuity_artifact",
     "verify_provenance",
+    "write_final_film_audit",
 ]
