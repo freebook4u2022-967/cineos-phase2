@@ -8,6 +8,8 @@ semantics, while also recording operational settings for auditability.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -49,6 +51,25 @@ class ProductionRuntimeManifest:
     def snapshot(self) -> dict[str, Any]:
         """Return a JSON-safe deterministic manifest payload."""
         return asdict(self)
+
+    @property
+    def fingerprint(self) -> str:
+        """Return the canonical SHA-256 identity of the complete runtime manifest.
+
+        Release/audit callers should bind to this value instead of reconstructing a
+        partial runtime identity from selected fields. Operational fields are kept in
+        the digest deliberately: the audit proves which exact production composition
+        evaluated a final artifact even when resume compatibility permits selected
+        operational changes between attempts.
+        """
+        encoded = json.dumps(
+            self.snapshot(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     @classmethod
     def restore(cls, payload: dict[str, object]) -> ProductionRuntimeManifest:
