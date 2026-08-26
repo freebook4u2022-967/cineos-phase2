@@ -25,7 +25,12 @@ from pathlib import Path
 from typing import Any
 
 from cineos.film.first_film import FirstFilmRunner
-from cineos.native_image.model_manifest import ModelManifestError, NativeModelRegistry
+from cineos.native_image.model_manifest import (
+    ModelManifestError,
+    NativeModelManifest,
+    NativeModelRegistry,
+    check_runtime_compatibility,
+)
 
 from .film_bridge import NativeFilmContinuityBridge, temporal_model_fingerprint
 from .final_gate import MeasuredFinalFilmGate
@@ -163,6 +168,33 @@ def _production_checkpoint_hooks(
     }
 
 
+def _compatible_active_manifest(model_registry: NativeModelRegistry) -> NativeModelManifest:
+    """Return the active release only when it is compatible with *this* runtime.
+
+    Registry activation is compatibility-gated, but a persisted registry can outlive
+    the runtime that activated it. After a software upgrade the runtime contract or
+    supported component contracts may be narrower/different. Re-checking at the
+    production composition root prevents a stale previously-approved model from
+    silently entering a new film job.
+    """
+    active = model_registry.active()
+    if active is None:
+        raise ModelManifestError(
+            "production FIRST FILM requires an active native model release"
+        )
+    compatibility = check_runtime_compatibility(
+        active,
+        runtime_contract_version=model_registry.runtime_contract_version,
+        supported_component_contracts=model_registry.supported_component_contracts,
+    )
+    if not compatibility.compatible:
+        raise ModelManifestError(
+            "refusing incompatible active native model release: "
+            + compatibility.reason
+        )
+    return active
+
+
 def build_production_first_film_runtime(
     native_renderer: NativeTemporalShotRenderer,
     validator: Any | None = None,
@@ -246,16 +278,16 @@ def build_released_production_first_film_runtime(
 ) -> ProductionFirstFilmRuntime:
     """Build production FIRST FILM bound to the registry's active model release.
 
-    The registry re-validates the persisted manifest hash while loading ``active``.
+    The active manifest is hash-verified by the registry and compatibility-checked
+    again against the *current* runtime contract before composition. This matters
+    after upgrades: a model that was valid when activated must not be assumed valid
+    forever merely because its persisted registry entry remains active.
+
     Requiring that manifest here makes model release identity part of durable film
     state, so a checkpoint cannot silently resume after any released component has
     changed even when the temporal sub-model itself happens to be identical.
     """
-    active = model_registry.active()
-    if active is None:
-        raise ModelManifestError(
-            "production FIRST FILM requires an active native model release"
-        )
+    active = _compatible_active_manifest(model_registry)
     requested_digest = kwargs.pop("native_model_manifest_sha256", None)
     if requested_digest is not None and requested_digest != active.manifest_sha256:
         raise ModelManifestError(
