@@ -64,7 +64,9 @@ class ReleaseChainSeal:
         for name in ("chain_sha256", "hmac_sha256"):
             value = str(getattr(self, name)).strip().lower()
             if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
-                raise ReleaseSealError(f"{name} must be a 64-character SHA-256 hex digest")
+                raise ReleaseSealError(
+                    f"{name} must be a 64-character SHA-256 hex digest"
+                )
             object.__setattr__(self, name, value)
         if self.schema != RELEASE_SEAL_SCHEMA:
             raise ReleaseSealError("unsupported release-seal schema")
@@ -127,7 +129,9 @@ def save_release_chain_seal(seal: ReleaseChainSeal, path: str | Path) -> Path:
         raise TypeError("seal must be a ReleaseChainSeal")
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(seal.as_dict(), sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    encoded = (
+        json.dumps(seal.as_dict(), sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    )
     fd, temp_name = tempfile.mkstemp(
         prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent)
     )
@@ -178,7 +182,9 @@ def seal_release_chain_file(
     try:
         chain_bytes = source.read_bytes()
     except OSError as error:
-        raise ReleaseSealError(f"cannot read release chain for sealing: {error}") from error
+        raise ReleaseSealError(
+            f"cannot read release chain for sealing: {error}"
+        ) from error
     seal = build_release_chain_seal(chain_bytes, key=key, key_id=key_id)
     save_release_chain_seal(seal, seal_path)
     return seal
@@ -196,7 +202,9 @@ def verify_release_chain_file(
     try:
         chain_bytes = Path(chain_path).read_bytes()
     except OSError as error:
-        raise ReleaseSealError(f"cannot read release chain for verification: {error}") from error
+        raise ReleaseSealError(
+            f"cannot read release chain for verification: {error}"
+        ) from error
     seal = load_release_chain_seal(seal_path)
     verify_release_chain_seal(
         chain_bytes,
