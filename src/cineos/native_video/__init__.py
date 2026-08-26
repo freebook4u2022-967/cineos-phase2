@@ -23,6 +23,7 @@ from .final_audit import (
     FinalFilmAuditError,
     FinalFilmAuditRecord,
     load_final_film_audit,
+    verify_production_final_film_audit,
     write_final_film_audit,
 )
 from .final_eval import (
@@ -176,6 +177,7 @@ __all__ = [
     "read_activation_lock",
     "recover_activation_lock",
     "verify_continuity_artifact",
+    "verify_production_final_film_audit",
     "verify_provenance",
     "write_final_film_audit",
 ]
