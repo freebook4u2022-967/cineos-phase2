@@ -41,6 +41,7 @@ from .production_first_film import (
     PRODUCTION_FIRST_FILM_RUNTIME_KIND,
     ProductionFirstFilmRuntime,
     build_production_first_film_runtime,
+    build_released_production_first_film_runtime,
 )
 from .renderer_binding import NativeFilmRendererBinding, NativeTemporalShotRenderer
 from .runtime import (
@@ -51,6 +52,7 @@ from .runtime import (
     TemporalRetryPolicy,
 )
 from .runtime_manifest import (
+    LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST,
     PRODUCTION_RUNTIME_MANIFEST_SCHEMA,
     ProductionRuntimeManifest,
 )
@@ -93,6 +95,7 @@ __all__ = [
     "FinalFilmAudioIntegrityGate",
     "InMemoryTemporalObserver",
     "JsonlTemporalObserver",
+    "LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST",
     "MeasuredFinalFilmGate",
     "MeasuredFinalFilmReport",
     "MotionDampingRetryPolicy",
@@ -133,6 +136,7 @@ __all__ = [
     "TemporalRuntimeEvent",
     "TemporalSequenceState",
     "build_production_first_film_runtime",
+    "build_released_production_first_film_runtime",
     "evaluate_sampled_frames",
     "evaluate_scene_boundaries",
     "provenance_for",
