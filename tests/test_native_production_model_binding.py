@@ -1,3 +1,5 @@
+"""Regression tests for durable production native-model release binding."""
+
 from __future__ import annotations
 
 from pathlib import Path
