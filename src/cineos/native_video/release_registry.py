@@ -167,7 +167,9 @@ def load_verified_release_snapshot(
     try:
         generation_id = _validate_generation_id(pointer.read_text(encoding="utf-8"))
     except OSError as error:
-        raise ReleaseRegistryError(f"cannot read active release pointer: {error}") from error
+        raise ReleaseRegistryError(
+            f"cannot read active release pointer: {error}"
+        ) from error
 
     snapshot_path = registry_root / SNAPSHOTS_DIRECTORY / generation_id
     chain_path = snapshot_path / CHAIN_FILE
