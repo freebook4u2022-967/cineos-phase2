@@ -50,7 +50,9 @@ def test_release_chain_rejects_duplicate_release_ids() -> None:
 
 def test_release_chain_rejects_broken_predecessor() -> None:
     first = ReleaseChainEntry("v1", _sha("a"), _sha("b"))
-    second = ReleaseChainEntry("v2", _sha("c"), _sha("d"), previous_entry_sha256=_sha("e"))
+    second = ReleaseChainEntry(
+        "v2", _sha("c"), _sha("d"), previous_entry_sha256=_sha("e")
+    )
     with pytest.raises(ReleaseChainError, match="predecessor mismatch"):
         verify_release_chain((first, second))
 

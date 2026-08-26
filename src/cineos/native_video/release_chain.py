@@ -56,7 +56,9 @@ class ReleaseChainEntry:
         if not isinstance(self.release_id, str) or not self.release_id.strip():
             raise ReleaseChainError("release_id must be a non-empty string")
         object.__setattr__(
-            self, "receipt_sha256", _require_sha256(self.receipt_sha256, "receipt_sha256")
+            self,
+            "receipt_sha256",
+            _require_sha256(self.receipt_sha256, "receipt_sha256"),
         )
         object.__setattr__(
             self,
@@ -102,7 +104,9 @@ def append_release(
     return (*current, entry)
 
 
-def verify_release_chain(entries: tuple[ReleaseChainEntry, ...] | list[ReleaseChainEntry]) -> None:
+def verify_release_chain(
+    entries: tuple[ReleaseChainEntry, ...] | list[ReleaseChainEntry],
+) -> None:
     """Validate schema, uniqueness, and every predecessor hash in order."""
 
     previous = GENESIS_PREVIOUS_SHA256
@@ -112,7 +116,9 @@ def verify_release_chain(entries: tuple[ReleaseChainEntry, ...] | list[ReleaseCh
             raise TypeError("release chain entries must be ReleaseChainEntry instances")
         release_id = entry.release_id.strip()
         if release_id in seen_release_ids:
-            raise ReleaseChainError(f"duplicate release_id in release chain: {release_id}")
+            raise ReleaseChainError(
+                f"duplicate release_id in release chain: {release_id}"
+            )
         if entry.previous_entry_sha256 != previous:
             raise ReleaseChainError(
                 f"release chain predecessor mismatch at index {index}: {release_id}"
@@ -167,7 +173,10 @@ def load_release_chain(path: str | Path) -> tuple[ReleaseChainEntry, ...]:
     recorded_hash = document.get("chain_sha256")
     if not isinstance(payload, list):
         raise ReleaseChainError("release-chain entries must be a list")
-    if not isinstance(recorded_hash, str) or _canonical_sha256(payload) != recorded_hash:
+    if (
+        not isinstance(recorded_hash, str)
+        or _canonical_sha256(payload) != recorded_hash
+    ):
         raise ReleaseChainError("release-chain integrity hash mismatch")
     try:
         entries = tuple(ReleaseChainEntry(**item) for item in payload)
