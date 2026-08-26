@@ -18,6 +18,11 @@ from .latent_model import (
     ProceduralLatentComponents,
     TrainableLatentComponents,
 )
+from .model_release import (
+    MODEL_RELEASE_RECORD_SCHEMA,
+    NativeModelReleaseController,
+    NativeModelReleaseDecision,
+)
 from .neural_backend import (
     NeuralModelConfig,
     TorchCineosFlowModel,
@@ -77,6 +82,7 @@ from .visual_qc import (
 __all__ = [
     "CHECKPOINT_MANIFEST_SCHEMA",
     "DATASET_MANIFEST_SCHEMA",
+    "MODEL_RELEASE_RECORD_SCHEMA",
     "NATIVE_IMAGE_PLAN_SCHEMA",
     "TENSOR_CHECKPOINT_SCHEMA",
     "VISUAL_QC_AXES",
@@ -104,6 +110,8 @@ __all__ = [
     "NativeImageConditioningPlan",
     "NativeImageResearchBackend",
     "NativeImageResearchResult",
+    "NativeModelReleaseController",
+    "NativeModelReleaseDecision",
     "NativePixelFrame",
     "NativeTrainableModel",
     "NativeTrainingLoop",
