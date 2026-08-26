@@ -1,10 +1,14 @@
 """Durable, versioned audit records for native final-film acceptance.
 
 A production film should never be considered releasable only because an in-memory
-quality gate returned ``accept``.  This module binds the measured gate report to
-the exact encoded movie bytes and persists that evidence atomically.  The record
-is intentionally standard-library only so it can be verified by release tooling,
-CI, recovery jobs, or a future studio service without importing a media backend.
+quality gate returned ``accept``. This module binds the measured gate report to
+the exact encoded movie bytes and persists that evidence atomically. Audit payloads
+also carry a canonical SHA-256 digest so post-write tampering with QC evidence is
+detected independently from movie-artifact integrity.
+
+The record is intentionally standard-library only so it can be verified by release
+tooling, CI, recovery jobs, or a future studio service without importing a media
+backend.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from typing import Any
 from .final_gate import MeasuredFinalFilmReport
 
 FINAL_FILM_AUDIT_SCHEMA = "cineos.native_video.final_film_audit.v1"
+AUDIT_RECORD_SHA256_FIELD = "record_sha256"
 
 
 class FinalFilmAuditError(RuntimeError):
@@ -33,6 +38,38 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _canonical_record_sha256(payload: Mapping[str, Any]) -> str:
+    """Return a stable digest for an audit payload excluding its own digest field."""
+    material = {
+        str(key): value
+        for key, value in payload.items()
+        if str(key) != AUDIT_RECORD_SHA256_FIELD
+    }
+    encoded = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_record_digest(payload: Mapping[str, Any], *, required: bool) -> None:
+    supplied = payload.get(AUDIT_RECORD_SHA256_FIELD)
+    if supplied is None:
+        if required:
+            raise FinalFilmAuditError("final-film audit has no record integrity digest")
+        return
+    supplied_text = str(supplied)
+    if len(supplied_text) != 64 or any(
+        char not in "0123456789abcdef" for char in supplied_text
+    ):
+        raise FinalFilmAuditError("final-film audit record digest is malformed")
+    expected = _canonical_record_sha256(payload)
+    if supplied_text != expected:
+        raise FinalFilmAuditError("final-film audit record digest does not match payload")
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +128,8 @@ class FinalFilmAuditRecord:
         )
 
     def to_record(self) -> dict[str, Any]:
-        """Return a stable JSON-serializable representation."""
-        return {
+        """Return a stable JSON-serializable representation with self-integrity."""
+        payload: dict[str, Any] = {
             "schema_version": self.schema_version,
             "created_at": self.created_at,
             "movie_sha256": self.movie_sha256,
@@ -102,6 +139,8 @@ class FinalFilmAuditRecord:
             "runtime_fingerprint": self.runtime_fingerprint,
             "report": dict(self.report),
         }
+        payload[AUDIT_RECORD_SHA256_FIELD] = _canonical_record_sha256(payload)
+        return payload
 
     def verify_movie(self, movie_path: str | Path) -> None:
         """Fail closed when the audited movie has changed or disappeared."""
@@ -149,8 +188,15 @@ def load_final_film_audit(
     path: str | Path,
     *,
     movie_path: str | Path | None = None,
+    require_record_digest: bool = False,
 ) -> FinalFilmAuditRecord:
-    """Load schema-validated evidence and optionally verify its movie artifact."""
+    """Load schema-validated evidence and optionally verify its movie artifact.
+
+    Newly written records always include a canonical payload digest. Legacy v1
+    records without that field remain readable by default for backwards
+    compatibility. Production release/recovery callers should pass
+    ``require_record_digest=True`` to fail closed on legacy unsigned evidence.
+    """
     source = Path(path)
     try:
         payload = json.loads(source.read_text(encoding="utf-8"))
@@ -158,6 +204,9 @@ def load_final_film_audit(
         raise FinalFilmAuditError(f"unable to read final-film audit: {source}") from exc
     if not isinstance(payload, dict):
         raise FinalFilmAuditError("final-film audit must contain a JSON object")
+
+    _validate_record_digest(payload, required=require_record_digest)
+
     try:
         report = payload["report"]
         if not isinstance(report, dict):
@@ -185,6 +234,7 @@ def load_final_film_audit(
 
 
 __all__ = [
+    "AUDIT_RECORD_SHA256_FIELD",
     "FINAL_FILM_AUDIT_SCHEMA",
     "FinalFilmAuditError",
     "FinalFilmAuditRecord",
