@@ -14,7 +14,6 @@ from typing import Self
 
 from .neural_backend import NeuralModelConfig, _load_torch
 
-
 _DECODER_CHECKPOINT_SCHEMA = "cineos-torch-rgb-decoder-checkpoint/0.1"
 
 
@@ -102,7 +101,10 @@ class TorchLatentRGBDecoder:
             payload = torch.load(checkpoint, map_location=device, weights_only=True)
         except TypeError:  # pragma: no cover - compatibility with older torch
             payload = torch.load(checkpoint, map_location=device)
-        if not isinstance(payload, dict) or payload.get("schema") != _DECODER_CHECKPOINT_SCHEMA:
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema") != _DECODER_CHECKPOINT_SCHEMA
+        ):
             raise ValueError("unsupported torch RGB decoder checkpoint schema")
         raw_config = payload.get("config")
         if not isinstance(raw_config, dict):
