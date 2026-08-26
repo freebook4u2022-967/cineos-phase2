@@ -3,6 +3,7 @@ import pytest
 from cineos.native_video import release_registry
 from cineos.native_video.release_chain import append_release
 from cineos.native_video.release_registry import (
+    ACTIVATION_LOCK_FILE,
     ACTIVE_SNAPSHOT_FILE,
     ReleaseRegistryError,
     commit_release_snapshot,
@@ -46,6 +47,7 @@ def test_release_registry_round_trip_authenticates_active_snapshot(tmp_path) -> 
     assert (tmp_path / ACTIVE_SNAPSHOT_FILE).read_text(encoding="utf-8").strip() == (
         committed.generation_id
     )
+    assert not (tmp_path / ACTIVATION_LOCK_FILE).exists()
 
 
 def test_failed_snapshot_commit_keeps_previous_active_release(
@@ -73,6 +75,7 @@ def test_failed_snapshot_commit_keeps_previous_active_release(
     assert (tmp_path / ACTIVE_SNAPSHOT_FILE).read_text(encoding="utf-8").strip() == (
         first.generation_id
     )
+    assert not (tmp_path / ACTIVATION_LOCK_FILE).exists()
     loaded = load_verified_release_snapshot(
         tmp_path,
         key=_key(),
@@ -119,6 +122,7 @@ def test_key_rotation_creates_distinct_authenticated_generation(tmp_path) -> Non
         tmp_path,
         key=_key(2),
         key_id="kms-prod-v2",
+        expected_active_generation_id=first.generation_id,
     )
 
     assert first.generation_id != second.generation_id
@@ -149,6 +153,7 @@ def test_trusted_generation_guard_rejects_valid_snapshot_rollback(tmp_path) -> N
         tmp_path,
         key=_key(),
         key_id="kms-prod-v1",
+        expected_active_generation_id=first.generation_id,
     )
 
     # Simulate an attacker rolling CURRENT back to a historical snapshot whose
@@ -198,3 +203,92 @@ def test_trusted_generation_guard_rejects_malformed_trust_anchor(tmp_path) -> No
             key=_key(),
             expected_generation_id="not-a-generation",
         )
+
+
+def test_activation_cas_rejects_stale_release_controller(tmp_path) -> None:
+    first = commit_release_snapshot(
+        _entries("film-v1"),
+        tmp_path,
+        key=_key(),
+        key_id="kms-prod-v1",
+    )
+    second_entries = append_release(
+        first.entries,
+        release_id="film-v2",
+        receipt_sha256=_sha("c"),
+        native_model_manifest_sha256=_sha("d"),
+    )
+    second = commit_release_snapshot(
+        second_entries,
+        tmp_path,
+        key=_key(),
+        key_id="kms-prod-v1",
+        expected_active_generation_id=first.generation_id,
+    )
+
+    stale_entries = append_release(
+        first.entries,
+        release_id="film-v3-stale",
+        receipt_sha256=_sha("e"),
+        native_model_manifest_sha256=_sha("f"),
+    )
+    with pytest.raises(ReleaseRegistryError, match="expected activation generation"):
+        commit_release_snapshot(
+            stale_entries,
+            tmp_path,
+            key=_key(),
+            key_id="kms-prod-v1",
+            expected_active_generation_id=first.generation_id,
+        )
+
+    loaded = load_verified_release_snapshot(
+        tmp_path,
+        key=_key(),
+        expected_generation_id=second.generation_id,
+    )
+    assert loaded.generation_id == second.generation_id
+    assert not (tmp_path / ACTIVATION_LOCK_FILE).exists()
+
+
+def test_activation_cas_rejects_missing_or_malformed_trust_anchor(tmp_path) -> None:
+    with pytest.raises(ReleaseRegistryError, match="missing"):
+        commit_release_snapshot(
+            _entries(),
+            tmp_path,
+            key=_key(),
+            key_id="kms-prod-v1",
+            expected_active_generation_id=_sha("a"),
+        )
+
+    with pytest.raises(ReleaseRegistryError, match="SHA-256"):
+        commit_release_snapshot(
+            _entries(),
+            tmp_path,
+            key=_key(),
+            key_id="kms-prod-v1",
+            expected_active_generation_id="not-a-generation",
+        )
+    assert not (tmp_path / ACTIVATION_LOCK_FILE).exists()
+
+
+def test_activation_lock_fails_closed_on_concurrent_writer(tmp_path) -> None:
+    first = commit_release_snapshot(
+        _entries(),
+        tmp_path,
+        key=_key(),
+        key_id="kms-prod-v1",
+    )
+    (tmp_path / ACTIVATION_LOCK_FILE).write_text("pid=999999\n", encoding="utf-8")
+
+    with pytest.raises(ReleaseRegistryError, match="already locked"):
+        commit_release_snapshot(
+            first.entries,
+            tmp_path,
+            key=_key(),
+            key_id="kms-prod-v1",
+            expected_active_generation_id=first.generation_id,
+        )
+
+    assert (tmp_path / ACTIVE_SNAPSHOT_FILE).read_text(encoding="utf-8").strip() == (
+        first.generation_id
+    )
