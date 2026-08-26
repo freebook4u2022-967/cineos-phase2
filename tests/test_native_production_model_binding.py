@@ -105,3 +105,25 @@ def test_released_runtime_rejects_conflicting_explicit_manifest_digest(
             registry,
             native_model_manifest_sha256="f" * 64,
         )
+
+
+def test_released_runtime_rechecks_compatibility_after_runtime_upgrade(
+    tmp_path: Path,
+) -> None:
+    """A persisted active model must not bypass a newer runtime contract gate."""
+    registry = _registry(tmp_path)
+    registry.activate(_manifest("1.0.0", "a" * 64))
+
+    upgraded_runtime = NativeModelRegistry(
+        path=registry.path,
+        runtime_contract_version=1,
+        supported_component_contracts={"other-component": 1},
+    )
+
+    with pytest.raises(
+        ModelManifestError,
+        match="refusing incompatible active native model release: unsupported component: temporal",
+    ):
+        build_released_production_first_film_runtime(
+            _NativeRenderer(), upgraded_runtime
+        )
