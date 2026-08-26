@@ -45,6 +45,13 @@ from .production_first_film import (
     build_production_first_film_runtime,
     build_released_production_first_film_runtime,
 )
+from .release_registry import (
+    RELEASE_REGISTRY_SCHEMA,
+    ReleaseRegistryError,
+    VerifiedReleaseSnapshot,
+    commit_release_snapshot,
+    load_verified_release_snapshot,
+)
 from .renderer_binding import NativeFilmRendererBinding, NativeTemporalShotRenderer
 from .runtime import (
     MotionDampingRetryPolicy,
@@ -115,6 +122,8 @@ __all__ = [
     "PRODUCTION_RUNTIME_MANIFEST_SCHEMA",
     "ProductionFirstFilmRuntime",
     "ProductionRuntimeManifest",
+    "RELEASE_REGISTRY_SCHEMA",
+    "ReleaseRegistryError",
     "SCENE_MEMORY_SCHEMA",
     "SceneBoundaryEvalPolicy",
     "SceneBoundaryEvalReport",
@@ -138,11 +147,14 @@ __all__ = [
     "TemporalRetryPolicy",
     "TemporalRuntimeEvent",
     "TemporalSequenceState",
+    "VerifiedReleaseSnapshot",
     "build_checkpoint_temporal_shot_renderer",
     "build_production_first_film_runtime",
     "build_released_production_first_film_runtime",
+    "commit_release_snapshot",
     "evaluate_sampled_frames",
     "evaluate_scene_boundaries",
+    "load_verified_release_snapshot",
     "provenance_for",
     "verify_continuity_artifact",
     "verify_provenance",
