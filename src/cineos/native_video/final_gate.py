@@ -19,6 +19,8 @@ from .boundary_eval import FFmpegSceneBoundaryEvaluator
 from .duration_gate import DurationIntegrityReport, FFprobeDurationIntegrityGate
 from .edit_contract import (
     planned_duration_seconds as _planned_duration_seconds,
+)
+from .edit_contract import (
     planned_scene_boundaries as _planned_scene_boundaries,
 )
 from .final_eval import (
