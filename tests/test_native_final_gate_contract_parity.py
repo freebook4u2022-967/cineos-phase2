@@ -56,7 +56,9 @@ def _normalized(boundaries: object) -> tuple[tuple[str, str, float, str], ...]:
         ),
     ],
 )
-def test_final_film_gate_paths_share_the_same_authored_edit_contract(plan: tuple[object, ...]) -> None:
+def test_final_film_gate_paths_share_the_same_authored_edit_contract(
+    plan: tuple[object, ...],
+) -> None:
     """Legacy and canonical final gates must interpret the same shot plan identically.
 
     Both gates remain public while the production path migrates toward the richer
