@@ -84,6 +84,7 @@ class CheckpointLatentRGBDecoder:
         expected = width * height * 3
         if len(frame.rgb) != expected:
             raise ValueError(
-                f"learned RGB decoder produced {len(frame.rgb)} bytes; expected {expected}"
+                "learned RGB decoder produced "
+                f"{len(frame.rgb)} bytes; expected {expected}"
             )
         return frame.rgb
