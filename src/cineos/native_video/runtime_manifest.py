@@ -13,6 +13,7 @@ from typing import Any
 
 PRODUCTION_RUNTIME_MANIFEST_SCHEMA = "cineos-production-runtime/0.1"
 LEGACY_UNBOUND_FINAL_GATE_POLICY = "legacy-unbound-final-gate-policy"
+LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST = "legacy-unbound-native-model-manifest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +27,7 @@ class ProductionRuntimeManifest:
     require_final_film_evaluation: bool
     require_audio: bool
     final_gate_policy_fingerprint: str = LEGACY_UNBOUND_FINAL_GATE_POLICY
+    native_model_manifest_sha256: str = LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST
     schema: str = PRODUCTION_RUNTIME_MANIFEST_SCHEMA
 
     def __post_init__(self) -> None:
@@ -39,6 +41,8 @@ class ProductionRuntimeManifest:
             raise ValueError("max_recovery_attempts must be non-negative")
         if not self.final_gate_policy_fingerprint.strip():
             raise ValueError("final_gate_policy_fingerprint must not be empty")
+        if not self.native_model_manifest_sha256.strip():
+            raise ValueError("native_model_manifest_sha256 must not be empty")
         if self.schema != PRODUCTION_RUNTIME_MANIFEST_SCHEMA:
             raise ValueError("unsupported production runtime manifest schema")
 
@@ -50,11 +54,11 @@ class ProductionRuntimeManifest:
     def restore(cls, payload: dict[str, object]) -> ProductionRuntimeManifest:
         """Restore a manifest, rejecting unknown schemas or malformed payloads.
 
-        Manifests written before final-gate policy binding are still parseable so
-        operators receive a semantic incompatibility error rather than a malformed
-        checkpoint error. They intentionally restore with an explicit legacy marker;
-        a current production runtime therefore refuses to resume them until the job
-        is restarted under a known acceptance policy.
+        Older manifests remain parseable so operators receive semantic compatibility
+        errors instead of malformed-checkpoint errors. Missing acceptance-policy or
+        native-model bindings restore to explicit legacy markers; a runtime carrying
+        a real binding will therefore refuse those checkpoints until the job restarts
+        under the current production contract.
         """
         if payload.get("schema") != PRODUCTION_RUNTIME_MANIFEST_SCHEMA:
             raise ValueError("unsupported production runtime manifest schema")
@@ -81,6 +85,9 @@ class ProductionRuntimeManifest:
         final_gate_policy = payload.get(
             "final_gate_policy_fingerprint", LEGACY_UNBOUND_FINAL_GATE_POLICY
         )
+        native_model_manifest = payload.get(
+            "native_model_manifest_sha256", LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST
+        )
         if not isinstance(renderer_id, str):
             raise ValueError("production runtime renderer_id must be a string")
         if not isinstance(fingerprint, str):
@@ -104,6 +111,11 @@ class ProductionRuntimeManifest:
                 "production runtime final_gate_policy_fingerprint must be a "
                 "non-empty string"
             )
+        if not isinstance(native_model_manifest, str) or not native_model_manifest.strip():
+            raise ValueError(
+                "production runtime native_model_manifest_sha256 must be a "
+                "non-empty string"
+            )
 
         return cls(
             renderer_id=renderer_id,
@@ -113,6 +125,7 @@ class ProductionRuntimeManifest:
             require_final_film_evaluation=require_final,
             require_audio=require_audio,
             final_gate_policy_fingerprint=final_gate_policy,
+            native_model_manifest_sha256=native_model_manifest,
         )
 
     def assert_resume_compatible(self, saved: ProductionRuntimeManifest) -> None:
@@ -121,13 +134,14 @@ class ProductionRuntimeManifest:
         Device placement and recovery-budget changes are intentionally compatible.
         Identical temporal weights can move between CPU/GPU without invalidating
         recurrent state, and retry budget only controls future attempts. Renderer
-        identity, model weights, final-gate policy, and final acceptance requirements
-        remain invariants.
+        identity, model weights/release manifest, final-gate policy, and final
+        acceptance requirements remain invariants.
         """
         mismatches: list[str] = []
         for field_name in (
             "renderer_id",
             "temporal_model_fingerprint",
+            "native_model_manifest_sha256",
             "require_final_film_evaluation",
             "require_audio",
             "final_gate_policy_fingerprint",
@@ -143,6 +157,7 @@ class ProductionRuntimeManifest:
 
 __all__ = [
     "LEGACY_UNBOUND_FINAL_GATE_POLICY",
+    "LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST",
     "PRODUCTION_RUNTIME_MANIFEST_SCHEMA",
     "ProductionRuntimeManifest",
 ]
