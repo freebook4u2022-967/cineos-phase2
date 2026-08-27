@@ -4,6 +4,10 @@ import json
 
 import pytest
 
+from cineos.native_video.artifact_integrity import (
+    NativeArtifactProvenance,
+    provenance_for,
+)
 from cineos.native_video.final_audit import (
     AUDIT_RECORD_SHA256_FIELD,
     FINAL_FILM_AUDIT_SCHEMA,
@@ -19,7 +23,7 @@ from cineos.native_video.final_gate import MeasuredFinalFilmReport
 from cineos.native_video.runtime_manifest import ProductionRuntimeManifest
 
 
-def _accepted_report() -> MeasuredFinalFilmReport:
+def _accepted_report(movie_path) -> MeasuredFinalFilmReport:
     temporal = TemporalFilmEvalReport(
         frame_count=8,
         mean_luma=96.0,
@@ -31,10 +35,16 @@ def _accepted_report() -> MeasuredFinalFilmReport:
         decision="accept",
         directives=(),
     )
+    artifact = (
+        provenance_for(movie_path)
+        if movie_path.stat().st_size > 0
+        else NativeArtifactProvenance("0" * 64, 1)
+    )
     return MeasuredFinalFilmReport(
         decision="accept",
         directives=(),
         temporal=temporal,
+        artifact=artifact,
     )
 
 
@@ -59,7 +69,7 @@ def test_final_film_audit_binds_report_to_exact_movie_bytes(tmp_path) -> None:
 
     record = FinalFilmAuditRecord.from_report(
         movie,
-        _accepted_report(),
+        _accepted_report(movie),
         model_fingerprint="model-sha256:abc",
         runtime_fingerprint="runtime-sha256:def",
     )
@@ -68,6 +78,8 @@ def test_final_film_audit_binds_report_to_exact_movie_bytes(tmp_path) -> None:
     assert record.decision == "accept"
     assert record.movie_size_bytes == len(b"cineos-native-film-v1")
     assert record.report["temporal"]["frame_count"] == 8
+    assert record.report["artifact"]["sha256"] == record.movie_sha256
+    assert record.report["artifact"]["byte_size"] == record.movie_size_bytes
     payload = record.to_record()
     assert len(payload[AUDIT_RECORD_SHA256_FIELD]) == 64
     record.verify_movie(movie)
@@ -77,7 +89,7 @@ def test_final_film_audit_round_trips_and_verifies_movie(tmp_path) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"cineos-production-output")
     audit = tmp_path / "qc" / "final-film.json"
-    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
 
     write_final_film_audit(audit, record, fsync=False)
     loaded = load_final_film_audit(
@@ -94,7 +106,7 @@ def test_final_film_audit_round_trips_and_verifies_movie(tmp_path) -> None:
 def test_final_film_audit_detects_movie_mutation(tmp_path) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"original-native-movie")
-    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
     audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
 
     movie.write_bytes(b"tampered-native-movie")
@@ -106,7 +118,7 @@ def test_final_film_audit_detects_movie_mutation(tmp_path) -> None:
 def test_final_film_audit_rejects_decision_tampering(tmp_path) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"cineos-film")
-    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
     audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
     payload = json.loads(audit.read_text(encoding="utf-8"))
     payload["decision"] = "reject"
@@ -121,7 +133,7 @@ def test_final_film_audit_rejects_report_tampering_even_when_decision_matches(
 ) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"cineos-film")
-    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
     audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
     payload = json.loads(audit.read_text(encoding="utf-8"))
     payload["report"]["temporal"]["frame_count"] = 999
@@ -136,7 +148,7 @@ def test_final_film_audit_can_read_legacy_v1_but_strict_mode_rejects_it(
 ) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"cineos-film")
-    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
     payload = record.to_record()
     payload.pop(AUDIT_RECORD_SHA256_FIELD)
     audit = tmp_path / "legacy-audit.json"
@@ -152,7 +164,7 @@ def test_final_film_audit_can_read_legacy_v1_but_strict_mode_rejects_it(
 def test_final_film_audit_rejects_unknown_schema(tmp_path) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"cineos-film")
-    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
     payload = record.to_record()
     payload["schema_version"] = "cineos.native_video.final_film_audit.v999"
     payload.pop(AUDIT_RECORD_SHA256_FIELD)
@@ -168,13 +180,13 @@ def test_final_film_audit_refuses_empty_movie(tmp_path) -> None:
     movie.write_bytes(b"")
 
     with pytest.raises(FinalFilmAuditError, match="empty movie"):
-        FinalFilmAuditRecord.from_report(movie, _accepted_report())
+        FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
 
 
 def test_final_film_audit_rejects_boolean_movie_size(tmp_path) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"cineos-film")
-    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
     payload = record.to_record()
     payload["movie_size_bytes"] = True
     payload.pop(AUDIT_RECORD_SHA256_FIELD)
@@ -192,7 +204,7 @@ def test_production_audit_verifier_binds_movie_model_runtime_and_acceptance(
     movie.write_bytes(b"cineos-release-candidate")
     record = FinalFilmAuditRecord.from_report(
         movie,
-        _accepted_report(),
+        _accepted_report(movie),
         model_fingerprint="model-release:abc",
         runtime_fingerprint="runtime-contract:def",
     )
@@ -214,7 +226,7 @@ def test_production_audit_verifier_rejects_wrong_release_binding(tmp_path) -> No
     movie.write_bytes(b"cineos-release-candidate")
     record = FinalFilmAuditRecord.from_report(
         movie,
-        _accepted_report(),
+        _accepted_report(movie),
         model_fingerprint="model-release:abc",
         runtime_fingerprint="runtime-contract:def",
     )
@@ -240,7 +252,7 @@ def test_production_audit_verifier_rejects_wrong_release_binding(tmp_path) -> No
 def test_production_audit_verifier_requires_explicit_bindings(tmp_path) -> None:
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"cineos-release-candidate")
-    record = FinalFilmAuditRecord.from_report(movie, _accepted_report())
+    record = FinalFilmAuditRecord.from_report(movie, _accepted_report(movie))
     audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
 
     with pytest.raises(FinalFilmAuditError, match="no model fingerprint"):
@@ -258,7 +270,7 @@ def test_production_runtime_audit_round_trip_is_fail_closed(tmp_path) -> None:
     runtime = _production_manifest()
     record = FinalFilmAuditRecord.from_production_runtime(
         movie,
-        _accepted_report(),
+        _accepted_report(movie),
         runtime,
     )
     audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
@@ -279,7 +291,7 @@ def test_production_runtime_audit_rejects_changed_runtime_identity(tmp_path) -> 
     runtime = _production_manifest()
     record = FinalFilmAuditRecord.from_production_runtime(
         movie,
-        _accepted_report(),
+        _accepted_report(movie),
         runtime,
     )
     audit = write_final_film_audit(tmp_path / "audit.json", record, fsync=False)
@@ -302,6 +314,6 @@ def test_production_runtime_audit_requires_released_model_binding(tmp_path) -> N
     with pytest.raises(FinalFilmAuditError, match="bound native model manifest"):
         FinalFilmAuditRecord.from_production_runtime(
             movie,
-            _accepted_report(),
+            _accepted_report(movie),
             runtime,
         )
