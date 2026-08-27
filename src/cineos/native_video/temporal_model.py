@@ -79,12 +79,25 @@ class TemporalSequenceState:
 
     @classmethod
     def restore(cls, payload: dict[str, object]) -> TemporalSequenceState:
-        """Restore a state produced by :meth:`snapshot`."""
+        """Restore and structurally validate a state produced by :meth:`snapshot`.
+
+        Model-specific dimensions are validated by
+        :meth:`NativeTemporalModel.restore_state`; this method guarantees the
+        serialized state itself is internally coherent before any generation
+        resumes.
+        """
+        shot_id = payload.get("shot_id")
+        if not isinstance(shot_id, str) or not shot_id.strip():
+            raise ValueError("temporal state payload requires a non-empty shot_id")
+
         hidden_values = payload.get("hidden")
         hidden_shape = payload.get("hidden_shape")
         if not isinstance(hidden_values, list) or not isinstance(hidden_shape, list):
             raise ValueError("temporal state payload is missing hidden tensor data")
-        device = str(payload.get("device", "cpu"))
+        device_value = payload.get("device", "cpu")
+        if not isinstance(device_value, str) or not device_value.strip():
+            raise ValueError("temporal state payload requires a non-empty device")
+        device = device_value
         hidden = Tensor(
             tuple(float(value) for value in hidden_values),
             tuple(int(value) for value in hidden_shape),
@@ -105,19 +118,35 @@ class TemporalSequenceState:
                 device,
             )
 
+        raw_last_frame_index = payload.get("last_frame_index", -1)
+        if isinstance(raw_last_frame_index, bool) or not isinstance(
+            raw_last_frame_index, int
+        ):
+            raise ValueError("temporal state last_frame_index must be an integer")
+        if raw_last_frame_index < -1:
+            raise ValueError("temporal state last_frame_index cannot be less than -1")
+        if raw_last_frame_index == -1 and last_latent is not None:
+            raise ValueError("unstarted temporal state cannot contain a last latent")
+        if raw_last_frame_index >= 0 and last_latent is None:
+            raise ValueError("advanced temporal state requires a last latent")
+
         raw_metadata = payload.get("metadata", {})
         if not isinstance(raw_metadata, dict):
             raise ValueError("temporal state metadata must be a mapping")
         metadata: dict[str, str | int | float] = {}
         for key, value in raw_metadata.items():
-            if not isinstance(key, str) or not isinstance(value, (str, int, float)):
+            if (
+                not isinstance(key, str)
+                or isinstance(value, bool)
+                or not isinstance(value, (str, int, float))
+            ):
                 raise ValueError("temporal state metadata must be JSON scalar values")
             metadata[key] = value
 
         return cls(
-            shot_id=str(payload.get("shot_id", "")),
+            shot_id=shot_id,
             hidden=hidden,
-            last_frame_index=int(payload.get("last_frame_index", -1)),
+            last_frame_index=raw_last_frame_index,
             last_latent=last_latent,
             metadata=metadata,
         )
@@ -179,6 +208,28 @@ class NativeTemporalModel:
             shot_id=shot_id,
             hidden=Tensor((0.0,) * self.hidden_dim, (self.hidden_dim,), device),
         )
+
+    def restore_state(self, payload: dict[str, object]) -> TemporalSequenceState:
+        """Restore a checkpoint and enforce this model's dimensional contract.
+
+        Resume should fail at the checkpoint boundary, not several frames later.
+        This prevents a stale or incompatible checkpoint from entering a costly
+        long-running render job after model upgrades.
+        """
+        state = TemporalSequenceState.restore(payload)
+        if state.hidden.shape != (self.hidden_dim,):
+            raise ValueError("temporal checkpoint hidden tensor is model-incompatible")
+        if state.last_latent is not None and state.last_latent.shape != (
+            self.latent_dim,
+        ):
+            raise ValueError("temporal checkpoint latent tensor is model-incompatible")
+        if any(not math.isfinite(value) for value in state.hidden.values):
+            raise ValueError("temporal checkpoint hidden tensor contains non-finite data")
+        if state.last_latent is not None and any(
+            not math.isfinite(value) for value in state.last_latent.values
+        ):
+            raise ValueError("temporal checkpoint latent tensor contains non-finite data")
+        return state
 
     def propose(
         self,
