@@ -63,7 +63,9 @@ def test_missing_migration_fails_closed():
     payload = _current_payload()
     payload["schema"] = "cineos-production-runtime/unknown"
 
-    with pytest.raises(RuntimeManifestMigrationError, match="no runtime manifest migration"):
+    with pytest.raises(
+        RuntimeManifestMigrationError, match="no runtime manifest migration"
+    ):
         RuntimeManifestMigrationRegistry().restore(payload)
 
 
@@ -98,14 +100,10 @@ def test_migration_must_produce_declared_schema():
 def test_migration_cycle_fails_closed():
     registry = RuntimeManifestMigrationRegistry()
     registry.register(
-        RuntimeManifestMigrationStep(
-            "v0", "v1", lambda raw: {**raw, "schema": "v1"}
-        )
+        RuntimeManifestMigrationStep("v0", "v1", lambda raw: {**raw, "schema": "v1"})
     )
     registry.register(
-        RuntimeManifestMigrationStep(
-            "v1", "v0", lambda raw: {**raw, "schema": "v0"}
-        )
+        RuntimeManifestMigrationStep("v1", "v0", lambda raw: {**raw, "schema": "v0"})
     )
 
     with pytest.raises(RuntimeManifestMigrationError, match="cycle detected"):
@@ -125,5 +123,7 @@ def test_final_strict_restore_rejects_unknown_fields_after_migration():
         )
     )
 
-    with pytest.raises(RuntimeManifestMigrationError, match="migrated production runtime"):
+    with pytest.raises(
+        RuntimeManifestMigrationError, match="migrated production runtime"
+    ):
         registry.restore(legacy)
