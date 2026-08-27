@@ -11,6 +11,8 @@ contract.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -150,7 +152,7 @@ def verify_production_release_bundle(
 def save_production_release_bundle(
     bundle: ProductionReleaseBundle, path: str | Path
 ) -> Path:
-    """Persist a bundle with an independent content hash."""
+    """Atomically persist a bundle with an independent content hash."""
     if not isinstance(bundle, ProductionReleaseBundle):
         raise TypeError("bundle must be ProductionReleaseBundle")
     destination = Path(path)
@@ -159,10 +161,34 @@ def save_production_release_bundle(
         "bundle": bundle.as_dict(),
         "bundle_sha256": bundle.bundle_sha256,
     }
-    destination.write_text(
-        json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    encoded = (
+        json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=str(destination.parent)
     )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, destination)
+        try:
+            directory_fd = os.open(
+                destination.parent,
+                getattr(os, "O_DIRECTORY", 0) | os.O_RDONLY,
+            )
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
     return destination
 
 
