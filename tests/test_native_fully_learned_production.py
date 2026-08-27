@@ -70,9 +70,7 @@ def test_fully_learned_production_shares_temporal_weights(tmp_path) -> None:
     registry = NativeModelRegistry(
         path=tmp_path / "registry.json",
         runtime_contract_version=1,
-        supported_component_contracts=dict(
-            DEFAULT_FULLY_LEARNED_COMPONENT_CONTRACTS
-        ),
+        supported_component_contracts=dict(DEFAULT_FULLY_LEARNED_COMPONENT_CONTRACTS),
     )
     registry.activate(manifest)
 
