@@ -12,9 +12,9 @@ frames, invalid timestamps, or duplicate/out-of-order boundary times abort the
 quality gate instead of silently weakening final-film continuity validation.
 
 Production sampling uses a short temporal window on both sides of an edit rather
-than trusting one frame. The samples are concatenated in timeline order before
-metric evaluation, preserving the dependency-free metric contract while making
-transient corruption or continuity drift adjacent to the edit measurable.
+than trusting one frame. Window evidence is evaluated both in aggregate and per
+sample so one transient black/corrupt frame or a brief match-boundary identity
+jump cannot be hidden by averaging it together with healthy neighboring frames.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .final_eval import (
@@ -124,28 +124,31 @@ class FFmpegSceneBoundaryEvaluator:
 
     def _sample_outgoing(
         self, binary: str, source: Path, boundary_seconds: float
-    ) -> bytes:
+    ) -> tuple[bytes, ...]:
         nearest = boundary_seconds - self.sample_offset_seconds
-        timestamps = [
-            max(
-                0.0,
-                nearest - self.sample_stride_seconds * index,
+        earliest = nearest - self.sample_stride_seconds * (self.sample_count - 1)
+        if earliest < 0.0:
+            raise ValueError(
+                "scene boundary is too close to movie start for the configured "
+                "outgoing temporal evidence window"
             )
-            for index in reversed(range(self.sample_count))
+        timestamps = [
+            earliest + self.sample_stride_seconds * index
+            for index in range(self.sample_count)
         ]
-        return b"".join(
+        return tuple(
             self._decode_frame(binary, source, timestamp) for timestamp in timestamps
         )
 
     def _sample_incoming(
         self, binary: str, source: Path, boundary_seconds: float
-    ) -> bytes:
+    ) -> tuple[bytes, ...]:
         nearest = boundary_seconds + self.sample_offset_seconds
         timestamps = [
             nearest + self.sample_stride_seconds * index
             for index in range(self.sample_count)
         ]
-        return b"".join(
+        return tuple(
             self._decode_frame(binary, source, timestamp) for timestamp in timestamps
         )
 
@@ -166,6 +169,121 @@ class FFmpegSceneBoundaryEvaluator:
             previous = boundary.boundary_seconds
             seen_pairs.add(pair)
 
+    @staticmethod
+    def _frame_luma(frame: bytes) -> float:
+        if not frame:
+            raise ValueError("scene-boundary window frame cannot be empty")
+        return sum(frame) / len(frame)
+
+    @staticmethod
+    def _frame_mad(left: bytes, right: bytes) -> float:
+        if not left or len(left) != len(right):
+            raise ValueError(
+                "scene-boundary window frames must have identical non-zero sizes"
+            )
+        return sum(abs(a - b) for a, b in zip(left, right, strict=True)) / len(left)
+
+    def _apply_window_evidence(
+        self,
+        report: SceneBoundaryEvalReport,
+        windows: Sequence[
+            tuple[SceneBoundaryPoint, tuple[bytes, ...], tuple[bytes, ...]]
+        ],
+    ) -> SceneBoundaryEvalReport:
+        """Make aggregate boundary QC sensitive to transient per-frame defects.
+
+        The dependency-free evaluator remains the canonical metric implementation.
+        This production adapter only strengthens its decision using evidence that
+        exists because production sampling has multiple decoded frames per side.
+        It never weakens a prior reject/warn decision.
+        """
+
+        if len(report.boundaries) != len(windows):
+            raise RuntimeError("scene-boundary report/window count mismatch")
+
+        evidence = []
+        for item, (point, outgoing, incoming) in zip(
+            report.boundaries, windows, strict=True
+        ):
+            if len(outgoing) != self.sample_count or len(incoming) != self.sample_count:
+                raise RuntimeError("scene-boundary temporal window is incomplete")
+
+            outgoing_lumas = tuple(self._frame_luma(frame) for frame in outgoing)
+            incoming_lumas = tuple(self._frame_luma(frame) for frame in incoming)
+            pair_mads = tuple(
+                self._frame_mad(left, right)
+                for left, right in zip(outgoing, incoming, strict=True)
+            )
+
+            decision = item.decision
+            directives = list(item.directives)
+            if (
+                min(outgoing_lumas) <= self.policy.black_luma
+                or min(incoming_lumas) <= self.policy.black_luma
+            ):
+                decision = "reject"
+                directives.append(
+                    "rerender or replace transient near-black frame inside the "
+                    "scene-boundary temporal window"
+                )
+
+            peak_delta = max(pair_mads)
+            if point.transition == "match":
+                if peak_delta >= self.policy.match_reject_mad:
+                    decision = "reject"
+                    directives.append(
+                        "rerender transient match-boundary drift detected in the "
+                        "temporal evidence window"
+                    )
+                elif peak_delta >= self.policy.match_warn_mad and decision == "accept":
+                    decision = "warn"
+                    directives.append(
+                        "review transient match-boundary drift in the temporal "
+                        "evidence window"
+                    )
+            elif point.transition == "fade":
+                if peak_delta >= self.policy.fade_reject_mad:
+                    decision = "reject"
+                    directives.append(
+                        "rerender transient fade-boundary discontinuity detected "
+                        "in the temporal evidence window"
+                    )
+            elif (
+                point.transition == "cut"
+                and max(pair_mads) <= self.policy.cut_frozen_mad
+                and decision == "accept"
+            ):
+                decision = "warn"
+                directives.append(
+                    "review planned cut: every sampled boundary pair is effectively "
+                    "frozen"
+                )
+
+            evidence.append(
+                replace(
+                    item,
+                    decision=decision,
+                    directives=tuple(dict.fromkeys(directives)),
+                )
+            )
+
+        reject_count = sum(item.decision == "reject" for item in evidence)
+        warn_count = sum(item.decision == "warn" for item in evidence)
+        if reject_count:
+            decision = "reject"
+        elif warn_count:
+            decision = "warn"
+        else:
+            decision = "accept"
+
+        return replace(
+            report,
+            reject_count=reject_count,
+            warn_count=warn_count,
+            decision=decision,
+            boundaries=tuple(evidence),
+        )
+
     def evaluate(
         self,
         movie_path: str | Path,
@@ -184,9 +302,18 @@ class FFmpegSceneBoundaryEvaluator:
             )
 
         samples: list[SceneBoundarySample] = []
+        windows: list[
+            tuple[SceneBoundaryPoint, tuple[bytes, ...], tuple[bytes, ...]]
+        ] = []
         for boundary in boundaries:
-            outgoing = self._sample_outgoing(binary, source, boundary.boundary_seconds)
-            incoming = self._sample_incoming(binary, source, boundary.boundary_seconds)
+            outgoing_frames = self._sample_outgoing(
+                binary, source, boundary.boundary_seconds
+            )
+            incoming_frames = self._sample_incoming(
+                binary, source, boundary.boundary_seconds
+            )
+            outgoing = b"".join(outgoing_frames)
+            incoming = b"".join(incoming_frames)
             if (
                 len(outgoing) != self.evidence_size
                 or len(incoming) != self.evidence_size
@@ -201,5 +328,7 @@ class FFmpegSceneBoundaryEvaluator:
                     transition=boundary.transition,
                 )
             )
+            windows.append((boundary, outgoing_frames, incoming_frames))
 
-        return evaluate_scene_boundaries(tuple(samples), self.policy)
+        report = evaluate_scene_boundaries(tuple(samples), self.policy)
+        return self._apply_window_evidence(report, tuple(windows))
