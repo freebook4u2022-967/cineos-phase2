@@ -94,7 +94,9 @@ class TemporalModelCheckpoint:
             model.latent_dim,
         )
         if min(dims) <= 0:
-            raise TemporalModelCheckpointError("temporal model dimensions must be positive")
+            raise TemporalModelCheckpointError(
+                "temporal model dimensions must be positive"
+            )
         recurrent_input = (
             model.identity_dim + model.scene_dim + model.motion_dim + model.hidden_dim
         )
@@ -167,7 +169,7 @@ class TemporalModelCheckpoint:
         training_steps: int,
         training_run_id: str,
         training_data_fingerprint: str,
-    ) -> "TemporalModelCheckpoint":
+    ) -> TemporalModelCheckpoint:
         if not isinstance(model, NativeTemporalModel):
             raise TypeError("model must be a NativeTemporalModel")
         return cls(
@@ -183,7 +185,7 @@ class TemporalModelCheckpoint:
         payload: dict[str, Any],
         *,
         verify_hash: bool = True,
-    ) -> "TemporalModelCheckpoint":
+    ) -> TemporalModelCheckpoint:
         if not isinstance(payload, dict):
             raise TemporalModelCheckpointError("checkpoint root must be an object")
         if payload.get("schema") != TEMPORAL_MODEL_CHECKPOINT_SCHEMA:
@@ -192,7 +194,9 @@ class TemporalModelCheckpoint:
             )
         model_payload = payload.get("model")
         training_payload = payload.get("training")
-        if not isinstance(model_payload, dict) or not isinstance(training_payload, dict):
+        if not isinstance(model_payload, dict) or not isinstance(
+            training_payload, dict
+        ):
             raise TemporalModelCheckpointError(
                 "checkpoint model and training provenance must be objects"
             )
@@ -207,7 +211,9 @@ class TemporalModelCheckpoint:
                     recurrent=_restore_layer(
                         model_payload.get("recurrent"), name="recurrent"
                     ),
-                    decoder=_restore_layer(model_payload.get("decoder"), name="decoder"),
+                    decoder=_restore_layer(
+                        model_payload.get("decoder"), name="decoder"
+                    ),
                 ),
                 training_steps=int(training_payload["steps"]),
                 training_run_id=str(training_payload["run_id"]),
@@ -216,7 +222,9 @@ class TemporalModelCheckpoint:
         except (KeyError, TypeError, ValueError) as exc:
             if isinstance(exc, TemporalModelCheckpointError):
                 raise
-            raise TemporalModelCheckpointError("malformed temporal model checkpoint") from exc
+            raise TemporalModelCheckpointError(
+                "malformed temporal model checkpoint"
+            ) from exc
 
         if verify_hash:
             expected = payload.get("sha256")
@@ -232,7 +240,7 @@ class TemporalModelCheckpoint:
         path: str | Path,
         *,
         verify_hash: bool = True,
-    ) -> "TemporalModelCheckpoint":
+    ) -> TemporalModelCheckpoint:
         try:
             payload = json.loads(Path(path).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
