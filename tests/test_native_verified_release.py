@@ -65,7 +65,10 @@ def test_verified_release_binds_runtime_to_measured_model_bytes(tmp_path: Path) 
         {"temporal": weights},
     )
 
-    assert verified.runtime.manifest.native_model_manifest_sha256 == manifest.manifest_sha256
+    assert (
+        verified.runtime.manifest.native_model_manifest_sha256
+        == manifest.manifest_sha256
+    )
     assert verified.model_artifacts.manifest_sha256 == manifest.manifest_sha256
     assert len(verified.model_artifacts.components) == 1
     component = verified.model_artifacts.components[0]
@@ -112,7 +115,9 @@ def test_verified_release_rejects_unversioned_extra_component(tmp_path: Path) ->
     registry = _registry(tmp_path)
     _activate_for_file(registry, weights)
 
-    with pytest.raises(ModelArtifactVerificationError, match="unexpected model component"):
+    with pytest.raises(
+        ModelArtifactVerificationError, match="unexpected model component"
+    ):
         build_verified_released_production_first_film_runtime(
             _NativeRenderer(),
             registry,
