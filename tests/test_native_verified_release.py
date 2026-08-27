@@ -19,6 +19,10 @@ from cineos.native_video.verified_release import (
 
 
 class _NativeRenderer:
+    def __init__(self, native_model_manifest_sha256: str | None = None) -> None:
+        if native_model_manifest_sha256 is not None:
+            self.native_model_manifest_sha256 = native_model_manifest_sha256
+
     def render(self, planned, target: str | Path, *, temporal_state):
         raise AssertionError("composition tests must not render video")
 
@@ -60,7 +64,7 @@ def test_verified_release_binds_runtime_to_measured_model_bytes(tmp_path: Path) 
     manifest = _activate_for_file(registry, weights)
 
     verified = build_verified_released_production_first_film_runtime(
-        _NativeRenderer(),
+        _NativeRenderer(manifest.manifest_sha256),
         registry,
         {"temporal": weights},
     )
