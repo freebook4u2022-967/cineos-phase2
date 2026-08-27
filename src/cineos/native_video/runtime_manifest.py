@@ -108,8 +108,7 @@ class ProductionRuntimeManifest:
         unknown = sorted(set(payload).difference(allowed))
         if unknown:
             raise ValueError(
-                "production runtime manifest has unknown fields: "
-                + ", ".join(unknown)
+                "production runtime manifest has unknown fields: " + ", ".join(unknown)
             )
 
         renderer_id = payload["renderer_id"]
