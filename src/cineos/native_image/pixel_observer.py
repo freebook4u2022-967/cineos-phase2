@@ -18,8 +18,10 @@ from .neural_decoder import DecodedRGBFrame
 from .temporal_identity import IdentityObservation
 from .visual_qc import VisualContinuityObservation
 
-PIXEL_CONTINUITY_MEMORY_SCHEMA = "cineos-pixel-continuity-memory/0.1"
+PIXEL_CONTINUITY_MEMORY_SCHEMA = "cineos-pixel-continuity-memory/0.2"
+_LEGACY_PIXEL_CONTINUITY_MEMORY_SCHEMAS = {"cineos-pixel-continuity-memory/0.1"}
 _LUMA_BINS = 8
+_SPATIAL_CELLS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,12 +38,16 @@ class PixelFrameDescriptor:
     luma_histogram: tuple[float, ...]
     black_fraction: float
     clipped_fraction: float
+    spatial_luma: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
+    edge_energy: float = 0.0
 
     def __post_init__(self) -> None:
         if self.width <= 0 or self.height <= 0:
             raise ValueError("pixel descriptor dimensions must be positive")
         if len(self.luma_histogram) != _LUMA_BINS:
             raise ValueError(f"luma histogram must contain {_LUMA_BINS} bins")
+        if len(self.spatial_luma) != _SPATIAL_CELLS:
+            raise ValueError(f"spatial luma must contain {_SPATIAL_CELLS} cells")
         bounded = (
             self.mean_luma,
             self.mean_red,
@@ -49,7 +55,9 @@ class PixelFrameDescriptor:
             self.mean_blue,
             self.black_fraction,
             self.clipped_fraction,
+            self.edge_energy,
             *self.luma_histogram,
+            *self.spatial_luma,
         )
         if any(not 0.0 <= value <= 1.0 for value in bounded):
             raise ValueError("normalized pixel descriptor values must be in [0, 1]")
@@ -68,6 +76,8 @@ class PixelFrameDescriptor:
             "luma_histogram": list(self.luma_histogram),
             "black_fraction": self.black_fraction,
             "clipped_fraction": self.clipped_fraction,
+            "spatial_luma": list(self.spatial_luma),
+            "edge_energy": self.edge_energy,
         }
 
     @classmethod
@@ -75,6 +85,9 @@ class PixelFrameDescriptor:
         histogram = payload.get("luma_histogram")
         if not isinstance(histogram, list):
             raise ValueError("pixel descriptor snapshot is missing luma histogram")
+        raw_spatial = payload.get("spatial_luma", [0.0] * _SPATIAL_CELLS)
+        if not isinstance(raw_spatial, list):
+            raise ValueError("pixel descriptor spatial luma must be a list")
         return cls(
             width=int(payload["width"]),
             height=int(payload["height"]),
@@ -86,11 +99,21 @@ class PixelFrameDescriptor:
             luma_histogram=tuple(float(value) for value in histogram),
             black_fraction=float(payload["black_fraction"]),
             clipped_fraction=float(payload["clipped_fraction"]),
+            spatial_luma=tuple(float(value) for value in raw_spatial),
+            edge_energy=float(payload.get("edge_energy", 0.0)),
         )
 
 
+def _pixel_luma(frame: DecodedRGBFrame, x: int, y: int) -> float:
+    offset = (y * frame.width + x) * 3
+    red = frame.rgb[offset] / 255.0
+    green = frame.rgb[offset + 1] / 255.0
+    blue = frame.rgb[offset + 2] / 255.0
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
 def describe_rgb_frame(frame: DecodedRGBFrame) -> PixelFrameDescriptor:
-    """Extract deterministic luminance/color statistics from generated RGB bytes."""
+    """Extract deterministic luminance/color/spatial evidence from generated RGB bytes."""
     if not isinstance(frame, DecodedRGBFrame):
         raise TypeError("frame must be a DecodedRGBFrame")
     expected = frame.width * frame.height * 3
@@ -102,26 +125,61 @@ def describe_rgb_frame(frame: DecodedRGBFrame) -> PixelFrameDescriptor:
     luma_total = luma_sq_total = 0.0
     black = clipped = 0
     histogram = [0] * _LUMA_BINS
+    quadrant_sums = [0.0] * _SPATIAL_CELLS
+    quadrant_counts = [0] * _SPATIAL_CELLS
+    luma_grid = [0.0] * count
 
-    for offset in range(0, len(frame.rgb), 3):
-        red = frame.rgb[offset] / 255.0
-        green = frame.rgb[offset + 1] / 255.0
-        blue = frame.rgb[offset + 2] / 255.0
-        luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    for y in range(frame.height):
+        for x in range(frame.width):
+            offset = (y * frame.width + x) * 3
+            red = frame.rgb[offset] / 255.0
+            green = frame.rgb[offset + 1] / 255.0
+            blue = frame.rgb[offset + 2] / 255.0
+            luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+            luma_grid[y * frame.width + x] = luma
 
-        red_total += red
-        green_total += green
-        blue_total += blue
-        luma_total += luma
-        luma_sq_total += luma * luma
-        histogram[min(_LUMA_BINS - 1, int(luma * _LUMA_BINS))] += 1
-        if luma <= 4.0 / 255.0:
-            black += 1
-        if red >= 251.0 / 255.0 or green >= 251.0 / 255.0 or blue >= 251.0 / 255.0:
-            clipped += 1
+            red_total += red
+            green_total += green
+            blue_total += blue
+            luma_total += luma
+            luma_sq_total += luma * luma
+            histogram[min(_LUMA_BINS - 1, int(luma * _LUMA_BINS))] += 1
+            if luma <= 4.0 / 255.0:
+                black += 1
+            if (
+                red >= 251.0 / 255.0
+                or green >= 251.0 / 255.0
+                or blue >= 251.0 / 255.0
+            ):
+                clipped += 1
+
+            quadrant = (2 if y * 2 >= frame.height else 0) + (
+                1 if x * 2 >= frame.width else 0
+            )
+            quadrant_sums[quadrant] += luma
+            quadrant_counts[quadrant] += 1
+
+    edge_total = 0.0
+    edge_count = 0
+    for y in range(frame.height):
+        for x in range(frame.width):
+            current = luma_grid[y * frame.width + x]
+            if x + 1 < frame.width:
+                edge_total += abs(current - luma_grid[y * frame.width + x + 1])
+                edge_count += 1
+            if y + 1 < frame.height:
+                edge_total += abs(current - luma_grid[(y + 1) * frame.width + x])
+                edge_count += 1
 
     mean_luma = luma_total / count
     variance = max(0.0, luma_sq_total / count - mean_luma * mean_luma)
+    spatial_luma = tuple(
+        quadrant_sums[index] / quadrant_counts[index]
+        if quadrant_counts[index]
+        else mean_luma
+        for index in range(_SPATIAL_CELLS)
+    )
+    edge_energy = edge_total / edge_count if edge_count else 0.0
     return PixelFrameDescriptor(
         width=frame.width,
         height=frame.height,
@@ -133,6 +191,8 @@ def describe_rgb_frame(frame: DecodedRGBFrame) -> PixelFrameDescriptor:
         luma_histogram=tuple(value / count for value in histogram),
         black_fraction=black / count,
         clipped_fraction=clipped / count,
+        spatial_luma=spatial_luma,
+        edge_energy=edge_energy,
     )
 
 
@@ -150,7 +210,19 @@ def _environment_similarity(
         + abs(baseline.mean_green - candidate.mean_green)
         + abs(baseline.mean_blue - candidate.mean_blue)
     ) / 3.0
-    delta = 0.65 * histogram_tv + 0.35 * color_delta
+    spatial_delta = sum(
+        abs(left - right)
+        for left, right in zip(
+            baseline.spatial_luma, candidate.spatial_luma, strict=True
+        )
+    ) / _SPATIAL_CELLS
+    edge_delta = abs(baseline.edge_energy - candidate.edge_energy)
+    delta = (
+        0.45 * histogram_tv
+        + 0.25 * color_delta
+        + 0.20 * spatial_delta
+        + 0.10 * edge_delta
+    )
     return max(0.0, min(1.0, 1.0 - delta))
 
 
@@ -188,7 +260,10 @@ class PixelContinuityMemory:
 
     @classmethod
     def restore(cls, payload: dict[str, object]) -> PixelContinuityMemory:
-        if payload.get("schema") != PIXEL_CONTINUITY_MEMORY_SCHEMA:
+        schema = payload.get("schema")
+        if schema != PIXEL_CONTINUITY_MEMORY_SCHEMA and schema not in (
+            _LEGACY_PIXEL_CONTINUITY_MEMORY_SCHEMAS
+        ):
             raise ValueError("unsupported pixel continuity memory schema")
         raw = payload.get("accepted", {})
         if not isinstance(raw, dict):
