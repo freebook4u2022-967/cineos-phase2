@@ -50,7 +50,7 @@ class TemporalRegressionSnapshot:
         benchmark_id: str,
         temporal: TemporalFilmEvalReport,
         boundaries: SceneBoundaryEvalReport,
-    ) -> "TemporalRegressionSnapshot":
+    ) -> TemporalRegressionSnapshot:
         """Build a snapshot only from measured evaluator reports."""
 
         return cls(
@@ -129,18 +129,25 @@ def compare_temporal_regression(
     active_policy = policy or TemporalRegressionPolicy()
     directives: list[str] = []
 
-    if active_policy.require_same_frame_count and baseline.frame_count != candidate.frame_count:
+    if (
+        active_policy.require_same_frame_count
+        and baseline.frame_count != candidate.frame_count
+    ):
         directives.append(
             "candidate temporal benchmark frame count differs from trusted baseline"
         )
 
     black_delta = candidate.black_frame_ratio - baseline.black_frame_ratio
     frozen_delta = candidate.frozen_transition_ratio - baseline.frozen_transition_ratio
-    hard_cut_delta = candidate.hard_cut_transition_ratio - baseline.hard_cut_transition_ratio
+    hard_cut_delta = (
+        candidate.hard_cut_transition_ratio - baseline.hard_cut_transition_ratio
+    )
     reject_delta = (
         candidate.scene_boundary_reject_count - baseline.scene_boundary_reject_count
     )
-    warn_delta = candidate.scene_boundary_warn_count - baseline.scene_boundary_warn_count
+    warn_delta = (
+        candidate.scene_boundary_warn_count - baseline.scene_boundary_warn_count
+    )
 
     if black_delta > active_policy.max_black_ratio_increase:
         directives.append("black-frame ratio regressed beyond release tolerance")
