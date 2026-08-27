@@ -5,6 +5,7 @@ import hashlib
 import pytest
 
 from cineos.native_video.production_readiness import (
+    PRODUCTION_READINESS_ATTESTATION_SCHEMA,
     READINESS_EVIDENCE_KEYS,
     ProductionReadinessAttestation,
     ProductionReadinessEvidence,
@@ -130,3 +131,42 @@ def test_attestation_rejects_duplicate_evidence_keys(tmp_path):
             runtime_manifest_fingerprint=runtime.fingerprint,
             artifacts=(artifact, artifact),
         )
+
+
+def test_attestation_snapshot_round_trip_is_stable(tmp_path):
+    runtime = _runtime()
+    attestation = _attestation(tmp_path, runtime)
+
+    restored = ProductionReadinessAttestation.restore(attestation.snapshot())
+
+    assert restored == attestation
+    assert restored.schema == PRODUCTION_READINESS_ATTESTATION_SCHEMA
+    assert restored.fingerprint == attestation.fingerprint
+
+
+def test_attestation_restore_rejects_unknown_schema(tmp_path):
+    runtime = _runtime()
+    payload = _attestation(tmp_path, runtime).snapshot()
+    payload["schema"] = "cineos-production-readiness-attestation/999"
+
+    with pytest.raises(ValueError, match="unsupported production readiness"):
+        ProductionReadinessAttestation.restore(payload)
+
+
+def test_attestation_restore_rejects_unknown_contract_fields(tmp_path):
+    runtime = _runtime()
+    payload = _attestation(tmp_path, runtime).snapshot()
+    payload["optimistic_override"] = True
+
+    with pytest.raises(ValueError, match="unknown fields"):
+        ProductionReadinessAttestation.restore(payload)
+
+
+def test_artifact_restore_rejects_unknown_contract_fields(tmp_path):
+    runtime = _runtime()
+    artifact = _attestation(tmp_path, runtime).artifacts[0]
+    payload = artifact.snapshot()
+    payload["passed"] = True
+
+    with pytest.raises(ValueError, match="unknown fields"):
+        ReadinessEvidenceArtifact.restore(payload)
