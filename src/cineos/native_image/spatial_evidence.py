@@ -152,9 +152,7 @@ def spatial_similarity(
         return 0.0
     grid_delta = sum(
         abs(left - right)
-        for left, right in zip(
-            baseline.luma_grid, candidate.luma_grid, strict=True
-        )
+        for left, right in zip(baseline.luma_grid, candidate.luma_grid, strict=True)
     ) / len(baseline.luma_grid)
     edge_delta = 0.5 * (
         abs(baseline.horizontal_edge_energy - candidate.horizontal_edge_energy)
@@ -197,7 +195,9 @@ class SpatialContinuityMemory:
             raise ValueError("spatial continuity accepted state must be a mapping")
         memory = cls()
         for scene_id, descriptor_payload in raw.items():
-            if not isinstance(scene_id, str) or not isinstance(descriptor_payload, dict):
+            if not isinstance(scene_id, str) or not isinstance(
+                descriptor_payload, dict
+            ):
                 raise ValueError("invalid spatial continuity memory entry")
             memory.accept(scene_id, SpatialFrameDescriptor.restore(descriptor_payload))
         return memory
@@ -220,7 +220,9 @@ class MeasuredSpatialContinuityObserver:
         plan: NativeImageConditioningPlan,
     ) -> VisualContinuityObservation:
         if result.shot_id != plan.shot_id:
-            raise ValueError("generated result and conditioning plan shot IDs must match")
+            raise ValueError(
+                "generated result and conditioning plan shot IDs must match"
+            )
         descriptor = describe_spatial_rgb_frame(result.image)
         baseline = self.memory.latest(plan.scene_id)
         score = 1.0 if baseline is None else spatial_similarity(baseline, descriptor)
@@ -236,5 +238,7 @@ class MeasuredSpatialContinuityObserver:
         plan: NativeImageConditioningPlan,
     ) -> None:
         if result.shot_id != plan.shot_id:
-            raise ValueError("generated result and conditioning plan shot IDs must match")
+            raise ValueError(
+                "generated result and conditioning plan shot IDs must match"
+            )
         self.memory.accept(plan.scene_id, describe_spatial_rgb_frame(result.image))

@@ -21,7 +21,9 @@ def _frame_from_rows(rows: list[list[int]]) -> DecodedRGBFrame:
     return DecodedRGBFrame(width, height, bytes(rgb))
 
 
-def _result(frame: DecodedRGBFrame, shot_id: str = "shot-001") -> NativeImageResearchResult:
+def _result(
+    frame: DecodedRGBFrame, shot_id: str = "shot-001"
+) -> NativeImageResearchResult:
     return NativeImageResearchResult(
         shot_id=shot_id,
         plan_hash="plan-hash",
@@ -159,4 +161,6 @@ def test_spatial_observer_commits_only_on_explicit_accept():
     assert after_observe == before
 
     observer.accept(candidate, plan)
-    assert observer.memory.latest(plan.scene_id) == describe_spatial_rgb_frame(candidate_frame)
+    assert observer.memory.latest(plan.scene_id) == describe_spatial_rgb_frame(
+        candidate_frame
+    )
