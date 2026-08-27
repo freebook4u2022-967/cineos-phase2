@@ -69,8 +69,7 @@ def _validate_window(frames: Sequence[bytes], *, label: str) -> int:
 
 def _adjacent_mads(frames: Sequence[bytes]) -> tuple[float, ...]:
     return tuple(
-        _frame_mad(left, right)
-        for left, right in zip(frames, frames[1:], strict=False)
+        _frame_mad(left, right) for left, right in zip(frames, frames[1:], strict=False)
     )
 
 
