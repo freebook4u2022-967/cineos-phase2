@@ -54,6 +54,15 @@ from .production_first_film import (
     build_production_first_film_runtime,
     build_released_production_first_film_runtime,
 )
+from .production_readiness import (
+    READINESS_EVIDENCE_KEYS,
+    ProductionReadinessAttestation,
+    ProductionReadinessEvidence,
+    ProductionReadinessReport,
+    ReadinessEvidenceArtifact,
+    evaluate_attested_production_readiness,
+    evaluate_production_readiness,
+)
 from .release_recovery import (
     ReleaseLockRecovery,
     read_activation_lock,
@@ -138,8 +147,13 @@ __all__ = [
     "PRODUCTION_FIRST_FILM_RUNTIME_KIND",
     "PRODUCTION_RUNTIME_MANIFEST_SCHEMA",
     "ProductionFirstFilmRuntime",
+    "ProductionReadinessAttestation",
+    "ProductionReadinessEvidence",
+    "ProductionReadinessReport",
     "ProductionRuntimeManifest",
+    "READINESS_EVIDENCE_KEYS",
     "RELEASE_REGISTRY_SCHEMA",
+    "ReadinessEvidenceArtifact",
     "ReleaseLockRecovery",
     "ReleaseRegistryError",
     "SCENE_MEMORY_SCHEMA",
@@ -170,6 +184,8 @@ __all__ = [
     "build_production_first_film_runtime",
     "build_released_production_first_film_runtime",
     "commit_release_snapshot",
+    "evaluate_attested_production_readiness",
+    "evaluate_production_readiness",
     "evaluate_sampled_frames",
     "evaluate_scene_boundaries",
     "load_final_film_audit",
