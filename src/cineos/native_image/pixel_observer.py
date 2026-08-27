@@ -146,11 +146,7 @@ def describe_rgb_frame(frame: DecodedRGBFrame) -> PixelFrameDescriptor:
             histogram[min(_LUMA_BINS - 1, int(luma * _LUMA_BINS))] += 1
             if luma <= 4.0 / 255.0:
                 black += 1
-            if (
-                red >= 251.0 / 255.0
-                or green >= 251.0 / 255.0
-                or blue >= 251.0 / 255.0
-            ):
+            if red >= 251.0 / 255.0 or green >= 251.0 / 255.0 or blue >= 251.0 / 255.0:
                 clipped += 1
 
             quadrant = (2 if y * 2 >= frame.height else 0) + (
@@ -174,9 +170,11 @@ def describe_rgb_frame(frame: DecodedRGBFrame) -> PixelFrameDescriptor:
     mean_luma = luma_total / count
     variance = max(0.0, luma_sq_total / count - mean_luma * mean_luma)
     spatial_luma = tuple(
-        quadrant_sums[index] / quadrant_counts[index]
-        if quadrant_counts[index]
-        else mean_luma
+        (
+            quadrant_sums[index] / quadrant_counts[index]
+            if quadrant_counts[index]
+            else mean_luma
+        )
         for index in range(_SPATIAL_CELLS)
     )
     edge_energy = edge_total / edge_count if edge_count else 0.0
@@ -210,12 +208,15 @@ def _environment_similarity(
         + abs(baseline.mean_green - candidate.mean_green)
         + abs(baseline.mean_blue - candidate.mean_blue)
     ) / 3.0
-    spatial_delta = sum(
-        abs(left - right)
-        for left, right in zip(
-            baseline.spatial_luma, candidate.spatial_luma, strict=True
+    spatial_delta = (
+        sum(
+            abs(left - right)
+            for left, right in zip(
+                baseline.spatial_luma, candidate.spatial_luma, strict=True
+            )
         )
-    ) / _SPATIAL_CELLS
+        / _SPATIAL_CELLS
+    )
     edge_delta = abs(baseline.edge_energy - candidate.edge_energy)
     delta = (
         0.45 * histogram_tv
