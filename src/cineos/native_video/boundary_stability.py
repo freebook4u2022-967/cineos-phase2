@@ -8,7 +8,9 @@ single-frame generation failures cannot hide behind an otherwise plausible edit.
 
 The metric is intentionally independent from FFmpeg and media containers. Production
 adapters supply real decoded grayscale frames; CI can exercise the exact decision
-logic with deterministic byte evidence.
+logic with deterministic byte evidence. Adapters should compose this report with
+edit-aware cross-boundary QC fail-closed: a reject from either evaluator must reject
+the boundary rather than allowing one metric to mask the other.
 """
 
 from __future__ import annotations
