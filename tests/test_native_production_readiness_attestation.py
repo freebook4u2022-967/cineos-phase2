@@ -90,7 +90,10 @@ def test_attested_readiness_rejects_tampered_artifact(tmp_path):
     report = evaluate_attested_production_readiness(_evidence(runtime), attestation)
 
     assert report.ready is False
-    assert f"readiness evidence artifact digest mismatch: {artifact.key}" in report.blockers
+    assert (
+        f"readiness evidence artifact digest mismatch: {artifact.key}"
+        in report.blockers
+    )
 
 
 def test_attested_readiness_rejects_runtime_mismatch(tmp_path):

@@ -58,7 +58,9 @@ class ReadinessEvidenceArtifact:
         if not self.path.strip():
             raise ValueError("readiness evidence path must not be empty")
         normalized = self.sha256.strip().lower()
-        if len(normalized) != 64 or any(ch not in "0123456789abcdef" for ch in normalized):
+        if len(normalized) != 64 or any(
+            ch not in "0123456789abcdef" for ch in normalized
+        ):
             raise ValueError("readiness evidence sha256 must be one SHA-256 hex digest")
         object.__setattr__(self, "sha256", normalized)
 
@@ -192,7 +194,9 @@ def evaluate_attested_production_readiness(
     blockers = list(base.blockers)
     runtime_fingerprint = evidence.runtime_manifest.fingerprint
     if attestation.runtime_manifest_fingerprint != runtime_fingerprint:
-        blockers.append("readiness attestation is bound to a different runtime manifest")
+        blockers.append(
+            "readiness attestation is bound to a different runtime manifest"
+        )
 
     by_key = {artifact.key: artifact for artifact in attestation.artifacts}
     for key in READINESS_EVIDENCE_KEYS:
