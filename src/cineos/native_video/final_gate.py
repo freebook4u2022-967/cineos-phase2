@@ -2,9 +2,10 @@
 
 This module adapts native video evaluators to the provider-neutral ``FirstFilmRunner``
 contract. It combines whole-film temporal evidence, plan-aware scene-boundary
-evidence, encoded-duration integrity, and optional measured audio integrity. It fails
-closed when measured quality or assembly completeness is rejected. External tools
-are inspectors/decoders only; no external visual generator participates in acceptance.
+evidence, encoded-duration integrity, optional measured audio integrity, and a
+cryptographic identity of the exact accepted movie artifact. It fails closed when
+measured quality or assembly completeness is rejected. External tools are
+inspectors/decoders only; no external visual generator participates in acceptance.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .artifact_integrity import NativeArtifactProvenance, provenance_for
 from .audio_integrity import AudioIntegrityReport, FinalFilmAudioIntegrityGate
 from .boundary_eval import FFmpegSceneBoundaryEvaluator
 from .duration_gate import DurationIntegrityReport, FFprobeDurationIntegrityGate
@@ -32,11 +34,12 @@ from .final_eval import (
 
 @dataclass(frozen=True, slots=True)
 class MeasuredFinalFilmReport:
-    """Auditable aggregate of final-film picture, assembly, and audio evidence."""
+    """Auditable aggregate of final-film picture, assembly, audio, and identity."""
 
     decision: str
     directives: tuple[str, ...]
     temporal: TemporalFilmEvalReport
+    artifact: NativeArtifactProvenance
     boundaries: SceneBoundaryEvalReport | None = None
     duration: DurationIntegrityReport | None = None
     audio: AudioIntegrityReport | None = None
@@ -49,6 +52,7 @@ class MeasuredFinalFilmReport:
         return {
             "decision": self.decision,
             "directives": list(self.directives),
+            "artifact": asdict(self.artifact),
             "temporal": asdict(self.temporal),
             "boundaries": (
                 asdict(self.boundaries) if self.boundaries is not None else None
@@ -67,6 +71,10 @@ class MeasuredFinalFilmGate:
     proves that the assembled container covers the authored shot plan. Production
     callers can additionally require measured encoded audio; this is opt-in for
     backwards compatibility with intentionally silent legacy/test films.
+
+    Every evaluation first computes SHA-256 provenance for the exact assembled movie.
+    This binds the resulting QC evidence to immutable artifact bytes and fails closed
+    for missing or empty output before any downstream evaluator is trusted.
     """
 
     temporal_evaluator: FFmpegTemporalFilmEvaluator | None = None
@@ -89,6 +97,7 @@ class MeasuredFinalFilmGate:
         self, movie_path: str | Path, plan: Sequence[Any]
     ) -> MeasuredFinalFilmReport:
         source = Path(movie_path)
+        artifact = provenance_for(source)
         temporal = self.temporal_evaluator.evaluate(source)
         duration = self.duration_evaluator.evaluate(source, plan)
         boundary_points = _planned_scene_boundaries(plan)
@@ -135,6 +144,7 @@ class MeasuredFinalFilmGate:
             decision=decision,
             directives=deduped,
             temporal=temporal,
+            artifact=artifact,
             boundaries=boundary_report,
             duration=duration,
             audio=audio_report,
