@@ -54,6 +54,17 @@ def test_manifest_rejects_unknown_schema() -> None:
         ProductionRuntimeManifest.restore(payload)
 
 
+def test_manifest_rejects_unknown_fields_under_current_schema() -> None:
+    payload = _manifest().snapshot()
+    payload["future_resume_semantics"] = "must-not-be-silently-ignored"
+
+    with pytest.raises(
+        ValueError,
+        match="production runtime manifest has unknown fields: future_resume_semantics",
+    ):
+        ProductionRuntimeManifest.restore(payload)
+
+
 def test_resume_compatibility_allows_operational_setting_changes() -> None:
     current = _manifest(max_recovery_attempts=5, device="cuda")
     saved = _manifest(max_recovery_attempts=1, device="cpu")
