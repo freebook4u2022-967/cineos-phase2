@@ -103,7 +103,9 @@ def test_released_runtime_requires_active_registry_model(tmp_path: Path) -> None
     registry = _registry(tmp_path)
 
     with pytest.raises(ModelManifestError, match="active native model release"):
-        build_released_production_first_film_runtime(_NativeRenderer("a" * 64), registry)
+        build_released_production_first_film_runtime(
+            _NativeRenderer("a" * 64), registry
+        )
 
 
 def test_released_runtime_requires_renderer_loaded_release_provenance(

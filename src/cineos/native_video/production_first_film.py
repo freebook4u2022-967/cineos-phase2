@@ -214,7 +214,9 @@ def _renderer_model_manifest_sha256(native_renderer: Any) -> str:
             "released production renderer must expose native_model_manifest_sha256"
         )
     digest = raw.strip().lower()
-    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+    if len(digest) != 64 or any(
+        character not in "0123456789abcdef" for character in digest
+    ):
         raise ModelManifestError(
             "renderer native_model_manifest_sha256 must be a 64-character hex digest"
         )
