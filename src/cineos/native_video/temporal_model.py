@@ -128,7 +128,7 @@ class TemporalSequenceState:
         if raw_last_frame_index == -1 and last_latent is not None:
             raise ValueError("unstarted temporal state cannot contain a last latent")
         if raw_last_frame_index >= 0 and last_latent is None:
-            raise ValueError("advanced temporal state requires a last latent")
+            raise ValueError("advanced temporal state must contain a last latent")
 
         raw_metadata = payload.get("metadata", {})
         if not isinstance(raw_metadata, dict):
