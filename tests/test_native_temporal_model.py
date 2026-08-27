@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from cineos.native_image.tensor_model import Tensor
@@ -50,7 +52,7 @@ def test_temporal_state_snapshot_restore_is_resumable() -> None:
     state = model.initial_state("shot-001")
     model.step(_frame(0), state)
 
-    restored = TemporalSequenceState.restore(state.snapshot())
+    restored = model.restore_state(state.snapshot())
     resumed = model.step(_frame(1), restored)
 
     assert restored.shot_id == "shot-001"
@@ -109,3 +111,39 @@ def test_stale_candidate_cannot_overwrite_accepted_state() -> None:
 
     with pytest.raises(ValueError, match="expected candidate frame_index 1"):
         model.commit(stale, state)
+
+
+def test_temporal_restore_rejects_missing_shot_identity() -> None:
+    model = NativeTemporalModel.initialized()
+    payload = model.initial_state("shot-001").snapshot()
+    payload["shot_id"] = ""
+
+    with pytest.raises(ValueError, match="non-empty shot_id"):
+        TemporalSequenceState.restore(payload)
+
+
+def test_temporal_restore_rejects_incoherent_frame_and_latent_state() -> None:
+    model = NativeTemporalModel.initialized()
+    payload = model.initial_state("shot-001").snapshot()
+    payload["last_frame_index"] = 0
+
+    with pytest.raises(ValueError, match="advanced temporal state requires"):
+        TemporalSequenceState.restore(payload)
+
+
+def test_model_restore_rejects_checkpoint_from_incompatible_model() -> None:
+    source = NativeTemporalModel.initialized(hidden_dim=8, latent_dim=6)
+    target = NativeTemporalModel.initialized(hidden_dim=16, latent_dim=16)
+    state = source.initial_state("shot-001")
+
+    with pytest.raises(ValueError, match="hidden tensor is model-incompatible"):
+        target.restore_state(state.snapshot())
+
+
+def test_model_restore_rejects_non_finite_temporal_state() -> None:
+    model = NativeTemporalModel.initialized()
+    payload = model.initial_state("shot-001").snapshot()
+    payload["hidden"] = [math.nan] + [0.0] * (model.hidden_dim - 1)
+
+    with pytest.raises(ValueError, match="non-finite"):
+        model.restore_state(payload)
