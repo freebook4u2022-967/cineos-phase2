@@ -224,11 +224,15 @@ class NativeTemporalModel:
         ):
             raise ValueError("temporal checkpoint latent tensor is model-incompatible")
         if any(not math.isfinite(value) for value in state.hidden.values):
-            raise ValueError("temporal checkpoint hidden tensor contains non-finite data")
+            raise ValueError(
+                "temporal checkpoint hidden tensor contains non-finite data"
+            )
         if state.last_latent is not None and any(
             not math.isfinite(value) for value in state.last_latent.values
         ):
-            raise ValueError("temporal checkpoint latent tensor contains non-finite data")
+            raise ValueError(
+                "temporal checkpoint latent tensor contains non-finite data"
+            )
         return state
 
     def propose(
