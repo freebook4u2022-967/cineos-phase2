@@ -19,6 +19,16 @@ def _solid_frame(value: int, *, width: int = 4, height: int = 4) -> DecodedRGBFr
     return DecodedRGBFrame(width, height, bytes([value, value, value] * width * height))
 
 
+def _vertical_split_frame(*, bright_left: bool) -> DecodedRGBFrame:
+    pixels = bytearray()
+    for _y in range(4):
+        for x in range(4):
+            bright = x < 2 if bright_left else x >= 2
+            value = 224 if bright else 32
+            pixels.extend((value, value, value))
+    return DecodedRGBFrame(4, 4, bytes(pixels))
+
+
 def _result(
     frame: DecodedRGBFrame, shot_id: str = "shot-001"
 ) -> NativeImageResearchResult:
@@ -69,9 +79,24 @@ def test_generated_rgb_descriptor_detects_black_and_mid_gray():
     assert black.mean_luma == 0.0
     assert black.black_fraction == 1.0
     assert black.clipped_fraction == 0.0
+    assert black.edge_energy == 0.0
     assert 0.49 < gray.mean_luma < 0.51
     assert gray.black_fraction == 0.0
     assert sum(gray.luma_histogram) == 1.0
+    assert all(0.49 < value < 0.51 for value in gray.spatial_luma)
+
+
+def test_generated_rgb_descriptor_measures_spatial_layout_and_edges():
+    left = describe_rgb_frame(_vertical_split_frame(bright_left=True))
+    right = describe_rgb_frame(_vertical_split_frame(bright_left=False))
+
+    assert abs(left.mean_luma - right.mean_luma) < 1e-12
+    assert left.luma_histogram == right.luma_histogram
+    assert left.spatial_luma != right.spatial_luma
+    assert left.spatial_luma[0] > left.spatial_luma[1]
+    assert right.spatial_luma[0] < right.spatial_luma[1]
+    assert left.edge_energy > 0.0
+    assert right.edge_energy == left.edge_energy
 
 
 def test_pixel_observer_scores_against_last_accepted_scene_baseline():
@@ -86,18 +111,50 @@ def test_pixel_observer_scores_against_last_accepted_scene_baseline():
 
     assert same.scores["environment"] == 1.0
     assert same.scores["lighting"] == 1.0
-    assert changed.scores["environment"] < 0.70
+    assert changed.scores["environment"] < 0.80
     assert changed.scores["lighting"] < 0.70
+
+
+def test_pixel_observer_detects_layout_change_with_same_global_histogram():
+    observer = DecodedPixelContinuityObserver()
+    plan = _plan()
+    observer.accept(_result(_vertical_split_frame(bright_left=True)), plan)
+
+    observation = observer.observe(
+        _result(_vertical_split_frame(bright_left=False)), plan
+    )
+
+    assert observation.scores["lighting"] == 1.0
+    assert observation.scores["environment"] < 1.0
 
 
 def test_pixel_continuity_memory_round_trips_versioned_state():
     memory = PixelContinuityMemory()
-    descriptor = describe_rgb_frame(_solid_frame(96))
+    descriptor = describe_rgb_frame(_vertical_split_frame(bright_left=True))
     memory.accept("scene-001", descriptor)
 
-    restored = PixelContinuityMemory.restore(memory.snapshot())
+    snapshot = memory.snapshot()
+    restored = PixelContinuityMemory.restore(snapshot)
 
+    assert snapshot["schema"] == "cineos-pixel-continuity-memory/0.2"
     assert restored.latest("scene-001") == descriptor
+
+
+def test_pixel_continuity_memory_restores_legacy_v01_state():
+    descriptor = describe_rgb_frame(_solid_frame(96)).snapshot()
+    descriptor.pop("spatial_luma")
+    descriptor.pop("edge_energy")
+    restored = PixelContinuityMemory.restore(
+        {
+            "schema": "cineos-pixel-continuity-memory/0.1",
+            "accepted": {"scene-001": descriptor},
+        }
+    )
+
+    legacy = restored.latest("scene-001")
+    assert legacy is not None
+    assert legacy.spatial_luma == (0.0, 0.0, 0.0, 0.0)
+    assert legacy.edge_energy == 0.0
 
 
 class _SequenceModel:
