@@ -18,6 +18,10 @@ from cineos.native_video.released_runtime import (
 
 
 class _NativeRenderer:
+    def __init__(self, native_model_manifest_sha256: str | None = None) -> None:
+        if native_model_manifest_sha256 is not None:
+            self.native_model_manifest_sha256 = native_model_manifest_sha256
+
     def render(self, planned, target: str | Path, *, temporal_state):
         raise AssertionError("composition tests must not render video")
 
@@ -46,10 +50,17 @@ def _registry(tmp_path: Path) -> NativeModelRegistry:
     return registry
 
 
+def _renderer_for(registry: NativeModelRegistry) -> _NativeRenderer:
+    active = registry.active()
+    assert active is not None
+    return _NativeRenderer(active.manifest_sha256)
+
+
 def test_strict_released_runtime_enables_audio_qc_by_default(tmp_path: Path) -> None:
+    registry = _registry(tmp_path)
     runtime = build_strict_released_production_runtime(
-        _NativeRenderer(),
-        _registry(tmp_path),
+        _renderer_for(registry),
+        registry,
     )
 
     assert runtime.final_gate.require_audio is True
@@ -68,10 +79,11 @@ def test_strict_released_runtime_rejects_audio_qc_downgrade(tmp_path: Path) -> N
 
 def test_strict_released_runtime_accepts_custom_strict_gate(tmp_path: Path) -> None:
     gate = MeasuredFinalFilmGate(require_audio=True)
+    registry = _registry(tmp_path)
 
     runtime = build_strict_released_production_runtime(
-        _NativeRenderer(),
-        _registry(tmp_path),
+        _renderer_for(registry),
+        registry,
         final_gate=gate,
     )
 
