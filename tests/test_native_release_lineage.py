@@ -14,7 +14,9 @@ from cineos.native_video.release_lineage import (
 from cineos.native_video.release_receipt import ProductionReleaseError
 
 
-def _release(*, seed: str, model: str = "c", runtime: str = "d") -> AuditedProductionRelease:
+def _release(
+    *, seed: str, model: str = "c", runtime: str = "d"
+) -> AuditedProductionRelease:
     return AuditedProductionRelease(
         release_bundle_sha256=seed * 64,
         audit_record_sha256="b" * 64,
