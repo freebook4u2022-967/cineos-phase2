@@ -48,7 +48,9 @@ def build_strict_released_production_runtime(
     elif not isinstance(requested_gate, MeasuredFinalFilmGate):
         raise TypeError("released production final_gate must be MeasuredFinalFilmGate")
     elif not requested_gate.require_audio:
-        raise ValueError("released production runtime requires measured final-film audio QC")
+        raise ValueError(
+            "released production runtime requires measured final-film audio QC"
+        )
 
     runtime = build_released_production_first_film_runtime(
         native_renderer,
@@ -57,7 +59,9 @@ def build_strict_released_production_runtime(
         **kwargs,
     )
     if not runtime.final_gate.require_audio or not runtime.manifest.require_audio:
-        raise RuntimeError("released production runtime was composed without required audio QC")
+        raise RuntimeError(
+            "released production runtime was composed without required audio QC"
+        )
     return runtime
 
 
