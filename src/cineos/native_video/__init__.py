@@ -127,6 +127,12 @@ from .temporal_qc import (
     TemporalQCPolicy,
     TemporalQCReport,
 )
+from .temporal_regression import (
+    TemporalRegressionPolicy,
+    TemporalRegressionReport,
+    TemporalRegressionSnapshot,
+    compare_temporal_regression,
+)
 
 __all__ = [
     "AnalyticLatentRGBDecoder",
@@ -197,6 +203,9 @@ __all__ = [
     "TemporalObserver",
     "TemporalQCPolicy",
     "TemporalQCReport",
+    "TemporalRegressionPolicy",
+    "TemporalRegressionReport",
+    "TemporalRegressionSnapshot",
     "TemporalRetryPolicy",
     "TemporalRuntimeEvent",
     "TemporalSequenceState",
@@ -206,6 +215,7 @@ __all__ = [
     "build_released_production_first_film_runtime",
     "build_strict_released_production_runtime",
     "commit_release_snapshot",
+    "compare_temporal_regression",
     "create_production_release_bundle",
     "evaluate_attested_production_readiness",
     "evaluate_production_readiness",
