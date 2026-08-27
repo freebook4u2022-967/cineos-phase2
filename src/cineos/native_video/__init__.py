@@ -90,6 +90,7 @@ from .release_registry import (
     commit_release_snapshot,
     load_verified_release_snapshot,
 )
+from .released_runtime import build_strict_released_production_runtime
 from .renderer_binding import NativeFilmRendererBinding, NativeTemporalShotRenderer
 from .runtime import (
     MotionDampingRetryPolicy,
@@ -203,6 +204,7 @@ __all__ = [
     "build_checkpoint_temporal_shot_renderer",
     "build_production_first_film_runtime",
     "build_released_production_first_film_runtime",
+    "build_strict_released_production_runtime",
     "commit_release_snapshot",
     "create_production_release_bundle",
     "evaluate_attested_production_readiness",
