@@ -27,7 +27,7 @@ from .renderer_binding import NativeTemporalShotRenderer
 
 @dataclass(frozen=True, slots=True)
 class VerifiedProductionFirstFilmRuntime:
-    """Production runtime plus cryptographic evidence for its learned component bytes."""
+    """Production runtime plus cryptographic evidence for learned component bytes."""
 
     runtime: ProductionFirstFilmRuntime
     model_artifacts: ModelArtifactAttestation
