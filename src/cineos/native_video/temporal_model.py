@@ -129,7 +129,8 @@ class TemporalSequenceState:
             raise ValueError("unstarted temporal state cannot contain a last latent")
         if raw_last_frame_index >= 0 and last_latent is None:
             raise ValueError(
-                "advanced temporal state requires checkpoint data and must contain a last latent"
+                "advanced temporal state requires checkpoint data and "
+                "must contain a last latent"
             )
 
         raw_metadata = payload.get("metadata", {})
