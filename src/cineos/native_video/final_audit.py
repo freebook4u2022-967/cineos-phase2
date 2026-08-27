@@ -117,15 +117,30 @@ class FinalFilmAuditRecord:
         model_fingerprint: str = "",
         runtime_fingerprint: str = "",
     ) -> FinalFilmAuditRecord:
-        """Bind a measured report to the exact bytes that were evaluated."""
+        """Bind a measured report to the exact bytes that were evaluated.
+
+        The measured gate already records cryptographic provenance for the artifact it
+        inspected. Recompute the final movie identity here and require an exact match
+        before durable audit evidence can be created. This prevents a valid QC report
+        from being replayed against a different or subsequently replaced movie file.
+        """
         source = Path(movie_path)
         if not source.is_file():
             raise FileNotFoundError(source)
         size = source.stat().st_size
         if size <= 0:
             raise FinalFilmAuditError("cannot audit an empty movie artifact")
+        movie_sha256 = _sha256_file(source)
+        if report.artifact.byte_size != size:
+            raise FinalFilmAuditError(
+                "measured report artifact size does not match audited movie"
+            )
+        if report.artifact.sha256 != movie_sha256:
+            raise FinalFilmAuditError(
+                "measured report artifact digest does not match audited movie"
+            )
         return cls(
-            movie_sha256=_sha256_file(source),
+            movie_sha256=movie_sha256,
             movie_size_bytes=size,
             decision=report.decision,
             report=report.as_dict(),
