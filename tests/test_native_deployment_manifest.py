@@ -15,7 +15,9 @@ from cineos.native_video.deployment import (
 )
 
 
-def _manifest_for(checkpoint_bytes: bytes, *, contract_version: int = 1) -> NativeModelManifest:
+def _manifest_for(
+    checkpoint_bytes: bytes, *, contract_version: int = 1
+) -> NativeModelManifest:
     return NativeModelManifest(
         model_id="cineos-native-video-test",
         model_version="0.1.0",
@@ -72,7 +74,9 @@ def test_validate_checkpoint_against_manifest_rejects_tampered_manifest_hash(tmp
         validate_checkpoint_against_native_model_manifest(checkpoint, manifest_path)
 
 
-def test_validate_checkpoint_against_manifest_rejects_newer_component_contract(tmp_path):
+def test_validate_checkpoint_against_manifest_rejects_newer_component_contract(
+    tmp_path,
+):
     checkpoint_bytes = b"checkpoint"
     checkpoint = tmp_path / "decoder.pt"
     checkpoint.write_bytes(checkpoint_bytes)
