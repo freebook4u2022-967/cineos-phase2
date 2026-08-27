@@ -55,6 +55,7 @@ from .production_first_film import (
     build_released_production_first_film_runtime,
 )
 from .production_readiness import (
+    PRODUCTION_READINESS_ATTESTATION_SCHEMA,
     READINESS_EVIDENCE_KEYS,
     ProductionReadinessAttestation,
     ProductionReadinessEvidence,
@@ -145,6 +146,7 @@ __all__ = [
     "NativeTemporalShotRenderer",
     "NullTemporalObserver",
     "PRODUCTION_FIRST_FILM_RUNTIME_KIND",
+    "PRODUCTION_READINESS_ATTESTATION_SCHEMA",
     "PRODUCTION_RUNTIME_MANIFEST_SCHEMA",
     "ProductionFirstFilmRuntime",
     "ProductionReadinessAttestation",
