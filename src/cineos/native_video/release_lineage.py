@@ -12,8 +12,9 @@ boundary that migration tooling must satisfy before activation.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from .audited_release import AuditedProductionRelease
 from .release_receipt import ProductionReleaseError, canonical_sha256
@@ -46,8 +47,14 @@ class ProductionReleaseLineageEntry:
 
     def __post_init__(self) -> None:
         if self.schema != PRODUCTION_RELEASE_LINEAGE_SCHEMA:
-            raise ProductionReleaseError("unsupported production release lineage schema")
-        if not isinstance(self.sequence, int) or isinstance(self.sequence, bool) or self.sequence < 0:
+            raise ProductionReleaseError(
+                "unsupported production release lineage schema"
+            )
+        if (
+            not isinstance(self.sequence, int)
+            or isinstance(self.sequence, bool)
+            or self.sequence < 0
+        ):
             raise ProductionReleaseError("sequence must be a non-negative integer")
         for field_name in (
             "release_fingerprint",
@@ -56,7 +63,9 @@ class ProductionReleaseLineageEntry:
             "runtime_fingerprint",
             "migration_fingerprint",
         ):
-            object.__setattr__(self, field_name, _require_sha256(field_name, getattr(self, field_name)))
+            object.__setattr__(
+                self, field_name, _require_sha256(field_name, getattr(self, field_name))
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -98,7 +107,9 @@ def create_release_lineage_entry(
     if migration_fingerprint is None:
         migration_digest = GENESIS_PREVIOUS_RELEASE
     else:
-        migration_digest = _require_sha256("migration_fingerprint", migration_fingerprint)
+        migration_digest = _require_sha256(
+            "migration_fingerprint", migration_fingerprint
+        )
 
     if changed_composition and migration_digest == GENESIS_PREVIOUS_RELEASE:
         raise ProductionReleaseError(
@@ -134,28 +145,40 @@ def verify_release_lineage(
         if entry.sequence != index:
             raise ProductionReleaseError("production release lineage sequence gap")
         if entry.release_fingerprint in seen_release_fingerprints:
-            raise ProductionReleaseError("production release lineage contains a duplicate release")
+            raise ProductionReleaseError(
+                "production release lineage contains a duplicate release"
+            )
         seen_release_fingerprints.add(entry.release_fingerprint)
 
         if index == 0:
             if entry.previous_release_fingerprint != GENESIS_PREVIOUS_RELEASE:
-                raise ProductionReleaseError("genesis release must use zero previous-release digest")
+                raise ProductionReleaseError(
+                    "genesis release must use zero previous-release digest"
+                )
             if entry.migration_fingerprint != GENESIS_PREVIOUS_RELEASE:
-                raise ProductionReleaseError("genesis release cannot declare a migration")
+                raise ProductionReleaseError(
+                    "genesis release cannot declare a migration"
+                )
             continue
 
         previous = chain[index - 1]
         if entry.previous_release_fingerprint != previous.release_fingerprint:
-            raise ProductionReleaseError("production release lineage previous-release mismatch")
+            raise ProductionReleaseError(
+                "production release lineage previous-release mismatch"
+            )
         changed_composition = (
             previous.model_fingerprint != entry.model_fingerprint
             or previous.runtime_fingerprint != entry.runtime_fingerprint
         )
         has_migration = entry.migration_fingerprint != GENESIS_PREVIOUS_RELEASE
         if changed_composition and not has_migration:
-            raise ProductionReleaseError("release upgrade missing migration fingerprint")
+            raise ProductionReleaseError(
+                "release upgrade missing migration fingerprint"
+            )
         if not changed_composition and has_migration:
-            raise ProductionReleaseError("spurious migration fingerprint in release lineage")
+            raise ProductionReleaseError(
+                "spurious migration fingerprint in release lineage"
+            )
 
     return chain
 
