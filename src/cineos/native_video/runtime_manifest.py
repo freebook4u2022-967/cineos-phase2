@@ -80,6 +80,10 @@ class ProductionRuntimeManifest:
         native-model bindings restore to explicit legacy markers; a runtime carrying
         a real binding will therefore refuse those checkpoints until the job restarts
         under the current production contract.
+
+        Unknown fields fail closed. A producer that writes a new semantic field must
+        also publish a new schema/migration instead of allowing an older runtime to
+        silently discard that field and incorrectly declare a resume compatible.
         """
         if payload.get("schema") != PRODUCTION_RUNTIME_MANIFEST_SCHEMA:
             raise ValueError("unsupported production runtime manifest schema")
@@ -91,10 +95,21 @@ class ProductionRuntimeManifest:
             "require_final_film_evaluation",
             "require_audio",
         }
+        allowed = required | {
+            "schema",
+            "final_gate_policy_fingerprint",
+            "native_model_manifest_sha256",
+        }
         missing = sorted(required.difference(payload))
         if missing:
             raise ValueError(
                 "production runtime manifest is missing: " + ", ".join(missing)
+            )
+        unknown = sorted(set(payload).difference(allowed))
+        if unknown:
+            raise ValueError(
+                "production runtime manifest has unknown fields: "
+                + ", ".join(unknown)
             )
 
         renderer_id = payload["renderer_id"]
