@@ -10,8 +10,8 @@ an identity anchor is committed.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,11 +63,16 @@ class CharacterIdentityEmbeddingBank:
         if len(vectors) != len(weights):
             raise ValueError("reference weights must match reference embeddings")
         numeric_weights = tuple(float(weight) for weight in weights)
-        if any(not math.isfinite(weight) or weight <= 0.0 for weight in numeric_weights):
+        if any(
+            not math.isfinite(weight) or weight <= 0.0 for weight in numeric_weights
+        ):
             raise ValueError("reference weights must be finite and positive")
         total = sum(numeric_weights)
         centroid = tuple(
-            sum(vector[index] * weight for vector, weight in zip(vectors, numeric_weights, strict=True))
+            sum(
+                vector[index] * weight
+                for vector, weight in zip(vectors, numeric_weights, strict=True)
+            )
             / total
             for index in range(width)
         )
