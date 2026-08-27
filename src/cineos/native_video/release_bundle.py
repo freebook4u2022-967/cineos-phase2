@@ -49,8 +49,10 @@ class ProductionReleaseBundle:
             "runtime_manifest_fingerprint",
         ):
             value = getattr(self, name)
-            if not isinstance(value, str) or len(value) != 64 or any(
-                char not in "0123456789abcdef" for char in value.lower()
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(char not in "0123456789abcdef" for char in value.lower())
             ):
                 raise ProductionReleaseError(f"{name} must be one SHA-256 hex digest")
             object.__setattr__(self, name, value.lower())
@@ -176,13 +178,17 @@ def load_production_release_bundle(path: str | Path) -> ProductionReleaseBundle:
     if not isinstance(document, dict):
         raise ProductionReleaseError("production release bundle root must be an object")
     if set(document) != {"bundle", "bundle_sha256"}:
-        raise ProductionReleaseError("production release bundle envelope fields invalid")
+        raise ProductionReleaseError(
+            "production release bundle envelope fields invalid"
+        )
     payload = document["bundle"]
     recorded_hash = document["bundle_sha256"]
     if not isinstance(payload, dict) or not isinstance(recorded_hash, str):
         raise ProductionReleaseError("production release bundle envelope is malformed")
     if canonical_sha256(payload) != recorded_hash:
-        raise ProductionReleaseError("production release bundle integrity hash mismatch")
+        raise ProductionReleaseError(
+            "production release bundle integrity hash mismatch"
+        )
     try:
         return ProductionReleaseBundle(**payload)
     except (TypeError, ValueError) as error:
