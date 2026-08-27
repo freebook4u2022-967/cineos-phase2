@@ -113,7 +113,7 @@ def _pixel_luma(frame: DecodedRGBFrame, x: int, y: int) -> float:
 
 
 def describe_rgb_frame(frame: DecodedRGBFrame) -> PixelFrameDescriptor:
-    """Extract deterministic luminance/color/spatial evidence from generated RGB bytes."""
+    """Extract deterministic luminance, color, and spatial RGB evidence."""
     if not isinstance(frame, DecodedRGBFrame):
         raise TypeError("frame must be a DecodedRGBFrame")
     expected = frame.width * frame.height * 3
