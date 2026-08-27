@@ -61,7 +61,9 @@ def test_readiness_rejects_legacy_unbound_runtime():
     report = evaluate_production_readiness(_evidence(runtime_manifest=runtime))
 
     assert report.ready is False
-    assert "production runtime is not bound to a native model manifest" in report.blockers
+    assert (
+        "production runtime is not bound to a native model manifest" in report.blockers
+    )
     assert "production runtime is not bound to a final-gate policy" in report.blockers
 
 
