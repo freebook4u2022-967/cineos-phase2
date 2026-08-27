@@ -1,3 +1,5 @@
+import pytest
+
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.native_image.backend import (
     NativeImageResearchBackend,
@@ -96,7 +98,7 @@ def test_generated_rgb_descriptor_measures_spatial_layout_and_edges():
     assert left.spatial_luma[0] > left.spatial_luma[1]
     assert right.spatial_luma[0] < right.spatial_luma[1]
     assert left.edge_energy > 0.0
-    assert right.edge_energy == left.edge_energy
+    assert right.edge_energy == pytest.approx(left.edge_energy)
 
 
 def test_pixel_observer_scores_against_last_accepted_scene_baseline():
@@ -124,7 +126,7 @@ def test_pixel_observer_detects_layout_change_with_same_global_histogram():
         _result(_vertical_split_frame(bright_left=False)), plan
     )
 
-    assert observation.scores["lighting"] == 1.0
+    assert observation.scores["lighting"] == pytest.approx(1.0)
     assert observation.scores["environment"] < 1.0
 
 
