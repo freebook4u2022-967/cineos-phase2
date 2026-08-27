@@ -46,7 +46,9 @@ class AuditedProductionRelease:
 
     def __post_init__(self) -> None:
         if self.schema != AUDITED_PRODUCTION_RELEASE_SCHEMA:
-            raise ProductionReleaseError("unsupported audited production release schema")
+            raise ProductionReleaseError(
+                "unsupported audited production release schema"
+            )
         for field_name in (
             "release_bundle_sha256",
             "audit_record_sha256",
@@ -205,15 +207,21 @@ def load_audited_production_release(path: str | Path) -> AuditedProductionReleas
             f"cannot read audited production release: {error}"
         ) from error
     if not isinstance(document, dict):
-        raise ProductionReleaseError("audited production release root must be an object")
+        raise ProductionReleaseError(
+            "audited production release root must be an object"
+        )
     if set(document) != {"release", "release_sha256"}:
-        raise ProductionReleaseError("audited production release envelope fields invalid")
+        raise ProductionReleaseError(
+            "audited production release envelope fields invalid"
+        )
     payload = document["release"]
     recorded_hash = document["release_sha256"]
     if not isinstance(payload, dict) or not isinstance(recorded_hash, str):
         raise ProductionReleaseError("audited production release envelope is malformed")
     if canonical_sha256(payload) != recorded_hash:
-        raise ProductionReleaseError("audited production release integrity hash mismatch")
+        raise ProductionReleaseError(
+            "audited production release integrity hash mismatch"
+        )
     try:
         release = AuditedProductionRelease(**payload)
     except (TypeError, ValueError) as error:
