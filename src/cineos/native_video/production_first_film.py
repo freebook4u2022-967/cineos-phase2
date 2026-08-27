@@ -196,6 +196,43 @@ def _compatible_active_manifest(
     return active
 
 
+def _renderer_model_manifest_sha256(native_renderer: Any) -> str:
+    """Return the native release digest that the renderer has actually loaded.
+
+    A registry entry by itself is only deployment intent. Production release binding
+    must also prove that the concrete renderer instance serving the film job was
+    constructed from that same release. Renderers therefore expose
+    ``native_model_manifest_sha256`` as either a string property or a zero-argument
+    method. Failing closed prevents a stale worker/model process from being mislabeled
+    as the newly activated release.
+    """
+    raw = getattr(native_renderer, "native_model_manifest_sha256", None)
+    if callable(raw):
+        raw = raw()
+    if not isinstance(raw, str) or not raw.strip():
+        raise ModelManifestError(
+            "released production renderer must expose native_model_manifest_sha256"
+        )
+    digest = raw.strip().lower()
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        raise ModelManifestError(
+            "renderer native_model_manifest_sha256 must be a 64-character hex digest"
+        )
+    return digest
+
+
+def _assert_renderer_release_binding(
+    native_renderer: Any,
+    active_manifest: NativeModelManifest,
+) -> None:
+    """Fail closed unless renderer provenance matches the active registry release."""
+    renderer_digest = _renderer_model_manifest_sha256(native_renderer)
+    if renderer_digest != active_manifest.manifest_sha256.lower():
+        raise ModelManifestError(
+            "native renderer model manifest does not match active registry release"
+        )
+
+
 def build_production_first_film_runtime(
     native_renderer: NativeTemporalShotRenderer,
     validator: Any | None = None,
@@ -280,15 +317,16 @@ def build_released_production_first_film_runtime(
     """Build production FIRST FILM bound to the registry's active model release.
 
     The active manifest is hash-verified by the registry and compatibility-checked
-    again against the *current* runtime contract before composition. This matters
-    after upgrades: a model that was valid when activated must not be assumed valid
-    forever merely because its persisted registry entry remains active.
+    again against the *current* runtime contract before composition. The concrete
+    renderer must independently report the same manifest digest, closing the stale
+    worker gap between release activation and the model actually serving frames.
 
     Requiring that manifest here makes model release identity part of durable film
     state, so a checkpoint cannot silently resume after any released component has
     changed even when the temporal sub-model itself happens to be identical.
     """
     active = _compatible_active_manifest(model_registry)
+    _assert_renderer_release_binding(native_renderer, active)
     requested_digest = kwargs.pop("native_model_manifest_sha256", None)
     if requested_digest is not None and requested_digest != active.manifest_sha256:
         raise ModelManifestError(
