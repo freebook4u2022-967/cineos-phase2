@@ -1,3 +1,5 @@
+import pytest
+
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.native_image.backend import NativeImageResearchResult
 from cineos.native_image.conditioning import compile_native_image_plan
@@ -67,7 +69,7 @@ def test_spatial_descriptor_detects_directional_edge_energy():
     assert descriptor.horizontal_edge_energy > 0.0
     assert descriptor.vertical_edge_energy == 0.0
     assert descriptor.luma_grid[0] == 0.0
-    assert descriptor.luma_grid[3] == 1.0
+    assert descriptor.luma_grid[3] == pytest.approx(1.0)
 
 
 def test_spatial_similarity_penalizes_composition_shift_with_same_global_luma():
@@ -91,7 +93,7 @@ def test_spatial_similarity_penalizes_composition_shift_with_same_global_luma():
     baseline = describe_spatial_rgb_frame(left_bright)
     shifted = describe_spatial_rgb_frame(right_bright)
 
-    assert spatial_similarity(baseline, baseline) == 1.0
+    assert spatial_similarity(baseline, baseline) == pytest.approx(1.0)
     assert spatial_similarity(baseline, shifted) < 0.6
 
 
