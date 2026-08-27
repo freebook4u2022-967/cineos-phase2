@@ -9,14 +9,18 @@ automation, dashboards, and operators share the same contract.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .runtime_manifest import (
     LEGACY_UNBOUND_FINAL_GATE_POLICY,
     LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST,
     ProductionRuntimeManifest,
 )
+
+PRODUCTION_READINESS_ATTESTATION_SCHEMA = "cineos-production-readiness-attestation/0.1"
 
 READINESS_EVIDENCE_KEYS = (
     "native_model_training",
@@ -64,6 +68,35 @@ class ReadinessEvidenceArtifact:
             raise ValueError("readiness evidence sha256 must be one SHA-256 hex digest")
         object.__setattr__(self, "sha256", normalized)
 
+    def snapshot(self) -> dict[str, str]:
+        """Return the stable JSON representation used by durable attestations."""
+        return {"key": self.key, "path": self.path, "sha256": self.sha256}
+
+    @classmethod
+    def restore(cls, payload: dict[str, object]) -> ReadinessEvidenceArtifact:
+        """Restore one artifact while rejecting malformed durable evidence."""
+        required = {"key", "path", "sha256"}
+        missing = sorted(required.difference(payload))
+        if missing:
+            raise ValueError(
+                "readiness evidence artifact is missing: " + ", ".join(missing)
+            )
+        unknown = sorted(set(payload).difference(required))
+        if unknown:
+            raise ValueError(
+                "readiness evidence artifact has unknown fields: " + ", ".join(unknown)
+            )
+        key = payload["key"]
+        path = payload["path"]
+        sha256 = payload["sha256"]
+        if not isinstance(key, str):
+            raise ValueError("readiness evidence key must be a string")
+        if not isinstance(path, str):
+            raise ValueError("readiness evidence path must be a string")
+        if not isinstance(sha256, str):
+            raise ValueError("readiness evidence sha256 must be a string")
+        return cls(key=key, path=path, sha256=sha256)
+
     def verify(self) -> str | None:
         """Return a blocker when the artifact is missing or has changed."""
         path = Path(self.path)
@@ -85,8 +118,11 @@ class ProductionReadinessAttestation:
 
     runtime_manifest_fingerprint: str
     artifacts: tuple[ReadinessEvidenceArtifact, ...]
+    schema: str = PRODUCTION_READINESS_ATTESTATION_SCHEMA
 
     def __post_init__(self) -> None:
+        if self.schema != PRODUCTION_READINESS_ATTESTATION_SCHEMA:
+            raise ValueError("unsupported production readiness attestation schema")
         fingerprint = self.runtime_manifest_fingerprint.strip().lower()
         if len(fingerprint) != 64 or any(
             ch not in "0123456789abcdef" for ch in fingerprint
@@ -101,6 +137,62 @@ class ProductionReadinessAttestation:
             raise ValueError(
                 "duplicate readiness evidence keys: " + ", ".join(duplicates)
             )
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a deterministic, versioned payload suitable for release storage."""
+        return {
+            "schema": self.schema,
+            "runtime_manifest_fingerprint": self.runtime_manifest_fingerprint,
+            "artifacts": [artifact.snapshot() for artifact in self.artifacts],
+        }
+
+    @property
+    def fingerprint(self) -> str:
+        """Return the canonical digest of the complete attestation contract."""
+        encoded = json.dumps(
+            self.snapshot(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def restore(cls, payload: dict[str, object]) -> ProductionReadinessAttestation:
+        """Restore versioned evidence without silently accepting contract drift."""
+        if payload.get("schema") != PRODUCTION_READINESS_ATTESTATION_SCHEMA:
+            raise ValueError("unsupported production readiness attestation schema")
+        required = {"schema", "runtime_manifest_fingerprint", "artifacts"}
+        missing = sorted(required.difference(payload))
+        if missing:
+            raise ValueError(
+                "production readiness attestation is missing: " + ", ".join(missing)
+            )
+        unknown = sorted(set(payload).difference(required))
+        if unknown:
+            raise ValueError(
+                "production readiness attestation has unknown fields: "
+                + ", ".join(unknown)
+            )
+        runtime_fingerprint = payload["runtime_manifest_fingerprint"]
+        artifacts_payload = payload["artifacts"]
+        if not isinstance(runtime_fingerprint, str):
+            raise ValueError("runtime_manifest_fingerprint must be a string")
+        if not isinstance(artifacts_payload, list):
+            raise ValueError("production readiness artifacts must be a list")
+
+        artifacts: list[ReadinessEvidenceArtifact] = []
+        for index, artifact_payload in enumerate(artifacts_payload):
+            if not isinstance(artifact_payload, dict):
+                raise ValueError(
+                    f"production readiness artifact {index} must be an object"
+                )
+            artifacts.append(ReadinessEvidenceArtifact.restore(artifact_payload))
+        return cls(
+            runtime_manifest_fingerprint=runtime_fingerprint,
+            artifacts=tuple(artifacts),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +304,7 @@ def evaluate_attested_production_readiness(
 
 
 __all__ = [
+    "PRODUCTION_READINESS_ATTESTATION_SCHEMA",
     "READINESS_EVIDENCE_KEYS",
     "ProductionReadinessAttestation",
     "ProductionReadinessEvidence",
