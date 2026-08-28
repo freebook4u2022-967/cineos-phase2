@@ -68,7 +68,15 @@ class DiffusersVideoRenderer(BaseRenderer):
     The class has no hard dependency on torch or diffusers.  Production installs
     opt in through the ``video`` extra; normal CINEOS core/tests stay lightweight.
     Tests can inject a pipeline factory/exporter without importing either package.
+
+    ``memory_strategy`` is consumed by CINEOS rather than forwarded to
+    ``from_pretrained``.  This makes large foundations usable on constrained GPUs
+    without hiding the fact that CPU offload is active.
     """
+
+    _MEMORY_STRATEGIES = frozenset(
+        {"resident", "model_cpu_offload", "sequential_cpu_offload"}
+    )
 
     def __init__(
         self,
@@ -94,6 +102,10 @@ class DiffusersVideoRenderer(BaseRenderer):
         self._device = "cuda"
         self._dtype_name = "bfloat16"
         self._model_options: dict[str, Any] = {}
+        self._memory_strategy = "resident"
+        self._enable_vae_tiling = False
+        self._enable_vae_slicing = False
+        self._enable_attention_slicing = False
         self._capabilities = RendererCapabilities(
             supported_resolution=tuple(Resolution(*item) for item in resolutions),
             supported_duration=Range(*duration_range),
@@ -118,6 +130,23 @@ class DiffusersVideoRenderer(BaseRenderer):
 
         self._device = str(options.pop("device", "cuda"))
         self._dtype_name = str(options.pop("dtype", "bfloat16"))
+        self._memory_strategy = str(options.pop("memory_strategy", "resident"))
+        self._enable_vae_tiling = bool(options.pop("enable_vae_tiling", False))
+        self._enable_vae_slicing = bool(options.pop("enable_vae_slicing", False))
+        self._enable_attention_slicing = bool(
+            options.pop("enable_attention_slicing", False)
+        )
+        if self._memory_strategy not in self._MEMORY_STRATEGIES:
+            choices = ", ".join(sorted(self._MEMORY_STRATEGIES))
+            raise DiffusersVideoError(
+                f"unsupported memory_strategy {self._memory_strategy!r}; "
+                f"expected one of: {choices}"
+            )
+        if (
+            self._memory_strategy != "resident"
+            and not self._device.startswith("cuda")
+        ):
+            raise DiffusersVideoError("CPU offload strategies require a CUDA device")
         self._model_options = dict(options)
 
         if self._pipeline_factory is None:
@@ -133,6 +162,8 @@ class DiffusersVideoRenderer(BaseRenderer):
         torch_dtype = None
         if self._torch is not None:
             torch_dtype = getattr(self._torch, self._dtype_name, None)
+            if torch_dtype is None:
+                raise DiffusersVideoError(f"torch does not provide dtype {self._dtype_name!r}")
             if self._device.startswith("cuda") and not self._torch.cuda.is_available():
                 raise DiffusersVideoError(
                     "CUDA device requested but torch reports no GPU"
@@ -145,8 +176,7 @@ class DiffusersVideoRenderer(BaseRenderer):
             load_options.setdefault("revision", self.foundation.revision)
 
         self._pipeline = self._pipeline_factory(model_id, **load_options)
-        if hasattr(self._pipeline, "to"):
-            self._pipeline.to(self._device)
+        self._configure_memory_runtime()
 
     def warmup(self) -> None:
         if self._pipeline is None:
@@ -205,10 +235,44 @@ class DiffusersVideoRenderer(BaseRenderer):
             if callable(empty_cache):
                 empty_cache()
 
+    def _configure_memory_runtime(self) -> None:
+        if self._pipeline is None:
+            raise DiffusersVideoError("renderer model is not loaded")
+
+        if self._memory_strategy == "resident":
+            if hasattr(self._pipeline, "to"):
+                self._pipeline.to(self._device)
+        elif self._memory_strategy == "model_cpu_offload":
+            self._invoke_pipeline_feature("enable_model_cpu_offload", required=True)
+        elif self._memory_strategy == "sequential_cpu_offload":
+            self._invoke_pipeline_feature(
+                "enable_sequential_cpu_offload", required=True
+            )
+
+        if self._enable_vae_tiling:
+            self._invoke_pipeline_feature("enable_vae_tiling", required=True)
+        if self._enable_vae_slicing:
+            self._invoke_pipeline_feature("enable_vae_slicing", required=True)
+        if self._enable_attention_slicing:
+            self._invoke_pipeline_feature("enable_attention_slicing", required=True)
+
+    def _invoke_pipeline_feature(self, name: str, *, required: bool) -> None:
+        if self._pipeline is None:
+            raise DiffusersVideoError("renderer model is not loaded")
+        feature = getattr(self._pipeline, name, None)
+        if not callable(feature):
+            if required:
+                raise DiffusersVideoError(
+                    f"loaded pipeline does not support requested feature {name!r}"
+                )
+            return
+        feature()
+
     def _generator(self, seed: int) -> Any:
         if self._torch is None:
             return seed
-        generator = self._torch.Generator(device=self._device)
+        generator_device = self._device if self._memory_strategy == "resident" else "cpu"
+        generator = self._torch.Generator(device=generator_device)
         return generator.manual_seed(seed)
 
     def _load_primary_reference(self, request: NativeShotRequest) -> Any | None:
