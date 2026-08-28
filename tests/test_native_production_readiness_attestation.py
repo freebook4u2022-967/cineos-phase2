@@ -137,9 +137,7 @@ def test_attested_readiness_rejects_symlink_artifact(tmp_path):
     )
 
 
-def test_attested_readiness_rejects_path_replacement_before_open(
-    tmp_path, monkeypatch
-):
+def test_attested_readiness_rejects_path_replacement_before_open(tmp_path, monkeypatch):
     runtime = _runtime()
     original = _attestation(tmp_path, runtime)
     target = original.artifacts[0]
