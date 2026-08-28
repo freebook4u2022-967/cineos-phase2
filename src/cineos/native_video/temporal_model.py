@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 
 from cineos.native_image.tensor_model import LinearTensorLayer, Tensor
 
-
 _TEMPORAL_CHECKPOINT_MODEL_KEY = "temporal_model_fingerprint"
 _TEMPORAL_CHECKPOINT_SCHEMA_KEY = "temporal_checkpoint_schema"
 _TEMPORAL_CHECKPOINT_SCHEMA = 1
@@ -290,7 +289,10 @@ class NativeTemporalModel:
 
         raw_schema = state.metadata.get(_TEMPORAL_CHECKPOINT_SCHEMA_KEY)
         if raw_schema is not None:
-            if not isinstance(raw_schema, int) or raw_schema != _TEMPORAL_CHECKPOINT_SCHEMA:
+            if (
+                not isinstance(raw_schema, int)
+                or raw_schema != _TEMPORAL_CHECKPOINT_SCHEMA
+            ):
                 raise ValueError("unsupported temporal checkpoint schema")
 
         checkpoint_fingerprint = state.metadata.get(_TEMPORAL_CHECKPOINT_MODEL_KEY)
