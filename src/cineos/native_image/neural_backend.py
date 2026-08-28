@@ -252,9 +252,7 @@ class TorchFlowTrainingRunner:
         schema = payload.get("schema")
         if schema == _TORCH_FLOW_CHECKPOINT_SCHEMA:
             if payload.get("integrity") != _CHECKPOINT_INTEGRITY_KIND:
-                raise ValueError(
-                    "unsupported torch flow checkpoint integrity contract"
-                )
+                raise ValueError("unsupported torch flow checkpoint integrity contract")
             _validate_checkpoint_hash(source)
         elif schema != _LEGACY_TORCH_FLOW_CHECKPOINT_SCHEMA:
             raise ValueError("unsupported torch flow checkpoint schema")
