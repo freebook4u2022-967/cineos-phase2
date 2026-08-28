@@ -72,14 +72,10 @@ def _file_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int, i
     )
 
 
-def sha256_file(path: str | Path, *, chunk_bytes: int = _DEFAULT_CHUNK_BYTES) -> str:
-    """Stream a stable regular file through SHA-256 without loading weights into RAM.
-
-    Production verification rejects symbolic links and, where the platform supports
-    ``O_NOFOLLOW``, also refuses a link introduced between validation and open. The
-    open file descriptor is checked before and after hashing so an in-place rewrite
-    cannot silently produce integrity evidence from bytes that changed mid-read.
-    """
+def _sha256_regular_file(
+    path: str | Path, *, chunk_bytes: int = _DEFAULT_CHUNK_BYTES
+) -> tuple[str, int]:
+    """Hash one stable regular file and return digest plus descriptor-backed size."""
 
     if chunk_bytes < 1:
         raise ValueError("chunk_bytes must be positive")
@@ -100,7 +96,7 @@ def sha256_file(path: str | Path, *, chunk_bytes: int = _DEFAULT_CHUNK_BYTES) ->
         ) from exc
 
     digest = hashlib.sha256()
-    size = 0
+    bytes_read = 0
     try:
         with os.fdopen(descriptor, "rb") as handle:
             before = os.fstat(handle.fileno())
@@ -112,7 +108,7 @@ def sha256_file(path: str | Path, *, chunk_bytes: int = _DEFAULT_CHUNK_BYTES) ->
                 chunk = handle.read(chunk_bytes)
                 if not chunk:
                     break
-                size += len(chunk)
+                bytes_read += len(chunk)
                 digest.update(chunk)
             after = os.fstat(handle.fileno())
     except ModelArtifactVerificationError:
@@ -126,13 +122,26 @@ def sha256_file(path: str | Path, *, chunk_bytes: int = _DEFAULT_CHUNK_BYTES) ->
         raise ModelArtifactVerificationError(
             f"model artifact changed while being verified: {source}"
         )
-    if size == 0:
+    if bytes_read == 0:
         raise ModelArtifactVerificationError(f"model artifact is empty: {source}")
-    if size != before.st_size:
+    if bytes_read != before.st_size:
         raise ModelArtifactVerificationError(
             f"model artifact size changed while being verified: {source}"
         )
-    return digest.hexdigest()
+    return digest.hexdigest(), bytes_read
+
+
+def sha256_file(path: str | Path, *, chunk_bytes: int = _DEFAULT_CHUNK_BYTES) -> str:
+    """Stream a stable regular file through SHA-256 without loading weights into RAM.
+
+    Production verification rejects symbolic links and, where the platform supports
+    ``O_NOFOLLOW``, also refuses a link introduced between validation and open. The
+    open file descriptor is checked before and after hashing so an in-place rewrite
+    cannot silently produce integrity evidence from bytes that changed mid-read.
+    """
+
+    digest, _ = _sha256_regular_file(path, chunk_bytes=chunk_bytes)
+    return digest
 
 
 def verify_component_artifacts(
@@ -169,17 +178,11 @@ def verify_component_artifacts(
     for name in sorted(expected):
         component = expected[name]
         source = provided[name]
-        actual = sha256_file(source)
+        actual, size = _sha256_regular_file(source)
         if actual != component.artifact_sha256:
             raise ModelArtifactVerificationError(
                 f"model artifact SHA-256 mismatch for component {name}"
             )
-        try:
-            size = source.stat().st_size
-        except OSError as exc:
-            raise ModelArtifactVerificationError(
-                f"unable to stat verified model artifact: {source}"
-            ) from exc
         verified.append(
             VerifiedModelComponent(
                 name=name,
