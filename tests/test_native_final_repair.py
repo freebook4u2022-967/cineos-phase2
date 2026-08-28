@@ -91,3 +91,25 @@ def test_duplicate_repair_evidence_is_deduplicated_stably():
 
     assert len(repair.actions) == 1
     assert repair.actions[0].reason == "repair temporal defect"
+
+
+def test_repair_plan_serialization_is_stable_and_auditable():
+    boundary = SimpleNamespace(
+        from_scene_id="scene-a",
+        to_scene_id="scene-b",
+        decision="reject",
+        directives=("repair measured match-boundary drift",),
+    )
+    repair = build_final_film_repair_plan(
+        plan=_plan(),
+        temporal=_component(),
+        boundaries=SimpleNamespace(boundaries=(boundary,)),
+        duration=_component(),
+    )
+
+    payload = repair.as_dict()
+
+    assert payload["required"] is True
+    assert payload["affected_shot_ids"] == ("a2", "b1")
+    assert payload["actions"][0]["domain"] == "scene_continuity"
+    assert payload["actions"][0]["shot_ids"] == ("a2", "b1")
