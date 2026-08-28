@@ -58,9 +58,10 @@ class NativeFrameRuntime:
     """Generate one frame, run QC, and automatically rerender when required.
 
     Observers may expose an ``accept_frame(result, plan)`` method when they own
-    transactional continuity state derived from generated pixels. That method is
-    invoked only after all identity and visual gates have accepted the candidate,
-    so rejected attempts can never become the next-frame baseline.
+    transactional continuity state derived from generated pixels. Identity memory
+    and observer-owned continuity state are committed as one acceptance transaction:
+    if the observer commit fails, identity memory rolls back to its pre-evaluation
+    checkpoint so a partially accepted frame can never become future context.
     """
 
     def __init__(
@@ -87,6 +88,7 @@ class NativeFrameRuntime:
             result = self.backend.render(plan)
             identities = self.observer.observe_identity(result, plan)
             visual = self.observer.observe_visual_continuity(result, plan)
+            identity_checkpoint = self.identity_memory.checkpoint()
             decision = self.controller.evaluate(
                 self.identity_memory,
                 identities,
@@ -104,7 +106,11 @@ class NativeFrameRuntime:
             if decision.accepted:
                 accept_frame = getattr(self.observer, "accept_frame", None)
                 if callable(accept_frame):
-                    accept_frame(result, plan)
+                    try:
+                        accept_frame(result, plan)
+                    except Exception:
+                        self.identity_memory.restore(identity_checkpoint)
+                        raise
                 return NativeFrameGenerationResult(
                     shot_id=plan.shot_id,
                     accepted=True,
