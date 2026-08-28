@@ -9,10 +9,11 @@ continuity, QC and orchestration live above this execution boundary.
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .base_renderer import BaseRenderer
 from .capabilities import Range, RendererCapabilities, Resolution
@@ -133,7 +134,9 @@ class DiffusersVideoRenderer(BaseRenderer):
         if self._torch is not None:
             torch_dtype = getattr(self._torch, self._dtype_name, None)
             if self._device.startswith("cuda") and not self._torch.cuda.is_available():
-                raise DiffusersVideoError("CUDA device requested but torch reports no GPU")
+                raise DiffusersVideoError(
+                    "CUDA device requested but torch reports no GPU"
+                )
 
         load_options = dict(self._model_options)
         if torch_dtype is not None:
@@ -257,9 +260,9 @@ class DiffusersVideoRenderer(BaseRenderer):
                 fragments.append("character identity: " + ", ".join(map(str, identity)))
 
         if request.environment:
-            description = request.environment.get("description") or request.environment.get(
-                "name"
-            )
+            description = request.environment.get(
+                "description"
+            ) or request.environment.get("name")
             if description:
                 fragments.append(f"environment: {description}")
 

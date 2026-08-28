@@ -122,7 +122,9 @@ def test_diffusers_renderer_executes_injected_pipeline_and_exports_video(tmp_pat
     assert exports[0][2] == 24.0
 
 
-def test_diffusers_renderer_rejects_model_override_without_matching_provenance(tmp_path):
+def test_diffusers_renderer_rejects_model_override_without_matching_provenance(
+    tmp_path,
+):
     renderer = DiffusersVideoRenderer(
         FoundationProvenance(model_id="declared/model"),
         output_dir=tmp_path,
