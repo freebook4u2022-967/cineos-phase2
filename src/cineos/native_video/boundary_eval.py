@@ -8,8 +8,9 @@ same deterministic evaluator used by CI.
 
 FFmpeg is used only as a decoder/sampler. It does not generate or modify visual
 content. Sampling is fail-closed: missing media, unavailable FFmpeg, incomplete
-frames, invalid timestamps, or duplicate/out-of-order boundary times abort the
-quality gate instead of silently weakening final-film continuity validation.
+frames, invalid timestamps, duplicate/out-of-order boundary times, or a broken
+scene-boundary chain abort the quality gate instead of silently weakening
+final-film continuity validation.
 
 Production sampling uses a short temporal window on both sides of an edit rather
 than trusting one frame. Window evidence is evaluated both in aggregate and per
@@ -45,6 +46,8 @@ class SceneBoundaryPoint:
     def __post_init__(self) -> None:
         if not self.from_scene_id or not self.to_scene_id:
             raise ValueError("scene boundary point requires non-empty scene IDs")
+        if self.from_scene_id == self.to_scene_id:
+            raise ValueError("scene boundary point must connect two different scenes")
         if self.boundary_seconds <= 0.0:
             raise ValueError("boundary_seconds must be positive")
         if self.transition not in {"cut", "match", "fade"}:
@@ -154,19 +157,38 @@ class FFmpegSceneBoundaryEvaluator:
 
     @staticmethod
     def _validate_boundaries(boundaries: Sequence[SceneBoundaryPoint]) -> None:
+        """Validate that boundary evidence describes one contiguous movie timeline.
+
+        Strict timestamp ordering alone is insufficient: a malformed plan such as
+        ``scene-a -> scene-b`` followed by ``scene-x -> scene-y`` can omit one or
+        more real edits while still looking ordered. Production QC must fail closed
+        when the declared boundary graph is discontinuous, otherwise final-film
+        continuity can be accidentally evaluated against only a subset of scenes.
+        """
+
         if not boundaries:
             raise ValueError("at least one scene boundary point is required")
         previous = -1.0
+        previous_to_scene_id: str | None = None
         seen_pairs: set[tuple[str, str]] = set()
         for boundary in boundaries:
             if boundary.boundary_seconds <= previous:
                 raise ValueError(
                     "scene boundary timestamps must be strictly increasing"
                 )
+            if (
+                previous_to_scene_id is not None
+                and boundary.from_scene_id != previous_to_scene_id
+            ):
+                raise ValueError(
+                    "scene boundary chain must be contiguous: each boundary must "
+                    "start from the preceding boundary's destination scene"
+                )
             pair = (boundary.from_scene_id, boundary.to_scene_id)
             if pair in seen_pairs:
                 raise ValueError("duplicate scene boundary pair is not allowed")
             previous = boundary.boundary_seconds
+            previous_to_scene_id = boundary.to_scene_id
             seen_pairs.add(pair)
 
     @staticmethod
