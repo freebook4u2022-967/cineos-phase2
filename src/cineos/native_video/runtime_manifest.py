@@ -18,6 +18,14 @@ LEGACY_UNBOUND_FINAL_GATE_POLICY = "legacy-unbound-final-gate-policy"
 LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST = "legacy-unbound-native-model-manifest"
 
 
+def _is_sha256_digest(value: str) -> bool:
+    """Return whether *value* is a canonical SHA-256 hex digest."""
+    normalized = value.strip().lower()
+    return len(normalized) == 64 and all(
+        character in "0123456789abcdef" for character in normalized
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ProductionRuntimeManifest:
     """Stable identity for a production FIRST FILM runtime composition."""
@@ -45,6 +53,14 @@ class ProductionRuntimeManifest:
             raise ValueError("final_gate_policy_fingerprint must not be empty")
         if not self.native_model_manifest_sha256.strip():
             raise ValueError("native_model_manifest_sha256 must not be empty")
+        if (
+            self.native_model_manifest_sha256 != LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST
+            and not _is_sha256_digest(self.native_model_manifest_sha256)
+        ):
+            raise ValueError(
+                "native_model_manifest_sha256 must be a 64-character hex digest "
+                "or the legacy-unbound marker"
+            )
         if self.schema != PRODUCTION_RUNTIME_MANIFEST_SCHEMA:
             raise ValueError("unsupported production runtime manifest schema")
 
