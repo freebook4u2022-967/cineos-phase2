@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -57,36 +59,79 @@ class ModelArtifactAttestation:
         return hashlib.sha256(encoded).hexdigest()
 
 
+def _file_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    """Return metadata that must remain stable throughout one verification read."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
 def sha256_file(path: str | Path, *, chunk_bytes: int = _DEFAULT_CHUNK_BYTES) -> str:
-    """Stream a regular file through SHA-256 without loading model weights into RAM."""
+    """Stream a stable regular file through SHA-256 without loading weights into RAM.
+
+    Production verification rejects symbolic links and, where the platform supports
+    ``O_NOFOLLOW``, also refuses a link introduced between validation and open. The
+    open file descriptor is checked before and after hashing so an in-place rewrite
+    cannot silently produce integrity evidence from bytes that changed mid-read.
+    """
 
     if chunk_bytes < 1:
         raise ValueError("chunk_bytes must be positive")
     source = Path(path)
+    if source.is_symlink():
+        raise ModelArtifactVerificationError(
+            f"model artifact must not be a symbolic link: {source}"
+        )
     if not source.exists():
         raise ModelArtifactVerificationError(f"model artifact is missing: {source}")
-    if not source.is_file():
+
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(source, flags)
+    except OSError as exc:
         raise ModelArtifactVerificationError(
-            f"model artifact is not a regular file: {source}"
-        )
+            f"unable to open model artifact securely: {source}"
+        ) from exc
 
     digest = hashlib.sha256()
     size = 0
     try:
-        with source.open("rb") as handle:
+        with os.fdopen(descriptor, "rb") as handle:
+            before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise ModelArtifactVerificationError(
+                    f"model artifact is not a regular file: {source}"
+                )
             while True:
                 chunk = handle.read(chunk_bytes)
                 if not chunk:
                     break
                 size += len(chunk)
                 digest.update(chunk)
+            after = os.fstat(handle.fileno())
+    except ModelArtifactVerificationError:
+        raise
     except OSError as exc:
         raise ModelArtifactVerificationError(
             f"unable to read model artifact: {source}"
         ) from exc
 
+    if _file_identity(before) != _file_identity(after):
+        raise ModelArtifactVerificationError(
+            f"model artifact changed while being verified: {source}"
+        )
     if size == 0:
         raise ModelArtifactVerificationError(f"model artifact is empty: {source}")
+    if size != before.st_size:
+        raise ModelArtifactVerificationError(
+            f"model artifact size changed while being verified: {source}"
+        )
     return digest.hexdigest()
 
 
