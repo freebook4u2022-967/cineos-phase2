@@ -94,7 +94,11 @@ class TemporalIdentityMemory:
         )
 
     def restore(self, checkpoint: TemporalIdentityCheckpoint) -> None:
-        """Restore a prior checkpoint without replacing this memory object's identity."""
+        """Restore a prior checkpoint without replacing this memory object's identity.
+
+        The restore is in-place so any runtime component already holding a reference
+        to this memory object observes the rollback immediately.
+        """
         if not isinstance(checkpoint, TemporalIdentityCheckpoint):
             raise TypeError("checkpoint must be a TemporalIdentityCheckpoint")
         self._accepted.clear()
