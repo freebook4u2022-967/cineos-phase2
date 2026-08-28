@@ -1,3 +1,5 @@
+import pytest
+
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.native_image import NativeImageResearchBackend, compile_native_image_plan
 from cineos.native_image.frame_runtime import NativeFrameRuntime
@@ -62,6 +64,11 @@ class Observer:
                 "screen_direction": 0.95,
             },
         )
+
+
+class FailingCommitObserver(Observer):
+    def accept_frame(self, result, plan):
+        raise RuntimeError("pixel continuity commit failed")
 
 
 def _plan():
@@ -130,3 +137,17 @@ def test_native_frame_runtime_exhausts_budget_without_returning_bad_frame():
     assert result.final_decision == "reject"
     assert result.attempt_count == 2
     assert result.image is None
+
+
+def test_native_frame_runtime_rolls_back_identity_if_observer_commit_fails():
+    model = StubModel()
+    runtime = NativeFrameRuntime(
+        NativeImageResearchBackend(model),
+        FailingCommitObserver(),
+    )
+
+    with pytest.raises(RuntimeError, match="pixel continuity commit failed"):
+        runtime.generate(_plan())
+
+    assert runtime.identity_memory.latest("hero") is None
+    assert runtime.identity_memory.history("hero") == ()
