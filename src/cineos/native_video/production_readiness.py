@@ -40,10 +40,10 @@ def _sha256_regular_evidence_file(
 ) -> tuple[str | None, str | None]:
     """Hash one immutable evidence file without following special-file surprises.
 
-    Release evidence is security-sensitive input.  A FIFO, device, directory, or
+    Release evidence is security-sensitive input. A FIFO, device, directory, or
     symlink must never be treated as an immutable attestation artifact, and a file
-    that changes while it is being hashed must fail closed rather than producing a
-    misleading digest result.
+    that changes or is replaced while it is being hashed must fail closed rather
+    than producing a misleading digest result.
     """
     try:
         initial = path.lstat()
@@ -74,6 +74,11 @@ def _sha256_regular_evidence_file(
         os.close(descriptor)
         return None, f"readiness evidence artifact is not a regular file: {key}"
 
+    identity_fields = ("st_dev", "st_ino")
+    if any(getattr(initial, field) != getattr(before, field) for field in identity_fields):
+        os.close(descriptor)
+        return None, f"readiness evidence artifact changed during verification: {key}"
+
     digest = hashlib.sha256()
     try:
         with os.fdopen(descriptor, "rb") as handle:
@@ -89,6 +94,18 @@ def _sha256_regular_evidence_file(
     stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
     if any(getattr(before, field) != getattr(after, field) for field in stable_fields):
         return None, f"readiness evidence artifact changed during verification: {key}"
+
+    try:
+        final_path = path.lstat()
+    except FileNotFoundError:
+        return None, f"readiness evidence artifact changed during verification: {key}"
+    except OSError as error:
+        return None, f"readiness evidence artifact is unreadable: {key}: {error}"
+    if not stat.S_ISREG(final_path.st_mode):
+        return None, f"readiness evidence artifact is not a regular file: {key}"
+    if any(getattr(after, field) != getattr(final_path, field) for field in identity_fields):
+        return None, f"readiness evidence artifact changed during verification: {key}"
+
     return digest.hexdigest(), None
 
 
