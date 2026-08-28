@@ -51,8 +51,12 @@ def _validate_checkpoint_hash(path: Path) -> None:
     try:
         expected = sidecar.read_text(encoding="ascii").strip().lower()
     except OSError as exc:
-        raise ValueError("unable to read torch flow checkpoint integrity sidecar") from exc
-    if len(expected) != 64 or any(character not in "0123456789abcdef" for character in expected):
+        raise ValueError(
+            "unable to read torch flow checkpoint integrity sidecar"
+        ) from exc
+    if len(expected) != 64 or any(
+        character not in "0123456789abcdef" for character in expected
+    ):
         raise ValueError("torch flow checkpoint integrity sidecar is malformed")
     actual = _sha256_file(path)
     if actual != expected:

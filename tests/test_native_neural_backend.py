@@ -64,9 +64,10 @@ def test_torch_flow_training_updates_parameters_when_available(tmp_path):
     checkpoint = runner.save_checkpoint(tmp_path / "flow.pt")
     sidecar = checkpoint.with_name(checkpoint.name + ".sha256")
     assert sidecar.is_file()
-    assert sidecar.read_text(encoding="ascii").strip() == hashlib.sha256(
-        checkpoint.read_bytes()
-    ).hexdigest()
+    assert (
+        sidecar.read_text(encoding="ascii").strip()
+        == hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    )
 
     resumed = TorchFlowTrainingRunner.load_checkpoint(checkpoint)
     assert resumed.step == 1
