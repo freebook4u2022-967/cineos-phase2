@@ -23,6 +23,9 @@ from cineos.native_video.release_receipt import (
 from cineos.native_video.runtime_manifest import ProductionRuntimeManifest
 
 
+TEST_MODEL_MANIFEST_SHA256 = "a" * 64
+
+
 @dataclass(frozen=True)
 class _FinalQC:
     decision: str = "accept"
@@ -40,7 +43,7 @@ def _manifest():
         require_final_film_evaluation=True,
         require_audio=True,
         final_gate_policy_fingerprint="final-gate-policy-sha",
-        native_model_manifest_sha256="model-manifest-sha",
+        native_model_manifest_sha256=TEST_MODEL_MANIFEST_SHA256,
     )
 
 
