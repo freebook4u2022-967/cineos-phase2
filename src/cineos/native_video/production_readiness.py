@@ -75,7 +75,9 @@ def _sha256_regular_evidence_file(
         return None, f"readiness evidence artifact is not a regular file: {key}"
 
     identity_fields = ("st_dev", "st_ino")
-    if any(getattr(initial, field) != getattr(before, field) for field in identity_fields):
+    if any(
+        getattr(initial, field) != getattr(before, field) for field in identity_fields
+    ):
         os.close(descriptor)
         return None, f"readiness evidence artifact changed during verification: {key}"
 
@@ -103,7 +105,9 @@ def _sha256_regular_evidence_file(
         return None, f"readiness evidence artifact is unreadable: {key}: {error}"
     if not stat.S_ISREG(final_path.st_mode):
         return None, f"readiness evidence artifact is not a regular file: {key}"
-    if any(getattr(after, field) != getattr(final_path, field) for field in identity_fields):
+    if any(
+        getattr(after, field) != getattr(final_path, field) for field in identity_fields
+    ):
         return None, f"readiness evidence artifact changed during verification: {key}"
 
     return digest.hexdigest(), None
