@@ -122,3 +122,20 @@ def test_manifest_rejects_empty_runtime_identity() -> None:
 
     with pytest.raises(ValueError, match="temporal_model_fingerprint"):
         _manifest(temporal_model_fingerprint="")
+
+
+def test_manifest_accepts_canonical_native_release_digest() -> None:
+    manifest = _manifest(native_model_manifest_sha256="A" * 64)
+
+    assert manifest.native_model_manifest_sha256 == "A" * 64
+    assert ProductionRuntimeManifest.restore(manifest.snapshot()) == manifest
+
+
+def test_manifest_rejects_malformed_bound_native_release_digest() -> None:
+    with pytest.raises(ValueError, match="64-character hex digest"):
+        _manifest(native_model_manifest_sha256="not-a-release-digest")
+
+    payload = _manifest().snapshot()
+    payload["native_model_manifest_sha256"] = "g" * 64
+    with pytest.raises(ValueError, match="64-character hex digest"):
+        ProductionRuntimeManifest.restore(payload)
