@@ -12,6 +12,7 @@ import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cineos.hardware.torch_device import resolve_torch_device
 from cineos.native_image.neural_backend import _load_torch
 from cineos.native_image.neural_decoder import TorchLatentRGBDecoder
 from cineos.native_image.tensor_model import Tensor
@@ -31,11 +32,13 @@ class CheckpointLatentRGBDecoder:
 
     Width, height and latent dimensionality are strict deployment invariants.  A
     mismatched temporal model or renderer configuration fails closed instead of
-    silently resizing, truncating or padding learned representations.
+    silently resizing, truncating or padding learned representations.  ``auto``
+    deploys to CUDA when PyTorch can execute CUDA workloads, then MPS, then CPU;
+    explicit accelerator requests never silently fall back.
     """
 
     checkpoint_path: str | Path
-    device: str = "cpu"
+    device: str = "auto"
     decoder: TorchLatentRGBDecoder = field(init=False, repr=False)
     decoder_id: str = field(init=False)
 
@@ -43,6 +46,7 @@ class CheckpointLatentRGBDecoder:
         checkpoint = Path(self.checkpoint_path)
         if not checkpoint.is_file():
             raise FileNotFoundError(f"decoder checkpoint does not exist: {checkpoint}")
+        self.device = resolve_torch_device(self.device)
         self.decoder = TorchLatentRGBDecoder.load_checkpoint(
             checkpoint,
             device=self.device,
