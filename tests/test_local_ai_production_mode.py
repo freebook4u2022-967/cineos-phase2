@@ -36,4 +36,6 @@ def test_production_remote_model_requires_pinned_revision():
     report = renderer.validate_environment()
 
     assert not report.valid
-    assert "production remote models require model_revision to be pinned" in report.errors
+    assert (
+        "production remote models require model_revision to be pinned" in report.errors
+    )
