@@ -21,6 +21,23 @@ def _image_file_to_tensor(path: str | Path, config: NeuralModelConfig, *, device
     return torch.tensor(decoded.values, dtype=torch.float32, device=device)
 
 
+def _decoded_pixel_digest(values: tuple[float, ...]) -> bytes:
+    """Return a container-independent digest for normalized decoded RGB pixels.
+
+    Approved character references can arrive as different PNG/JPEG files that
+    decode to the same resized RGB evidence. Identity aggregation must not silently
+    overweight a duplicated pose simply because the same visual reference was
+    supplied more than once. Quantizing the normalized values back to their exact
+    8-bit channel representation makes the digest independent of container bytes
+    and stable across platforms.
+    """
+
+    payload = bytes(
+        max(0, min(255, round((value + 1.0) * 127.5))) for value in values
+    )
+    return hashlib.blake2b(payload, digest_size=16).digest()
+
+
 def _stable_token_id(token: str, vocabulary_size: int) -> int:
     if vocabulary_size <= 1:
         raise ValueError("vocabulary_size must be greater than 1")
@@ -83,7 +100,13 @@ class TorchImageLatentEncoder:
 
 @dataclass
 class TorchCharacterReferenceEncoder:
-    """Aggregate approved character image pixels into trainable identity features."""
+    """Aggregate approved character image pixels into trainable identity features.
+
+    Aggregation is deliberately order-invariant and content-deduplicated. Repeated
+    files that decode to identical resized RGB pixels contribute only once, so an
+    accidental duplicate approved reference cannot bias identity conditioning
+    toward one pose, crop or expression.
+    """
 
     config: NeuralModelConfig
     device: str = "cpu"
@@ -103,14 +126,24 @@ class TorchCharacterReferenceEncoder:
         torch = _load_torch()
         if not paths:
             raise ValueError("character reference encoder requires references")
+
         encoded = []
+        seen_pixels: set[bytes] = set()
         for path in paths:
-            features = _image_file_to_tensor(
-                path,
-                self.config,
+            decoded = decode_rgb_image(path, image_size=self.config.image_size)
+            digest = _decoded_pixel_digest(decoded.values)
+            if digest in seen_pixels:
+                continue
+            seen_pixels.add(digest)
+            features = torch.tensor(
+                decoded.values,
+                dtype=torch.float32,
                 device=self.device_object,
             )
             encoded.append(self.network(features))
+
+        if not encoded:
+            raise RuntimeError("character reference encoder produced no unique evidence")
         return torch.stack(encoded, dim=0).mean(dim=0)
 
 
