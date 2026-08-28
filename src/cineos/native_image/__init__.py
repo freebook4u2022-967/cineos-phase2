@@ -18,6 +18,12 @@ from .latent_model import (
     ProceduralLatentComponents,
     TrainableLatentComponents,
 )
+from .measured_observer import (
+    MEASURED_NATIVE_FRAME_OBSERVER_SCHEMA,
+    MeasuredNativeFrameObserver,
+    VisualContinuitySource,
+    merge_visual_observations,
+)
 from .model_release import (
     MODEL_RELEASE_RECORD_SCHEMA,
     NativeModelReleaseController,
@@ -30,6 +36,14 @@ from .neural_backend import (
     torch_available,
 )
 from .rerender import AutomaticRerenderController, RerenderDecision, correction_payload
+from .spatial_evidence import (
+    SPATIAL_FRAME_EVIDENCE_SCHEMA,
+    MeasuredSpatialContinuityObserver,
+    SpatialContinuityMemory,
+    SpatialFrameDescriptor,
+    describe_spatial_rgb_frame,
+    spatial_similarity,
+)
 from .temporal_identity import (
     IdentityObservation,
     IdentityObservationError,
@@ -82,8 +96,10 @@ from .visual_qc import (
 __all__ = [
     "CHECKPOINT_MANIFEST_SCHEMA",
     "DATASET_MANIFEST_SCHEMA",
+    "MEASURED_NATIVE_FRAME_OBSERVER_SCHEMA",
     "MODEL_RELEASE_RECORD_SCHEMA",
     "NATIVE_IMAGE_PLAN_SCHEMA",
+    "SPATIAL_FRAME_EVIDENCE_SCHEMA",
     "TENSOR_CHECKPOINT_SCHEMA",
     "VISUAL_QC_AXES",
     "AutomaticRerenderController",
@@ -100,6 +116,8 @@ __all__ = [
     "LearnedRGBDecoder",
     "LearnedSceneEncoder",
     "LinearTensorLayer",
+    "MeasuredNativeFrameObserver",
+    "MeasuredSpatialContinuityObserver",
     "MultiAxisVisualQCGate",
     "NativeCheckpointManifest",
     "NativeDatasetManifest",
@@ -120,6 +138,8 @@ __all__ = [
     "ProceduralLatentComponents",
     "RerenderDecision",
     "SGDOptimizer",
+    "SpatialContinuityMemory",
+    "SpatialFrameDescriptor",
     "TemporalIdentityMemory",
     "Tensor",
     "TensorBatchTrainer",
@@ -133,12 +153,16 @@ __all__ = [
     "TrainingStepResult",
     "VisualContinuityMemory",
     "VisualContinuityObservation",
+    "VisualContinuitySource",
     "VisualQCReport",
     "apply_temporal_identity_memory",
     "build_rerender_directives",
     "compile_native_image_plan",
     "correction_payload",
+    "describe_spatial_rgb_frame",
     "flow_matching_objective",
+    "merge_visual_observations",
     "move_tensor",
+    "spatial_similarity",
     "torch_available",
 ]
