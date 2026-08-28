@@ -19,6 +19,7 @@ from .temporal_identity import IdentityObservation
 from .visual_qc import VisualContinuityObservation
 
 PIXEL_CONTINUITY_MEMORY_SCHEMA = "cineos-pixel-continuity-memory/0.2"
+PIXEL_AWARE_OBSERVER_CHECKPOINT_SCHEMA = "cineos-pixel-aware-observer-checkpoint/0.1"
 _LEGACY_PIXEL_CONTINUITY_MEMORY_SCHEMAS = {"cineos-pixel-continuity-memory/0.1"}
 _LUMA_BINS = 8
 _SPATIAL_CELLS = 4
@@ -352,6 +353,24 @@ class PixelAwareNativeFrameObserver:
         plan: NativeImageConditioningPlan,
     ) -> VisualContinuityObservation:
         return self.pixel_observer.observe(result, plan)
+
+    def checkpoint_state(self) -> dict[str, object]:
+        """Capture observer-owned continuity state before an acceptance transaction."""
+        return {
+            "schema": PIXEL_AWARE_OBSERVER_CHECKPOINT_SCHEMA,
+            "pixel_memory": self.pixel_observer.memory.snapshot(),
+        }
+
+    def restore_state(self, checkpoint: object) -> None:
+        """Restore an earlier checkpoint without replacing the observer instance."""
+        if not isinstance(checkpoint, dict):
+            raise TypeError("pixel-aware observer checkpoint must be a mapping")
+        if checkpoint.get("schema") != PIXEL_AWARE_OBSERVER_CHECKPOINT_SCHEMA:
+            raise ValueError("unsupported pixel-aware observer checkpoint schema")
+        pixel_memory = checkpoint.get("pixel_memory")
+        if not isinstance(pixel_memory, dict):
+            raise ValueError("pixel-aware observer checkpoint is missing pixel memory")
+        self.pixel_observer.memory = PixelContinuityMemory.restore(pixel_memory)
 
     def accept_frame(
         self,
