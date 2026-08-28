@@ -58,7 +58,9 @@ class GPUExecutionPlan:
         }
 
 
-def inspect_cuda_environment(torch_module: Any | None = None) -> tuple[GPUDeviceProfile, ...]:
+def inspect_cuda_environment(
+    torch_module: Any | None = None,
+) -> tuple[GPUDeviceProfile, ...]:
     """Inspect real CUDA devices without importing torch at package import time."""
     torch = torch_module
     if torch is None:

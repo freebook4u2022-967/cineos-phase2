@@ -96,9 +96,7 @@ def test_plan_uses_model_offload_for_constrained_gpu():
 
 
 def test_plan_uses_sequential_offload_for_tight_gpu():
-    plan = plan_gpu_execution(
-        _profile(12.0, bf16=False), estimated_model_vram_gb=32.0
-    )
+    plan = plan_gpu_execution(_profile(12.0, bf16=False), estimated_model_vram_gb=32.0)
 
     assert plan.memory_strategy == "sequential_cpu_offload"
     assert plan.dtype == "float16"
