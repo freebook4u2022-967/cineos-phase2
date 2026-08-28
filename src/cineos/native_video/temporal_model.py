@@ -9,10 +9,17 @@ preserve.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from dataclasses import dataclass, field
 
 from cineos.native_image.tensor_model import LinearTensorLayer, Tensor
+
+
+_TEMPORAL_CHECKPOINT_MODEL_KEY = "temporal_model_fingerprint"
+_TEMPORAL_CHECKPOINT_SCHEMA_KEY = "temporal_checkpoint_schema"
+_TEMPORAL_CHECKPOINT_SCHEMA = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +209,44 @@ class NativeTemporalModel:
             decoder=LinearTensorLayer.initialized(hidden_dim, latent_dim),
         )
 
+    def model_fingerprint(self) -> str:
+        """Return a stable fingerprint for resume compatibility checks.
+
+        Dimensions alone are not enough: two temporal models with identical shapes
+        but different learned weights must never share recurrent checkpoints. The
+        canonical payload deliberately includes all parameters owned by this model.
+        Future backends can preserve this contract while changing storage format.
+        """
+        payload = {
+            "schema": 1,
+            "dimensions": {
+                "identity": self.identity_dim,
+                "scene": self.scene_dim,
+                "motion": self.motion_dim,
+                "hidden": self.hidden_dim,
+                "latent": self.latent_dim,
+            },
+            "recurrent": {
+                "input_dim": self.recurrent.input_dim,
+                "output_dim": self.recurrent.output_dim,
+                "weights": self.recurrent.weights,
+                "bias": self.recurrent.bias,
+            },
+            "decoder": {
+                "input_dim": self.decoder.input_dim,
+                "output_dim": self.decoder.output_dim,
+                "weights": self.decoder.weights,
+                "bias": self.decoder.bias,
+            },
+        }
+        canonical = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
     def initial_state(
         self, shot_id: str, *, device: str = "cpu"
     ) -> TemporalSequenceState:
@@ -210,14 +255,20 @@ class NativeTemporalModel:
         return TemporalSequenceState(
             shot_id=shot_id,
             hidden=Tensor((0.0,) * self.hidden_dim, (self.hidden_dim,), device),
+            metadata={
+                _TEMPORAL_CHECKPOINT_SCHEMA_KEY: _TEMPORAL_CHECKPOINT_SCHEMA,
+                _TEMPORAL_CHECKPOINT_MODEL_KEY: self.model_fingerprint(),
+            },
         )
 
     def restore_state(self, payload: dict[str, object]) -> TemporalSequenceState:
-        """Restore a checkpoint and enforce this model's dimensional contract.
+        """Restore a checkpoint and enforce this model's compatibility contract.
 
         Resume should fail at the checkpoint boundary, not several frames later.
-        This prevents a stale or incompatible checkpoint from entering a costly
-        long-running render job after model upgrades.
+        This prevents stale or incompatible checkpoints from entering a costly
+        long-running render job after model upgrades. Legacy checkpoints that do
+        not contain a model fingerprint remain readable for backwards
+        compatibility, but every newly created state is fingerprinted.
         """
         state = TemporalSequenceState.restore(payload)
         if state.hidden.shape != (self.hidden_dim,):
@@ -236,6 +287,26 @@ class NativeTemporalModel:
             raise ValueError(
                 "temporal checkpoint latent tensor contains non-finite data"
             )
+
+        raw_schema = state.metadata.get(_TEMPORAL_CHECKPOINT_SCHEMA_KEY)
+        if raw_schema is not None:
+            if not isinstance(raw_schema, int) or raw_schema != _TEMPORAL_CHECKPOINT_SCHEMA:
+                raise ValueError("unsupported temporal checkpoint schema")
+
+        checkpoint_fingerprint = state.metadata.get(_TEMPORAL_CHECKPOINT_MODEL_KEY)
+        if checkpoint_fingerprint is not None:
+            if not isinstance(checkpoint_fingerprint, str):
+                raise ValueError("temporal checkpoint model fingerprint is invalid")
+            if checkpoint_fingerprint != self.model_fingerprint():
+                raise ValueError(
+                    "temporal checkpoint belongs to a different model revision"
+                )
+        else:
+            state.metadata[_TEMPORAL_CHECKPOINT_SCHEMA_KEY] = (
+                _TEMPORAL_CHECKPOINT_SCHEMA
+            )
+            state.metadata[_TEMPORAL_CHECKPOINT_MODEL_KEY] = self.model_fingerprint()
+            state.metadata["temporal_checkpoint_migrated_from_legacy"] = 1
         return state
 
     def propose(
