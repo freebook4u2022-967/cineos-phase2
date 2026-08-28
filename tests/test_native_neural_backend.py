@@ -98,3 +98,36 @@ def test_torch_flow_checkpoint_requires_integrity_sidecar(tmp_path):
 
     with pytest.raises(ValueError, match="integrity sidecar is missing"):
         TorchFlowTrainingRunner.load_checkpoint(checkpoint)
+
+
+def test_legacy_torch_flow_checkpoint_resumes_with_restricted_loader(tmp_path):
+    if not torch_available():
+        pytest.skip("PyTorch optional dependency is not installed")
+
+    import torch
+
+    config, runner, _, _, _ = _trained_runner()
+    checkpoint = tmp_path / "legacy-flow.pt"
+    torch.save(
+        {
+            "schema": "cineos-torch-flow-checkpoint/0.1",
+            "step": runner.step,
+            "learning_rate": runner.learning_rate,
+            "config": {
+                "feature_dim": config.feature_dim,
+                "embedding_dim": config.embedding_dim,
+                "latent_dim": config.latent_dim,
+                "hidden_dim": config.hidden_dim,
+                "image_size": config.image_size,
+            },
+            "model": runner.model.state_dict(),
+            "optimizer": runner.optimizer.state_dict(),
+        },
+        checkpoint,
+    )
+
+    resumed = TorchFlowTrainingRunner.load_checkpoint(checkpoint)
+
+    assert resumed.step == runner.step
+    assert resumed.learning_rate == runner.learning_rate
+    assert resumed.model.config == config
