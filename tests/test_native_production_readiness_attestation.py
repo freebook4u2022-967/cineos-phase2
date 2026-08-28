@@ -16,6 +16,9 @@ from cineos.native_video.production_readiness import (
 from cineos.native_video.runtime_manifest import ProductionRuntimeManifest
 
 
+TEST_MODEL_MANIFEST_SHA256 = "a" * 64
+
+
 def _runtime() -> ProductionRuntimeManifest:
     return ProductionRuntimeManifest(
         renderer_id="cineos-native-temporal",
@@ -25,7 +28,7 @@ def _runtime() -> ProductionRuntimeManifest:
         require_final_film_evaluation=True,
         require_audio=True,
         final_gate_policy_fingerprint="gate-sha256",
-        native_model_manifest_sha256="manifest-sha256",
+        native_model_manifest_sha256=TEST_MODEL_MANIFEST_SHA256,
     )
 
 
