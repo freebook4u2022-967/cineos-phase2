@@ -27,6 +27,11 @@ class LocalAIConfig:
     minimum_vram_gb: float = 8.0
     minimum_disk_gb: float = 5.0
     output_directory: str = "renders"
+    allow_remote_model: bool = False
+    model_revision: str | None = None
+    model_license: str | None = None
+    model_provenance: str | None = None
+    trust_remote_code: bool = False
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> LocalAIConfig:
