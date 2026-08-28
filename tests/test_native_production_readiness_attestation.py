@@ -179,6 +179,40 @@ def test_attested_readiness_rejects_path_replacement_before_open(tmp_path, monke
     )
 
 
+def test_attested_readiness_rejects_path_replacement_after_hash(tmp_path, monkeypatch):
+    runtime = _runtime()
+    attestation = _attestation(tmp_path, runtime)
+    target = attestation.artifacts[0]
+    path = tmp_path / f"{target.key}.json"
+    replacement = tmp_path / "post-hash-replacement.json"
+    replacement.write_text("post-hash replacement\n", encoding="utf-8")
+
+    real_lstat = production_readiness_module.Path.lstat
+    target_lstat_calls = 0
+
+    def replace_before_final_lstat(candidate):
+        nonlocal target_lstat_calls
+        if candidate == path:
+            target_lstat_calls += 1
+            if target_lstat_calls == 2:
+                path.unlink()
+                replacement.replace(path)
+        return real_lstat(candidate)
+
+    monkeypatch.setattr(
+        production_readiness_module.Path, "lstat", replace_before_final_lstat
+    )
+
+    report = evaluate_attested_production_readiness(_evidence(runtime), attestation)
+
+    assert target_lstat_calls == 2
+    assert report.ready is False
+    assert (
+        f"readiness evidence artifact changed during verification: {target.key}"
+        in report.blockers
+    )
+
+
 def test_attested_readiness_rejects_runtime_mismatch(tmp_path):
     runtime = _runtime()
     attestation = _attestation(tmp_path, runtime)
