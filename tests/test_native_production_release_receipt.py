@@ -16,6 +16,9 @@ from cineos.native_video.runtime_manifest import (
 )
 
 
+TEST_MODEL_MANIFEST_SHA256 = "a" * 64
+
+
 @dataclass(frozen=True)
 class _FinalQC:
     decision: str
@@ -28,7 +31,7 @@ class _FinalQC:
         }
 
 
-def _manifest(*, model_manifest: str = "model-manifest-sha"):
+def _manifest(*, model_manifest: str = TEST_MODEL_MANIFEST_SHA256):
     return ProductionRuntimeManifest(
         renderer_id="cineos-native",
         temporal_model_fingerprint="temporal-weights-sha",
@@ -75,7 +78,7 @@ def test_production_receipt_binds_artifact_plan_runtime_qc_and_build(tmp_path):
     assert receipt.artifact_size_bytes == len(b"cineos-final-movie")
     assert receipt.final_qc_decision == "accept"
     assert receipt.renderer_id == "cineos-native"
-    assert receipt.native_model_manifest_sha256 == "model-manifest-sha"
+    assert receipt.native_model_manifest_sha256 == TEST_MODEL_MANIFEST_SHA256
     assert len(receipt.receipt_sha256) == 64
     verify_production_film_receipt(
         receipt,
