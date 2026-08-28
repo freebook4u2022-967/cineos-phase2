@@ -4,6 +4,7 @@ import hashlib
 
 import pytest
 
+from cineos.native_video import production_readiness as production_readiness_module
 from cineos.native_video.production_readiness import (
     PRODUCTION_READINESS_ATTESTATION_SCHEMA,
     READINESS_EVIDENCE_KEYS,
@@ -132,6 +133,50 @@ def test_attested_readiness_rejects_symlink_artifact(tmp_path):
     assert report.ready is False
     assert (
         f"readiness evidence artifact is not a regular file: {artifact.key}"
+        in report.blockers
+    )
+
+
+def test_attested_readiness_rejects_path_replacement_before_open(
+    tmp_path, monkeypatch
+):
+    runtime = _runtime()
+    original = _attestation(tmp_path, runtime)
+    target = original.artifacts[0]
+    path = tmp_path / f"{target.key}.json"
+    replacement_payload = b"replacement evidence\n"
+    replacement = tmp_path / "replacement-evidence.json"
+    replacement.write_bytes(replacement_payload)
+
+    replacement_artifact = ReadinessEvidenceArtifact(
+        key=target.key,
+        path=str(path),
+        sha256=hashlib.sha256(replacement_payload).hexdigest(),
+    )
+    attestation = ProductionReadinessAttestation(
+        runtime_manifest_fingerprint=runtime.fingerprint,
+        artifacts=(replacement_artifact, *original.artifacts[1:]),
+    )
+
+    real_open = production_readiness_module.os.open
+    replaced = False
+
+    def replace_before_open(candidate, flags):
+        nonlocal replaced
+        if not replaced and candidate == path:
+            replaced = True
+            path.unlink()
+            replacement.replace(path)
+        return real_open(candidate, flags)
+
+    monkeypatch.setattr(production_readiness_module.os, "open", replace_before_open)
+
+    report = evaluate_attested_production_readiness(_evidence(runtime), attestation)
+
+    assert replaced is True
+    assert report.ready is False
+    assert (
+        f"readiness evidence artifact changed during verification: {target.key}"
         in report.blockers
     )
 
