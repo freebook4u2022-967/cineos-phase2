@@ -10,6 +10,9 @@ from cineos.native_video.runtime_upgrade import (
 )
 
 
+TEST_MODEL_MANIFEST_SHA256 = "a" * 64
+
+
 def _current_payload() -> dict[str, object]:
     return {
         "schema": PRODUCTION_RUNTIME_MANIFEST_SCHEMA,
@@ -20,7 +23,7 @@ def _current_payload() -> dict[str, object]:
         "require_final_film_evaluation": True,
         "require_audio": True,
         "final_gate_policy_fingerprint": "gate-a",
-        "native_model_manifest_sha256": "model-a",
+        "native_model_manifest_sha256": TEST_MODEL_MANIFEST_SHA256,
     }
 
 
