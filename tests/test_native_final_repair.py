@@ -83,7 +83,9 @@ def test_accepted_film_has_empty_repair_plan():
 def test_duplicate_repair_evidence_is_deduplicated_stably():
     repair = build_final_film_repair_plan(
         plan=_plan(),
-        temporal=_component("reject", ("repair temporal defect", "repair temporal defect")),
+        temporal=_component(
+            "reject", ("repair temporal defect", "repair temporal defect")
+        ),
         duration=_component(),
     )
 
