@@ -39,6 +39,11 @@ from .final_eval import (
     evaluate_scene_boundaries,
 )
 from .final_gate import MeasuredFinalFilmGate, MeasuredFinalFilmReport
+from .final_repair import (
+    FinalFilmRepairAction,
+    FinalFilmRepairPlan,
+    build_final_film_repair_plan,
+)
 from .learned_decoder import CheckpointLatentRGBDecoder
 from .observability import (
     TEMPORAL_EVENT_SCHEMA,
@@ -151,6 +156,8 @@ __all__ = [
     "FinalFilmAudioIntegrityGate",
     "FinalFilmAuditError",
     "FinalFilmAuditRecord",
+    "FinalFilmRepairAction",
+    "FinalFilmRepairPlan",
     "InMemoryTemporalObserver",
     "JsonlTemporalObserver",
     "LEGACY_UNBOUND_NATIVE_MODEL_MANIFEST",
@@ -211,6 +218,7 @@ __all__ = [
     "TemporalSequenceState",
     "VerifiedReleaseSnapshot",
     "build_checkpoint_temporal_shot_renderer",
+    "build_final_film_repair_plan",
     "build_production_first_film_runtime",
     "build_released_production_first_film_runtime",
     "build_strict_released_production_runtime",
