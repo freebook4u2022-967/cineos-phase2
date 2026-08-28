@@ -58,10 +58,12 @@ class NativeFrameRuntime:
     """Generate one frame, run QC, and automatically rerender when required.
 
     Observers may expose an ``accept_frame(result, plan)`` method when they own
-    transactional continuity state derived from generated pixels. Identity memory
-    and observer-owned continuity state are committed as one acceptance transaction:
-    if the observer commit fails, identity memory rolls back to its pre-evaluation
-    checkpoint so a partially accepted frame can never become future context.
+    transactional continuity state derived from generated pixels. Observers with
+    mutable commit state should additionally expose ``checkpoint_state()`` and
+    ``restore_state(checkpoint)``. Identity memory and observer-owned continuity
+    state are then committed as one acceptance transaction: if either commit path
+    fails, both stores are restored to their pre-evaluation checkpoints so a
+    partially accepted frame can never become future context.
     """
 
     def __init__(
@@ -89,6 +91,16 @@ class NativeFrameRuntime:
             identities = self.observer.observe_identity(result, plan)
             visual = self.observer.observe_visual_continuity(result, plan)
             identity_checkpoint = self.identity_memory.checkpoint()
+            observer_checkpoint: object | None = None
+            checkpoint_state = getattr(self.observer, "checkpoint_state", None)
+            restore_state = getattr(self.observer, "restore_state", None)
+            if callable(checkpoint_state):
+                if not callable(restore_state):
+                    raise TypeError(
+                        "observer checkpoint_state requires matching restore_state"
+                    )
+                observer_checkpoint = checkpoint_state()
+
             decision = self.controller.evaluate(
                 self.identity_memory,
                 identities,
@@ -110,6 +122,8 @@ class NativeFrameRuntime:
                         accept_frame(result, plan)
                     except Exception:
                         self.identity_memory.restore(identity_checkpoint)
+                        if observer_checkpoint is not None:
+                            restore_state(observer_checkpoint)
                         raise
                 return NativeFrameGenerationResult(
                     shot_id=plan.shot_id,
