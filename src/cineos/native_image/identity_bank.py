@@ -1,7 +1,7 @@
 """Character identity embedding bank for CINEOS continuity training.
 
 The identity bank is deliberately framework-neutral so the same acceptance and
-continuity semantics are available during CPU validation and neural training.  In
+continuity semantics are available during CPU validation and neural training. In
 addition to the legacy centroid builder, production callers can use robust
 multi-reference fusion to reject inconsistent approved-reference embeddings before
 an identity anchor is committed.
@@ -78,6 +78,59 @@ class CharacterIdentityEmbeddingBank:
         )
         return cls._normalize(centroid)
 
+    @staticmethod
+    def _mean_peer_similarity(
+        vectors: Sequence[tuple[float, ...]], index: int
+    ) -> float:
+        vector = vectors[index]
+        similarities = [
+            sum(left * right for left, right in zip(vector, other, strict=True))
+            for other_index, other in enumerate(vectors)
+            if other_index != index
+        ]
+        if not similarities:
+            raise ValueError("identity consensus requires at least two references")
+        return sum(similarities) / len(similarities)
+
+    @classmethod
+    def _consensus_indices(
+        cls,
+        vectors: Sequence[tuple[float, ...]],
+        *,
+        min_consensus_similarity: float,
+        minimum_references: int,
+    ) -> tuple[int, ...]:
+        """Return a deterministic robust consensus subset.
+
+        A single corrupted reference must not be allowed to depress every good
+        reference's mean similarity enough to make an otherwise coherent identity
+        set fail closed. We therefore iteratively remove the weakest peer-consensus
+        reference and recompute scores until all survivors satisfy the threshold.
+
+        The algorithm still fails closed when no subset of at least
+        ``minimum_references`` can satisfy the requested consensus. Ties are broken by
+        original reference order so release builds remain deterministic.
+        """
+
+        active = list(range(len(vectors)))
+        while len(active) >= minimum_references:
+            active_vectors = tuple(vectors[index] for index in active)
+            scores = tuple(
+                cls._mean_peer_similarity(active_vectors, index)
+                for index in range(len(active_vectors))
+            )
+            if min(scores) >= min_consensus_similarity:
+                return tuple(active)
+            if len(active) == minimum_references:
+                break
+
+            weakest_local_index = min(
+                range(len(active)), key=lambda index: (scores[index], active[index])
+            )
+            del active[weakest_local_index]
+
+        raise ValueError("approved references do not meet identity consensus")
+
     def build_character(
         self, character_id: str, reference_vectors
     ) -> CharacterIdentityEmbedding:
@@ -106,11 +159,12 @@ class CharacterIdentityEmbeddingBank:
     ) -> CharacterIdentityEmbedding:
         """Fuse approved references while rejecting identity-inconsistent outliers.
 
-        Each reference is normalized and scored by its mean cosine similarity to all
-        other references.  A reference below ``min_consensus_similarity`` is excluded
-        before the final weighted centroid is committed.  This protects the durable
-        character anchor from a mislabeled, corrupted, or visually inconsistent
-        approved reference without coupling CINEOS to any particular face encoder.
+        Each reference is normalized and peer-consensus is evaluated iteratively.
+        The weakest inconsistent reference is removed, scores are recomputed, and the
+        process continues until every surviving reference meets
+        ``min_consensus_similarity``. This protects the durable character anchor from
+        a mislabeled, corrupted, or visually inconsistent approved reference without
+        coupling CINEOS to any particular face encoder.
 
         The method fails closed when too few mutually-consistent references survive.
         For a deliberate one-reference identity, callers should use ``build_character``
@@ -137,23 +191,11 @@ class CharacterIdentityEmbeddingBank:
             if any(not math.isfinite(weight) or weight <= 0.0 for weight in weights):
                 raise ValueError("reference weights must be finite and positive")
 
-        consensus_scores = []
-        for index, vector in enumerate(vectors):
-            similarities = [
-                sum(left * right for left, right in zip(vector, other, strict=True))
-                for other_index, other in enumerate(vectors)
-                if other_index != index
-            ]
-            consensus_scores.append(sum(similarities) / len(similarities))
-
-        accepted_indices = tuple(
-            index
-            for index, score in enumerate(consensus_scores)
-            if score >= min_consensus_similarity
+        accepted_indices = self._consensus_indices(
+            vectors,
+            min_consensus_similarity=min_consensus_similarity,
+            minimum_references=minimum_references,
         )
-        if len(accepted_indices) < minimum_references:
-            raise ValueError("approved references do not meet identity consensus")
-
         accepted_vectors = tuple(vectors[index] for index in accepted_indices)
         accepted_weights = tuple(weights[index] for index in accepted_indices)
         centroid = self._weighted_centroid(accepted_vectors, accepted_weights)
