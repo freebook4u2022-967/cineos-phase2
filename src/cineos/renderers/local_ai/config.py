@@ -32,6 +32,7 @@ class LocalAIConfig:
     model_license: str | None = None
     model_provenance: str | None = None
     trust_remote_code: bool = False
+    production_mode: bool = False
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> LocalAIConfig:
