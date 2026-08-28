@@ -147,3 +147,48 @@ def test_model_restore_rejects_non_finite_temporal_state() -> None:
 
     with pytest.raises(ValueError, match="non-finite"):
         model.restore_state(payload)
+
+
+def test_temporal_checkpoint_rejects_same_shape_different_model_revision() -> None:
+    source = NativeTemporalModel.initialized()
+    state = source.initial_state("shot-001")
+    source.step(_frame(0), state)
+
+    target = NativeTemporalModel.initialized()
+    target.decoder.weights[0] += 0.001
+
+    with pytest.raises(ValueError, match="different model revision"):
+        target.restore_state(state.snapshot())
+
+
+def test_temporal_checkpoint_fingerprint_is_stable_for_identical_models() -> None:
+    left = NativeTemporalModel.initialized()
+    right = NativeTemporalModel.initialized()
+
+    assert left.model_fingerprint() == right.model_fingerprint()
+    assert len(left.model_fingerprint()) == 64
+
+
+def test_legacy_temporal_checkpoint_is_migrated_on_restore() -> None:
+    model = NativeTemporalModel.initialized()
+    payload = model.initial_state("shot-001").snapshot()
+    metadata = payload["metadata"]
+    assert isinstance(metadata, dict)
+    metadata.clear()
+
+    restored = model.restore_state(payload)
+
+    assert restored.metadata["temporal_checkpoint_schema"] == 1
+    assert restored.metadata["temporal_model_fingerprint"] == model.model_fingerprint()
+    assert restored.metadata["temporal_checkpoint_migrated_from_legacy"] == 1
+
+
+def test_temporal_checkpoint_rejects_unknown_schema() -> None:
+    model = NativeTemporalModel.initialized()
+    payload = model.initial_state("shot-001").snapshot()
+    metadata = payload["metadata"]
+    assert isinstance(metadata, dict)
+    metadata["temporal_checkpoint_schema"] = 999
+
+    with pytest.raises(ValueError, match="unsupported temporal checkpoint schema"):
+        model.restore_state(payload)
