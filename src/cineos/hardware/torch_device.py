@@ -40,7 +40,9 @@ def _cuda_available(torch: Any) -> bool:
         return False
 
 
-def resolve_torch_device(requested: str = "auto", *, torch_module: Any | None = None) -> str:
+def resolve_torch_device(
+    requested: str = "auto", *, torch_module: Any | None = None
+) -> str:
     """Resolve a neural runtime device without hiding accelerator failures.
 
     ``auto`` is the only mode permitted to fall back between device classes.  An

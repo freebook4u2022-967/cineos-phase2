@@ -34,9 +34,19 @@ class _Torch:
 
 
 def test_auto_prefers_cuda_then_mps_then_cpu() -> None:
-    assert resolve_torch_device("auto", torch_module=_Torch(cuda=True, cuda_count=1, mps=True)) == "cuda"
-    assert resolve_torch_device("auto", torch_module=_Torch(cuda=False, mps=True)) == "mps"
-    assert resolve_torch_device("auto", torch_module=_Torch(cuda=False, mps=False)) == "cpu"
+    assert (
+        resolve_torch_device(
+            "auto", torch_module=_Torch(cuda=True, cuda_count=1, mps=True)
+        )
+        == "cuda"
+    )
+    assert (
+        resolve_torch_device("auto", torch_module=_Torch(cuda=False, mps=True)) == "mps"
+    )
+    assert (
+        resolve_torch_device("auto", torch_module=_Torch(cuda=False, mps=False))
+        == "cpu"
+    )
 
 
 def test_explicit_cuda_never_silently_falls_back() -> None:
