@@ -36,13 +36,23 @@ def _plan():
         shot_id="shot-001",
         scene_id="scene-001",
         camera={"resolution": (4, 4)},
-        characters=[],
+        characters=[
+            {
+                "character_uuid": "char-001",
+                "cinedna_profile_id": "cinedna-char-001",
+                "cinedna_profile_version": 1,
+                "approved_reference_ids": ["ref-front-001"],
+                "identity_invariants": ["stable face geometry"],
+                "face_constraints": {},
+                "body_constraints": {},
+            }
+        ],
         environment=None,
         wardrobe=[],
         props=[],
         continuity={},
         performance={},
-        approved_reference_ids=[],
+        approved_reference_ids=["ref-front-001"],
         deterministic_seed=123,
         renderer_requirements={},
     )
