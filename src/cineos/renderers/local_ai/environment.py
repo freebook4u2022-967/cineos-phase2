@@ -28,6 +28,7 @@ def validate_environment(config: LocalAIConfig) -> EnvironmentReport:
         "os": platform.system(),
         "device": config.device,
         "model_source": "remote" if config.allow_remote_model else "local",
+        "production_mode": config.production_mode,
     }
     if platform.system() != "Linux":
         errors.append("local-ai supports Linux only")
@@ -55,6 +56,10 @@ def validate_environment(config: LocalAIConfig) -> EnvironmentReport:
                 errors.append(
                     "remote pretrained models require model_provenance to be declared"
                 )
+            if config.production_mode and not config.model_revision:
+                errors.append(
+                    "production remote models require model_revision to be pinned"
+                )
             details["remote_model_id"] = config.model_path
             if config.model_revision:
                 details["remote_model_revision"] = config.model_revision
@@ -76,6 +81,8 @@ def validate_environment(config: LocalAIConfig) -> EnvironmentReport:
             f"insufficient disk space: {free / 1024**3:.1f} GiB available, "
             f"{config.minimum_disk_gb:.1f} GiB required"
         )
+    if config.production_mode and not config.device.startswith("cuda"):
+        errors.append("production_mode requires CUDA-backed inference")
     if config.device.startswith("cuda"):
         _validate_cuda(config, errors, details)
     else:
@@ -92,7 +99,7 @@ def _validate_cuda(
     result = subprocess.run(
         [
             "nvidia-smi",
-            "--query-gpu=memory.total,driver_version",
+            "--query-gpu=name,memory.total,driver_version",
             "--format=csv,noheader,nounits",
         ],
         capture_output=True,
@@ -102,8 +109,14 @@ def _validate_cuda(
     if result.returncode or not result.stdout.strip():
         errors.append("unable to inspect NVIDIA GPU and driver")
         return
-    memory, driver = [part.strip() for part in result.stdout.splitlines()[0].split(",")]
-    details.update(gpu_memory_mib=int(memory), nvidia_driver=driver)
+    gpu_name, memory, driver = [
+        part.strip() for part in result.stdout.splitlines()[0].split(",", 2)
+    ]
+    details.update(
+        gpu_name=gpu_name,
+        gpu_memory_mib=int(memory),
+        nvidia_driver=driver,
+    )
     if int(memory) < config.minimum_vram_gb * 1024:
         errors.append(
             f"insufficient VRAM: {int(memory) / 1024:.1f} GiB available, "
@@ -117,5 +130,10 @@ def _validate_cuda(
             errors.append(
                 "PyTorch CUDA is unavailable or incompatible with the installed driver"
             )
+        else:
+            device_index = torch.cuda.current_device()
+            capability = torch.cuda.get_device_capability(device_index)
+            details["cuda_compute_capability"] = f"{capability[0]}.{capability[1]}"
+            details["bf16_supported"] = bool(torch.cuda.is_bf16_supported())
     except ImportError:
         pass
