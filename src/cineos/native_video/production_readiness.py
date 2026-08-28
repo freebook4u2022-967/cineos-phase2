@@ -35,7 +35,9 @@ READINESS_EVIDENCE_KEYS = (
 )
 
 
-def _sha256_regular_evidence_file(path: Path, *, key: str) -> tuple[str | None, str | None]:
+def _sha256_regular_evidence_file(
+    path: Path, *, key: str
+) -> tuple[str | None, str | None]:
     """Hash one immutable evidence file without following special-file surprises.
 
     Release evidence is security-sensitive input.  A FIFO, device, directory, or
