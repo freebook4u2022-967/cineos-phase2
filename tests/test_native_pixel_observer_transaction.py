@@ -1,7 +1,10 @@
 import pytest
 
 from cineos.atlas.native_request import NativeShotRequest
-from cineos.native_image.backend import NativeImageResearchBackend, NativeImageResearchResult
+from cineos.native_image.backend import (
+    NativeImageResearchBackend,
+    NativeImageResearchResult,
+)
 from cineos.native_image.conditioning import compile_native_image_plan
 from cineos.native_image.frame_runtime import NativeFrameRuntime
 from cineos.native_image.neural_decoder import DecodedRGBFrame
@@ -136,5 +139,7 @@ def test_frame_runtime_rolls_back_pixels_when_acceptance_transaction_fails():
 def test_pixel_aware_observer_rejects_unknown_checkpoint_schema():
     observer = PixelAwareNativeFrameObserver(identity_source=_NoIdentitySource())
 
-    with pytest.raises(ValueError, match="unsupported pixel-aware observer checkpoint schema"):
+    with pytest.raises(
+        ValueError, match="unsupported pixel-aware observer checkpoint schema"
+    ):
         observer.restore_state({"schema": "cineos-pixel-aware-observer-checkpoint/999"})
