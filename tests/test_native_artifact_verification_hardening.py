@@ -16,7 +16,9 @@ def test_sha256_file_hashes_stable_regular_file(tmp_path) -> None:
     payload = b"cineos-native-model-bytes" * 4096
     artifact.write_bytes(payload)
 
-    assert sha256_file(artifact, chunk_bytes=1024) == hashlib.sha256(payload).hexdigest()
+    assert (
+        sha256_file(artifact, chunk_bytes=1024) == hashlib.sha256(payload).hexdigest()
+    )
 
 
 def test_sha256_file_rejects_symbolic_link(tmp_path) -> None:
@@ -45,7 +47,9 @@ def test_sha256_file_rejects_empty_artifact(tmp_path) -> None:
         sha256_file(artifact)
 
 
-def test_sha256_file_requests_close_on_exec_when_supported(tmp_path, monkeypatch) -> None:
+def test_sha256_file_requests_close_on_exec_when_supported(
+    tmp_path, monkeypatch
+) -> None:
     artifact = tmp_path / "weights.bin"
     artifact.write_bytes(b"weights")
     observed: list[int] = []
