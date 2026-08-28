@@ -59,7 +59,9 @@ def _decision(component: Any) -> str:
 
 
 def _directives(component: Any) -> tuple[str, ...]:
-    return tuple(str(item) for item in (getattr(component, "directives", ()) or ()) if str(item))
+    return tuple(
+        str(item) for item in (getattr(component, "directives", ()) or ()) if str(item)
+    )
 
 
 def build_final_film_repair_plan(
@@ -85,9 +87,13 @@ def build_final_film_repair_plan(
     actions: list[FinalFilmRepairAction] = []
 
     if _decision(temporal) == "reject":
-        reasons = _directives(temporal) or ("final temporal evaluation rejected the movie",)
+        reasons = _directives(temporal) or (
+            "final temporal evaluation rejected the movie",
+        )
         for reason in reasons:
-            actions.append(FinalFilmRepairAction(domain="visual_timeline", reason=reason))
+            actions.append(
+                FinalFilmRepairAction(domain="visual_timeline", reason=reason)
+            )
 
     if boundaries is not None:
         for item in tuple(getattr(boundaries, "boundaries", ()) or ()):
@@ -102,24 +108,32 @@ def build_final_film_repair_plan(
                 incoming = scene_edges[to_scene][0]
                 if incoming not in shot_ids:
                     shot_ids.append(incoming)
-            reasons = _directives(item) or ("scene-boundary continuity evaluation rejected the edit",)
+            reasons = _directives(item) or (
+                "scene-boundary continuity evaluation rejected the edit",
+            )
             for reason in reasons:
                 actions.append(
                     FinalFilmRepairAction(
                         domain="scene_continuity",
                         reason=reason,
                         shot_ids=tuple(shot_ids),
-                        scene_ids=tuple(value for value in (from_scene, to_scene) if value),
+                        scene_ids=tuple(
+                            value for value in (from_scene, to_scene) if value
+                        ),
                     )
                 )
 
     if duration is not None and _decision(duration) == "reject":
-        reasons = _directives(duration) or ("encoded duration does not match the authored timeline",)
+        reasons = _directives(duration) or (
+            "encoded duration does not match the authored timeline",
+        )
         for reason in reasons:
             actions.append(FinalFilmRepairAction(domain="assembly", reason=reason))
 
     if audio is not None and _decision(audio) == "reject":
-        reasons = _directives(audio) or ("encoded audio integrity evaluation rejected the movie",)
+        reasons = _directives(audio) or (
+            "encoded audio integrity evaluation rejected the movie",
+        )
         for reason in reasons:
             actions.append(FinalFilmRepairAction(domain="audio", reason=reason))
 
