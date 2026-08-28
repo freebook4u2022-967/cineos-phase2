@@ -97,6 +97,45 @@ def test_attested_readiness_rejects_tampered_artifact(tmp_path):
     )
 
 
+def test_attested_readiness_rejects_non_regular_artifact(tmp_path):
+    runtime = _runtime()
+    attestation = _attestation(tmp_path, runtime)
+    artifact = attestation.artifacts[0]
+    path = tmp_path / f"{artifact.key}.json"
+    path.unlink()
+    path.mkdir()
+
+    report = evaluate_attested_production_readiness(_evidence(runtime), attestation)
+
+    assert report.ready is False
+    assert (
+        f"readiness evidence artifact is not a regular file: {artifact.key}"
+        in report.blockers
+    )
+
+
+def test_attested_readiness_rejects_symlink_artifact(tmp_path):
+    runtime = _runtime()
+    attestation = _attestation(tmp_path, runtime)
+    artifact = attestation.artifacts[0]
+    path = tmp_path / f"{artifact.key}.json"
+    target = tmp_path / "replacement.json"
+    target.write_bytes(path.read_bytes())
+    path.unlink()
+    try:
+        path.symlink_to(target)
+    except (NotImplementedError, OSError):
+        pytest.skip("symlink creation is unavailable in this environment")
+
+    report = evaluate_attested_production_readiness(_evidence(runtime), attestation)
+
+    assert report.ready is False
+    assert (
+        f"readiness evidence artifact is not a regular file: {artifact.key}"
+        in report.blockers
+    )
+
+
 def test_attested_readiness_rejects_runtime_mismatch(tmp_path):
     runtime = _runtime()
     attestation = _attestation(tmp_path, runtime)
