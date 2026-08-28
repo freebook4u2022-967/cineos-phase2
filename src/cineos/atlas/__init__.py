@@ -9,6 +9,12 @@ from .capabilities import (
     RendererCapabilities,
     Resolution,
 )
+from .diffusers_video import (
+    DiffusersVideoError,
+    DiffusersVideoRenderer,
+    DiffusersVideoResult,
+    FoundationProvenance,
+)
 from .native_ingest import (
     NativeRenderReceipt,
     NativeRequestError,
@@ -35,6 +41,10 @@ __all__ = [
     "BaseRenderer",
     "AtlasRuntime",
     "CapabilityError",
+    "DiffusersVideoError",
+    "DiffusersVideoRenderer",
+    "DiffusersVideoResult",
+    "FoundationProvenance",
     "NATIVE_SHOT_SCHEMA",
     "NativeRenderReceipt",
     "NativeRequestError",
