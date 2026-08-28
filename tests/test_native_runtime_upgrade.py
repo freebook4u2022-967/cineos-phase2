@@ -9,7 +9,6 @@ from cineos.native_video.runtime_upgrade import (
     RuntimeManifestMigrationStep,
 )
 
-
 TEST_MODEL_MANIFEST_SHA256 = "a" * 64
 
 

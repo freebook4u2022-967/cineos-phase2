@@ -22,7 +22,6 @@ from cineos.native_video.release_receipt import (
 )
 from cineos.native_video.runtime_manifest import ProductionRuntimeManifest
 
-
 TEST_MODEL_MANIFEST_SHA256 = "a" * 64
 
 
