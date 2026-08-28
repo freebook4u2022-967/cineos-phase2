@@ -32,9 +32,7 @@ def _decoded_pixel_digest(values: tuple[float, ...]) -> bytes:
     and stable across platforms.
     """
 
-    payload = bytes(
-        max(0, min(255, round((value + 1.0) * 127.5))) for value in values
-    )
+    payload = bytes(max(0, min(255, round((value + 1.0) * 127.5))) for value in values)
     return hashlib.blake2b(payload, digest_size=16).digest()
 
 
@@ -143,7 +141,9 @@ class TorchCharacterReferenceEncoder:
             encoded.append(self.network(features))
 
         if not encoded:
-            raise RuntimeError("character reference encoder produced no unique evidence")
+            raise RuntimeError(
+                "character reference encoder produced no unique evidence"
+            )
         return torch.stack(encoded, dim=0).mean(dim=0)
 
 
