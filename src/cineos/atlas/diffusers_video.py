@@ -1,0 +1,281 @@
+"""Optional real GPU video execution through Hugging Face Diffusers.
+
+This module deliberately keeps pretrained-foundation provenance explicit.  A
+Diffusers checkpoint can accelerate CINEOS research, but using one never turns
+that checkpoint into a CINEOS-native model.  CINEOS-owned conditioning,
+continuity, QC and orchestration live above this execution boundary.
+"""
+
+from __future__ import annotations
+
+import inspect
+from dataclasses import dataclass
+from importlib import import_module
+from pathlib import Path
+from typing import Any, Callable
+
+from .base_renderer import BaseRenderer
+from .capabilities import Range, RendererCapabilities, Resolution
+from .native_request import NativeShotRequest
+
+
+class DiffusersVideoError(RuntimeError):
+    """Raised when the optional Diffusers execution boundary cannot render."""
+
+
+@dataclass(frozen=True, slots=True)
+class FoundationProvenance:
+    """Auditable identity for a pretrained foundation used by CINEOS."""
+
+    model_id: str
+    revision: str | None = None
+    license_id: str | None = None
+    source_url: str | None = None
+    foundation_name: str | None = None
+
+    def to_dict(self) -> dict[str, str | None]:
+        return {
+            "model_id": self.model_id,
+            "revision": self.revision,
+            "license_id": self.license_id,
+            "source_url": self.source_url,
+            "foundation_name": self.foundation_name,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DiffusersVideoResult:
+    """One rendered shot plus enough provenance to reproduce the execution."""
+
+    shot_id: str
+    scene_id: str
+    output_path: str
+    frame_count: int
+    seed: int
+    foundation: FoundationProvenance
+    request_hash: str
+
+
+ReferenceLoader = Callable[[str], Any]
+PipelineFactory = Callable[..., Any]
+VideoExporter = Callable[..., Any]
+
+
+class DiffusersVideoRenderer(BaseRenderer):
+    """Lazy optional GPU renderer for Diffusers-compatible video checkpoints.
+
+    The class has no hard dependency on torch or diffusers.  Production installs
+    opt in through the ``video`` extra; normal CINEOS core/tests stay lightweight.
+    Tests can inject a pipeline factory/exporter without importing either package.
+    """
+
+    def __init__(
+        self,
+        foundation: FoundationProvenance,
+        *,
+        output_dir: str | Path,
+        resolutions: tuple[tuple[int, int], ...] = ((832, 480), (1280, 720)),
+        duration_range: tuple[float, float] = (1.0, 10.0),
+        fps: tuple[float, ...] = (16.0, 24.0),
+        supported_features: frozenset[str] = frozenset(),
+        maximum_character_count: int | None = None,
+        reference_loader: ReferenceLoader | None = None,
+        pipeline_factory: PipelineFactory | None = None,
+        video_exporter: VideoExporter | None = None,
+    ) -> None:
+        self.foundation = foundation
+        self.output_dir = Path(output_dir)
+        self.reference_loader = reference_loader
+        self._pipeline_factory = pipeline_factory
+        self._video_exporter = video_exporter
+        self._pipeline: Any | None = None
+        self._torch: Any | None = None
+        self._device = "cuda"
+        self._dtype_name = "bfloat16"
+        self._model_options: dict[str, Any] = {}
+        self._capabilities = RendererCapabilities(
+            supported_resolution=tuple(Resolution(*item) for item in resolutions),
+            supported_duration=Range(*duration_range),
+            supported_fps=fps,
+            supported_features=supported_features,
+            maximum_character_count=maximum_character_count,
+        )
+
+    @property
+    def capabilities(self) -> RendererCapabilities:
+        return self._capabilities
+
+    def initialize(self) -> None:
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def load_model(self, model: str | None = None, **options: Any) -> None:
+        model_id = model or self.foundation.model_id
+        if model_id != self.foundation.model_id:
+            raise DiffusersVideoError(
+                "model override must match declared foundation provenance"
+            )
+
+        self._device = str(options.pop("device", "cuda"))
+        self._dtype_name = str(options.pop("dtype", "bfloat16"))
+        self._model_options = dict(options)
+
+        if self._pipeline_factory is None:
+            try:
+                diffusers = import_module("diffusers")
+                self._torch = import_module("torch")
+            except ImportError as exc:
+                raise DiffusersVideoError(
+                    "real video execution requires the optional 'video' dependencies"
+                ) from exc
+            self._pipeline_factory = diffusers.DiffusionPipeline.from_pretrained
+
+        torch_dtype = None
+        if self._torch is not None:
+            torch_dtype = getattr(self._torch, self._dtype_name, None)
+            if self._device.startswith("cuda") and not self._torch.cuda.is_available():
+                raise DiffusersVideoError("CUDA device requested but torch reports no GPU")
+
+        load_options = dict(self._model_options)
+        if torch_dtype is not None:
+            load_options["torch_dtype"] = torch_dtype
+        if self.foundation.revision is not None:
+            load_options.setdefault("revision", self.foundation.revision)
+
+        self._pipeline = self._pipeline_factory(model_id, **load_options)
+        if hasattr(self._pipeline, "to"):
+            self._pipeline.to(self._device)
+
+    def warmup(self) -> None:
+        if self._pipeline is None:
+            raise DiffusersVideoError("model must be loaded before warmup")
+        if hasattr(self._pipeline, "set_progress_bar_config"):
+            self._pipeline.set_progress_bar_config(disable=True)
+
+    def render(self, request: Any) -> DiffusersVideoResult:
+        if not isinstance(request, NativeShotRequest):
+            raise TypeError("DiffusersVideoRenderer requires NativeShotRequest")
+        if self._pipeline is None:
+            raise DiffusersVideoError("renderer model is not loaded")
+
+        call = self._pipeline.__call__
+        parameters = inspect.signature(call).parameters
+        camera = request.camera
+        width, height = tuple(camera.get("resolution", (832, 480)))
+        fps = float(camera.get("fps", 24.0))
+        duration = float(camera.get("duration", 5.0))
+        num_frames = max(1, round(duration * fps))
+
+        kwargs: dict[str, Any] = {
+            "prompt": self._compile_prompt(request),
+            "width": width,
+            "height": height,
+            "num_frames": num_frames,
+        }
+        if "generator" in parameters:
+            kwargs["generator"] = self._generator(request.deterministic_seed)
+
+        if "image" in parameters:
+            image = self._load_primary_reference(request)
+            if image is not None:
+                kwargs["image"] = image
+
+        filtered = {key: value for key, value in kwargs.items() if key in parameters}
+        output = call(**filtered)
+        frames = self._extract_frames(output)
+        output_path = self.output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
+        exporter = self._resolve_exporter()
+        exporter(frames, str(output_path), fps=fps)
+        return DiffusersVideoResult(
+            shot_id=request.shot_id,
+            scene_id=request.scene_id,
+            output_path=str(output_path),
+            frame_count=len(frames),
+            seed=request.deterministic_seed,
+            foundation=self.foundation,
+            request_hash=request.content_hash,
+        )
+
+    def shutdown(self) -> None:
+        self._pipeline = None
+        if self._torch is not None and self._device.startswith("cuda"):
+            empty_cache = getattr(self._torch.cuda, "empty_cache", None)
+            if callable(empty_cache):
+                empty_cache()
+
+    def _generator(self, seed: int) -> Any:
+        if self._torch is None:
+            return seed
+        generator = self._torch.Generator(device=self._device)
+        return generator.manual_seed(seed)
+
+    def _load_primary_reference(self, request: NativeShotRequest) -> Any | None:
+        if not request.approved_reference_ids:
+            return None
+        if self.reference_loader is None:
+            return None
+        return self.reference_loader(request.approved_reference_ids[0])
+
+    def _resolve_exporter(self) -> VideoExporter:
+        if self._video_exporter is not None:
+            return self._video_exporter
+        try:
+            utils = import_module("diffusers.utils")
+        except ImportError as exc:
+            raise DiffusersVideoError(
+                "video export requires the optional 'video' dependencies"
+            ) from exc
+        self._video_exporter = utils.export_to_video
+        return self._video_exporter
+
+    @staticmethod
+    def _extract_frames(output: Any) -> list[Any]:
+        frames = getattr(output, "frames", None)
+        if frames is None and isinstance(output, dict):
+            frames = output.get("frames")
+        if frames is None:
+            raise DiffusersVideoError("pipeline output does not expose video frames")
+        if isinstance(frames, tuple):
+            frames = list(frames)
+        if frames and isinstance(frames[0], list):
+            frames = frames[0]
+        result = list(frames)
+        if not result:
+            raise DiffusersVideoError("pipeline returned zero video frames")
+        return result
+
+    @staticmethod
+    def _compile_prompt(request: NativeShotRequest) -> str:
+        """Convert structured CINEOS conditioning into deterministic model text."""
+        fragments: list[str] = []
+        explicit = request.metadata.get("prompt") or request.metadata.get("action")
+        if explicit:
+            fragments.append(str(explicit))
+
+        for character in request.characters:
+            identity = character.get("identity_invariants", [])
+            if identity:
+                fragments.append("character identity: " + ", ".join(map(str, identity)))
+
+        if request.environment:
+            description = request.environment.get("description") or request.environment.get(
+                "name"
+            )
+            if description:
+                fragments.append(f"environment: {description}")
+
+        camera = request.camera
+        for key in ("shot_size", "angle", "movement", "lens"):
+            value = camera.get(key)
+            if value:
+                fragments.append(f"camera {key.replace('_', ' ')}: {value}")
+
+        facial = request.performance.get("facial_targets")
+        if facial:
+            fragments.append(f"facial performance: {facial}")
+        gestures = request.performance.get("gesture_tracks")
+        if gestures:
+            fragments.append(f"gestures: {gestures}")
+
+        if not fragments:
+            fragments.append(f"cinematic shot {request.shot_id}")
+        return ". ".join(fragments)
