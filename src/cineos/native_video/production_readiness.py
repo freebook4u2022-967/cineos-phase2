@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,61 @@ READINESS_EVIDENCE_KEYS = (
     "full_film_e2e",
     "release_audit",
 )
+
+
+def _sha256_regular_evidence_file(path: Path, *, key: str) -> tuple[str | None, str | None]:
+    """Hash one immutable evidence file without following special-file surprises.
+
+    Release evidence is security-sensitive input.  A FIFO, device, directory, or
+    symlink must never be treated as an immutable attestation artifact, and a file
+    that changes while it is being hashed must fail closed rather than producing a
+    misleading digest result.
+    """
+    try:
+        initial = path.lstat()
+    except FileNotFoundError:
+        return None, f"readiness evidence artifact is missing: {key}"
+    except OSError as error:
+        return None, f"readiness evidence artifact is unreadable: {key}: {error}"
+    if not stat.S_ISREG(initial.st_mode):
+        return None, f"readiness evidence artifact is not a regular file: {key}"
+
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError:
+        return None, f"readiness evidence artifact is missing: {key}"
+    except OSError as error:
+        return None, f"readiness evidence artifact is unreadable: {key}: {error}"
+
+    try:
+        before = os.fstat(descriptor)
+    except OSError as error:
+        os.close(descriptor)
+        return None, f"readiness evidence artifact is unreadable: {key}: {error}"
+    if not stat.S_ISREG(before.st_mode):
+        os.close(descriptor)
+        return None, f"readiness evidence artifact is not a regular file: {key}"
+
+    digest = hashlib.sha256()
+    try:
+        with os.fdopen(descriptor, "rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+            after = os.fstat(handle.fileno())
+    except OSError as error:
+        return None, f"readiness evidence artifact is unreadable: {key}: {error}"
+
+    stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+    if any(getattr(before, field) != getattr(after, field) for field in stable_fields):
+        return None, f"readiness evidence artifact changed during verification: {key}"
+    return digest.hexdigest(), None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,15 +155,10 @@ class ReadinessEvidenceArtifact:
         return cls(key=key, path=path, sha256=sha256)
 
     def verify(self) -> str | None:
-        """Return a blocker when the artifact is missing or has changed."""
-        path = Path(self.path)
-        try:
-            payload = path.read_bytes()
-        except FileNotFoundError:
-            return f"readiness evidence artifact is missing: {self.key}"
-        except OSError as error:
-            return f"readiness evidence artifact is unreadable: {self.key}: {error}"
-        digest = hashlib.sha256(payload).hexdigest()
+        """Return a blocker when the artifact is missing, unsafe, or has changed."""
+        digest, blocker = _sha256_regular_evidence_file(Path(self.path), key=self.key)
+        if blocker is not None:
+            return blocker
         if digest != self.sha256:
             return f"readiness evidence artifact digest mismatch: {self.key}"
         return None
