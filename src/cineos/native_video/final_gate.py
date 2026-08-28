@@ -30,6 +30,7 @@ from .final_eval import (
     SceneBoundaryEvalReport,
     TemporalFilmEvalReport,
 )
+from .final_repair import FinalFilmRepairPlan, build_final_film_repair_plan
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +44,7 @@ class MeasuredFinalFilmReport:
     boundaries: SceneBoundaryEvalReport | None = None
     duration: DurationIntegrityReport | None = None
     audio: AudioIntegrityReport | None = None
+    repair_plan: FinalFilmRepairPlan | None = None
 
     @property
     def accepted(self) -> bool:
@@ -59,6 +61,9 @@ class MeasuredFinalFilmReport:
             ),
             "duration": asdict(self.duration) if self.duration is not None else None,
             "audio": asdict(self.audio) if self.audio is not None else None,
+            "repair_plan": (
+                self.repair_plan.as_dict() if self.repair_plan is not None else None
+            ),
         }
 
 
@@ -75,6 +80,11 @@ class MeasuredFinalFilmGate:
     Every evaluation first computes SHA-256 provenance for the exact assembled movie.
     This binds the resulting QC evidence to immutable artifact bytes and fails closed
     for missing or empty output before any downstream evaluator is trusted.
+
+    Rejected evidence is also converted into a deterministic remediation plan. The
+    plan distinguishes visual timeline, scene continuity, assembly, and audio faults
+    so autonomous recovery can regenerate only the smallest safe scope instead of
+    blindly discarding healthy film assets.
     """
 
     temporal_evaluator: FFmpegTemporalFilmEvaluator | None = None
@@ -140,6 +150,13 @@ class MeasuredFinalFilmGate:
             directives.extend(audio_report.directives)
 
         deduped = tuple(dict.fromkeys(str(item) for item in directives if str(item)))
+        repair_plan = build_final_film_repair_plan(
+            plan=tuple(plan),
+            temporal=temporal,
+            boundaries=boundary_report,
+            duration=duration,
+            audio=audio_report,
+        )
         return MeasuredFinalFilmReport(
             decision=decision,
             directives=deduped,
@@ -148,6 +165,7 @@ class MeasuredFinalFilmGate:
             boundaries=boundary_report,
             duration=duration,
             audio=audio_report,
+            repair_plan=repair_plan,
         )
 
 
