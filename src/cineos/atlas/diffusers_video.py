@@ -142,10 +142,7 @@ class DiffusersVideoRenderer(BaseRenderer):
                 f"unsupported memory_strategy {self._memory_strategy!r}; "
                 f"expected one of: {choices}"
             )
-        if (
-            self._memory_strategy != "resident"
-            and not self._device.startswith("cuda")
-        ):
+        if self._memory_strategy != "resident" and not self._device.startswith("cuda"):
             raise DiffusersVideoError("CPU offload strategies require a CUDA device")
         self._model_options = dict(options)
 
@@ -163,7 +160,9 @@ class DiffusersVideoRenderer(BaseRenderer):
         if self._torch is not None:
             torch_dtype = getattr(self._torch, self._dtype_name, None)
             if torch_dtype is None:
-                raise DiffusersVideoError(f"torch does not provide dtype {self._dtype_name!r}")
+                raise DiffusersVideoError(
+                    f"torch does not provide dtype {self._dtype_name!r}"
+                )
             if self._device.startswith("cuda") and not self._torch.cuda.is_available():
                 raise DiffusersVideoError(
                     "CUDA device requested but torch reports no GPU"
@@ -271,7 +270,9 @@ class DiffusersVideoRenderer(BaseRenderer):
     def _generator(self, seed: int) -> Any:
         if self._torch is None:
             return seed
-        generator_device = self._device if self._memory_strategy == "resident" else "cpu"
+        generator_device = (
+            self._device if self._memory_strategy == "resident" else "cpu"
+        )
         generator = self._torch.Generator(device=generator_device)
         return generator.manual_seed(seed)
 
