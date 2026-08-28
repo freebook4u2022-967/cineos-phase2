@@ -95,15 +95,23 @@ def _sha256_regular_file(
             f"unable to open model artifact securely: {source}"
         ) from exc
 
+    try:
+        before = os.fstat(descriptor)
+    except OSError as exc:
+        os.close(descriptor)
+        raise ModelArtifactVerificationError(
+            f"unable to inspect model artifact: {source}"
+        ) from exc
+    if not stat.S_ISREG(before.st_mode):
+        os.close(descriptor)
+        raise ModelArtifactVerificationError(
+            f"model artifact is not a regular file: {source}"
+        )
+
     digest = hashlib.sha256()
     bytes_read = 0
     try:
         with os.fdopen(descriptor, "rb") as handle:
-            before = os.fstat(handle.fileno())
-            if not stat.S_ISREG(before.st_mode):
-                raise ModelArtifactVerificationError(
-                    f"model artifact is not a regular file: {source}"
-                )
             while True:
                 chunk = handle.read(chunk_bytes)
                 if not chunk:
@@ -111,8 +119,6 @@ def _sha256_regular_file(
                 bytes_read += len(chunk)
                 digest.update(chunk)
             after = os.fstat(handle.fileno())
-    except ModelArtifactVerificationError:
-        raise
     except OSError as exc:
         raise ModelArtifactVerificationError(
             f"unable to read model artifact: {source}"
