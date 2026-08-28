@@ -34,6 +34,7 @@ class LocalAIRenderer(BaseRenderer):
         self.event_sink = event_sink
         self._cancelled = False
         self._loaded = False
+        self._loaded_model_identifier = self.config.model_path
 
     @property
     def capabilities(self) -> RendererCapabilities:
@@ -75,6 +76,7 @@ class LocalAIRenderer(BaseRenderer):
             model_revision=self.config.model_revision,
             trust_remote_code=self.config.trust_remote_code,
         )
+        self._loaded_model_identifier = requested_model
         self._loaded = True
 
     def warmup(self) -> None:
@@ -115,7 +117,7 @@ class LocalAIRenderer(BaseRenderer):
                 request.shot_id,
                 self.renderer_id,
                 self.renderer_version,
-                requested_model := self.config.model_path,
+                self._loaded_model_identifier,
                 request.seed,
                 str(request.output_path),
                 request.duration,
