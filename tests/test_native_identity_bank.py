@@ -62,6 +62,44 @@ def test_robust_identity_fusion_rejects_inconsistent_reference():
     assert bank.similarity("arif", (1.0, 0.0)) > 0.99
 
 
+def test_robust_identity_fusion_recomputes_consensus_after_outlier_removal():
+    """One opposite embedding must not poison two mutually-consistent references."""
+    bank = CharacterIdentityEmbeddingBank()
+    entry = bank.build_character_robust(
+        "arif",
+        (
+            (1.0, 0.00),
+            (0.99, 0.05),
+            (-1.0, 0.00),
+        ),
+        min_consensus_similarity=0.60,
+        minimum_references=2,
+    )
+
+    assert entry.reference_count == 2
+    assert entry.vector[0] > 0.99
+    assert bank.similarity("arif", (1.0, 0.0)) > 0.99
+
+
+def test_robust_identity_fusion_can_trim_multiple_isolated_outliers():
+    bank = CharacterIdentityEmbeddingBank()
+    entry = bank.build_character_robust(
+        "hana",
+        (
+            (0.00, 1.0),
+            (0.05, 0.99),
+            (-0.04, 0.98),
+            (1.00, 0.0),
+            (-1.00, 0.0),
+        ),
+        min_consensus_similarity=0.80,
+        minimum_references=3,
+    )
+
+    assert entry.reference_count == 3
+    assert entry.vector[1] > 0.99
+
+
 def test_robust_identity_fusion_uses_positive_quality_weights():
     bank = CharacterIdentityEmbeddingBank()
     entry = bank.build_character_robust(
