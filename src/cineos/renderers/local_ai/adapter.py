@@ -52,17 +52,28 @@ class LocalAIRenderer(BaseRenderer):
         return validate_environment(self.config)
 
     def load_model(self, model: str | None = None, **options: Any) -> None:
-        self._emit("renderer.model_loading", model=self.model_identifier)
+        requested_model = model or self.config.model_path
+        self._emit(
+            "renderer.model_loading",
+            model=requested_model,
+            source="remote" if self.config.allow_remote_model else "local",
+            revision=self.config.model_revision,
+            provenance=self.config.model_provenance,
+            license=self.config.model_license,
+        )
         report = self.validate_environment()
         if not report.valid:
             raise EnvironmentValidationError("; ".join(report.errors))
         self.backend.load(
-            model or self.config.model_path,
+            requested_model,
             device=self.config.device,
             precision=self.config.precision,
             attention_slicing=self.config.enable_attention_slicing,
             vae_slicing=self.config.enable_vae_slicing,
             cpu_offload=self.config.cpu_offload,
+            allow_remote_model=self.config.allow_remote_model,
+            model_revision=self.config.model_revision,
+            trust_remote_code=self.config.trust_remote_code,
         )
         self._loaded = True
 
@@ -104,7 +115,7 @@ class LocalAIRenderer(BaseRenderer):
                 request.shot_id,
                 self.renderer_id,
                 self.renderer_version,
-                self.model_identifier,
+                requested_model := self.config.model_path,
                 request.seed,
                 str(request.output_path),
                 request.duration,
@@ -119,6 +130,12 @@ class LocalAIRenderer(BaseRenderer):
                     "precision": self.config.precision,
                     "inference_steps": request.inference_steps,
                     "guidance": request.guidance,
+                    "model_source": (
+                        "remote" if self.config.allow_remote_model else "local"
+                    ),
+                    "model_revision": self.config.model_revision,
+                    "model_license": self.config.model_license,
+                    "model_provenance": self.config.model_provenance,
                 },
             )
             self._emit("renderer.completed", result=result.to_dict())
