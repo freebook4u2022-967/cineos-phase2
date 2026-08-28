@@ -71,6 +71,27 @@ class FailingCommitObserver(Observer):
         raise RuntimeError("pixel continuity commit failed")
 
 
+class StatefulFailingCommitObserver(Observer):
+    def __init__(self):
+        super().__init__()
+        self.accepted_shots = []
+
+    def checkpoint_state(self):
+        return tuple(self.accepted_shots)
+
+    def restore_state(self, checkpoint):
+        self.accepted_shots[:] = checkpoint
+
+    def accept_frame(self, result, plan):
+        self.accepted_shots.append(plan.shot_id)
+        raise RuntimeError("pixel continuity commit failed")
+
+
+class InvalidTransactionalObserver(Observer):
+    def checkpoint_state(self):
+        return ()
+
+
 def _plan():
     request = NativeShotRequest(
         shot_id="shot-001",
@@ -151,3 +172,28 @@ def test_native_frame_runtime_rolls_back_identity_if_observer_commit_fails():
 
     assert runtime.identity_memory.latest("hero") is None
     assert runtime.identity_memory.history("hero") == ()
+
+
+def test_native_frame_runtime_rolls_back_observer_state_if_commit_fails():
+    model = StubModel()
+    observer = StatefulFailingCommitObserver()
+    runtime = NativeFrameRuntime(NativeImageResearchBackend(model), observer)
+
+    with pytest.raises(RuntimeError, match="pixel continuity commit failed"):
+        runtime.generate(_plan())
+
+    assert observer.accepted_shots == []
+    assert runtime.identity_memory.latest("hero") is None
+
+
+def test_native_frame_runtime_requires_restore_for_observer_checkpoint():
+    model = StubModel()
+    runtime = NativeFrameRuntime(
+        NativeImageResearchBackend(model),
+        InvalidTransactionalObserver(),
+    )
+
+    with pytest.raises(TypeError, match="requires matching restore_state"):
+        runtime.generate(_plan())
+
+    assert runtime.identity_memory.latest("hero") is None
