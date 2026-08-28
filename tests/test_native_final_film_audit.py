@@ -22,7 +22,6 @@ from cineos.native_video.final_eval import TemporalFilmEvalReport
 from cineos.native_video.final_gate import MeasuredFinalFilmReport
 from cineos.native_video.runtime_manifest import ProductionRuntimeManifest
 
-
 TEST_MODEL_MANIFEST_SHA256 = "a" * 64
 
 
