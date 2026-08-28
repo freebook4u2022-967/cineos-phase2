@@ -58,6 +58,14 @@ class IdentityQCReport:
         return self.decision == "reject"
 
 
+@dataclass(frozen=True, slots=True)
+class TemporalIdentityCheckpoint:
+    """In-process rollback checkpoint for one identity-memory transaction."""
+
+    accepted: tuple[tuple[str, IdentityObservation], ...]
+    history: tuple[tuple[str, tuple[IdentityObservation, ...]], ...]
+
+
 @dataclass(slots=True)
 class TemporalIdentityMemory:
     """Carry the last accepted identity state for each character across shots."""
@@ -74,6 +82,30 @@ class TemporalIdentityMemory:
     def accept(self, observation: IdentityObservation) -> None:
         self._accepted[observation.character_uuid] = observation
         self._history.setdefault(observation.character_uuid, []).append(observation)
+
+    def checkpoint(self) -> TemporalIdentityCheckpoint:
+        """Capture an immutable rollback point before a multi-store acceptance step."""
+        return TemporalIdentityCheckpoint(
+            accepted=tuple(sorted(self._accepted.items())),
+            history=tuple(
+                (character_uuid, tuple(observations))
+                for character_uuid, observations in sorted(self._history.items())
+            ),
+        )
+
+    def restore(self, checkpoint: TemporalIdentityCheckpoint) -> None:
+        """Restore a prior checkpoint without replacing this memory object's identity."""
+        if not isinstance(checkpoint, TemporalIdentityCheckpoint):
+            raise TypeError("checkpoint must be a TemporalIdentityCheckpoint")
+        self._accepted.clear()
+        self._accepted.update(checkpoint.accepted)
+        self._history.clear()
+        self._history.update(
+            {
+                character_uuid: list(observations)
+                for character_uuid, observations in checkpoint.history
+            }
+        )
 
 
 def _cosine_similarity(first: tuple[float, ...], second: tuple[float, ...]) -> float:
