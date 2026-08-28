@@ -93,7 +93,11 @@ def _sha256_regular_evidence_file(
     except OSError as error:
         return None, f"readiness evidence artifact is unreadable: {key}: {error}"
 
-    stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+    # ctime is intentionally part of the stability contract. An attacker can restore
+    # a file's mtime after a same-size in-place write, but cannot normally restore
+    # inode change time from userspace. Tracking ctime therefore closes a post-hash
+    # mutation window without relying on content being re-read a second time.
+    stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
     if any(getattr(before, field) != getattr(after, field) for field in stable_fields):
         return None, f"readiness evidence artifact changed during verification: {key}"
 
