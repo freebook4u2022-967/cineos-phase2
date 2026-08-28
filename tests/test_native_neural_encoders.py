@@ -78,6 +78,32 @@ def test_image_encoder_uses_decoded_pixels_not_container_bytes(tmp_path):
     assert torch.allclose(low_logvar, high_logvar)
 
 
+def test_character_reference_encoder_deduplicates_decoded_pixel_evidence(tmp_path):
+    if not torch_available() or not pillow_available():
+        pytest.skip("CINEOS neural optional dependencies are not installed")
+
+    import torch
+    from PIL import Image
+
+    front = Image.new("RGB", (16, 16), (95, 130, 175))
+    front_low = tmp_path / "front-low.png"
+    front_high = tmp_path / "front-high.png"
+    profile = tmp_path / "profile.png"
+    front.save(front_low, compress_level=0)
+    front.save(front_high, compress_level=9)
+    Image.new("RGB", (16, 16), (115, 105, 165)).save(profile)
+    assert front_low.read_bytes() != front_high.read_bytes()
+
+    torch.manual_seed(11)
+    encoder = TorchCharacterReferenceEncoder(_config())
+    unique = encoder.encode_files((front_low, profile))
+    duplicated = encoder.encode_files((front_low, front_high, profile))
+    reordered = encoder.encode_files((profile, front_high, front_low))
+
+    assert torch.allclose(unique, duplicated)
+    assert torch.allclose(unique, reordered)
+
+
 def test_scene_text_encoder_uses_stable_trainable_token_embeddings():
     if not torch_available():
         pytest.skip("CINEOS neural optional dependencies are not installed")
