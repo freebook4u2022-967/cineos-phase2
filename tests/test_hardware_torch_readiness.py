@@ -37,9 +37,7 @@ class FakeTorch:
 
     def __init__(self, cuda):
         self.cuda = cuda
-        self.backends = SimpleNamespace(
-            mps=SimpleNamespace(is_available=lambda: False)
-        )
+        self.backends = SimpleNamespace(mps=SimpleNamespace(is_available=lambda: False))
 
 
 def test_probe_reports_cuda_capacity_and_bf16_support():
