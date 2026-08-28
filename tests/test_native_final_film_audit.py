@@ -23,6 +23,9 @@ from cineos.native_video.final_gate import MeasuredFinalFilmReport
 from cineos.native_video.runtime_manifest import ProductionRuntimeManifest
 
 
+TEST_MODEL_MANIFEST_SHA256 = "a" * 64
+
+
 def _accepted_report(movie_path) -> MeasuredFinalFilmReport:
     temporal = TemporalFilmEvalReport(
         frame_count=8,
@@ -57,7 +60,7 @@ def _production_manifest(**overrides: object) -> ProductionRuntimeManifest:
         "require_final_film_evaluation": True,
         "require_audio": True,
         "final_gate_policy_fingerprint": "gate:def",
-        "native_model_manifest_sha256": "model-release:123",
+        "native_model_manifest_sha256": TEST_MODEL_MANIFEST_SHA256,
     }
     values.update(overrides)
     return ProductionRuntimeManifest(**values)  # type: ignore[arg-type]
