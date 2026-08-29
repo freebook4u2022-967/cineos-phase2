@@ -17,7 +17,11 @@ from typing import Any
 
 from .diffusers_video import DiffusersVideoResult
 from .foundation_profiles import FoundationExecutionProfile
-from .gpu_preflight import GPUExecutionPlan, inspect_cuda_environment, select_gpu_execution
+from .gpu_preflight import (
+    GPUExecutionPlan,
+    inspect_cuda_environment,
+    select_gpu_execution,
+)
 from .native_request import NativeShotRequest
 
 
