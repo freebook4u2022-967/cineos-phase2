@@ -71,9 +71,7 @@ class GPUFoundationExecutionReceipt:
         }
 
 
-def _expected_artifact_path(
-    request: NativeShotRequest, output_dir: str | Path
-) -> Path:
+def _expected_artifact_path(request: NativeShotRequest, output_dir: str | Path) -> Path:
     return Path(output_dir) / f"{request.scene_id}-{request.shot_id}.mp4"
 
 
