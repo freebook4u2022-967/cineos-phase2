@@ -58,6 +58,26 @@ def test_default_suite_covers_connected_seedance_style_failures():
     } <= tags
 
 
+def test_custom_suite_links_continuity_to_selected_previous_shot(tmp_path):
+    renderer = ArtifactRenderer(tmp_path)
+    canonical = default_connected_cases()
+    selected = (canonical[4], canonical[5], canonical[9])
+
+    report = run_competitive_benchmark(
+        renderer,
+        approved_reference_ids=("approved-hero",),
+        cases=selected,
+    )
+
+    assert report.execution_passed is True
+    assert [request.shot_id for request in renderer.requests] == [
+        case.shot_id for case in selected
+    ]
+    assert renderer.requests[0].continuity["previous_shot_id"] is None
+    assert renderer.requests[1].continuity["previous_shot_id"] == selected[0].shot_id
+    assert renderer.requests[2].continuity["previous_shot_id"] == selected[1].shot_id
+
+
 def test_execution_evidence_cannot_be_mislabeled_as_competitive_quality(tmp_path):
     renderer = ArtifactRenderer(tmp_path)
     report = run_competitive_benchmark(
