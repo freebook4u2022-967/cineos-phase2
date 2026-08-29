@@ -2,9 +2,10 @@
 
 This module binds CINEOS GPU preflight, an explicitly external pretrained
 foundation profile, Diffusers execution, and output-artifact evidence into one
-operation.  It is intentionally small: success means a renderer actually wrote a
-non-empty video artifact.  Planning or model construction alone is never reported
-as a successful GPU render.
+operation. It is intentionally small: success means a renderer actually wrote a
+fresh, non-empty video artifact for the current request. Planning, model
+construction, or a stale artifact from an earlier run is never reported as a
+successful GPU render.
 """
 
 from __future__ import annotations
@@ -70,6 +71,69 @@ class GPUFoundationExecutionReceipt:
         }
 
 
+def _expected_artifact_path(
+    request: NativeShotRequest, output_dir: str | Path
+) -> Path:
+    return Path(output_dir) / f"{request.scene_id}-{request.shot_id}.mp4"
+
+
+def _remove_stale_expected_artifact(path: Path) -> None:
+    """Ensure an earlier render can never satisfy evidence for the current run."""
+    if not path.exists():
+        return
+    if not path.is_file():
+        raise GPUFoundationExecutionError(
+            f"expected GPU output path is not a file: {path}"
+        )
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise GPUFoundationExecutionError(
+            f"cannot remove stale GPU output artifact before render: {path}"
+        ) from exc
+
+
+def _validate_result_identity(
+    request: NativeShotRequest,
+    profile: FoundationExecutionProfile,
+    result: DiffusersVideoResult,
+    expected_artifact: Path,
+) -> Path:
+    """Bind returned evidence to the exact request/profile executed this run."""
+    if result.shot_id != request.shot_id or result.scene_id != request.scene_id:
+        raise GPUFoundationExecutionError(
+            "renderer result identity does not match the requested scene/shot"
+        )
+    if result.request_hash != request.content_hash:
+        raise GPUFoundationExecutionError(
+            "renderer result request hash does not match the current request"
+        )
+    if result.seed != request.deterministic_seed:
+        raise GPUFoundationExecutionError(
+            "renderer result seed does not match the current request"
+        )
+    if result.foundation != profile.provenance:
+        raise GPUFoundationExecutionError(
+            "renderer result foundation provenance does not match the selected profile"
+        )
+    if result.frame_count <= 0:
+        raise GPUFoundationExecutionError("renderer reported no generated video frames")
+
+    artifact = Path(result.output_path)
+    try:
+        actual_path = artifact.resolve(strict=False)
+        expected_path = expected_artifact.resolve(strict=False)
+    except OSError as exc:
+        raise GPUFoundationExecutionError(
+            f"cannot resolve renderer output path: {artifact}"
+        ) from exc
+    if actual_path != expected_path:
+        raise GPUFoundationExecutionError(
+            "renderer output path does not match the current shot artifact contract"
+        )
+    return artifact
+
+
 def execute_foundation_gpu_shot(
     request: NativeShotRequest,
     profile: FoundationExecutionProfile,
@@ -106,6 +170,9 @@ def execute_foundation_gpu_shot(
         video_exporter=video_exporter,
     )
 
+    expected_artifact = _expected_artifact_path(request, output_dir)
+    _remove_stale_expected_artifact(expected_artifact)
+
     started = perf_counter()
     renderer.initialize()
     try:
@@ -116,7 +183,12 @@ def execute_foundation_gpu_shot(
         renderer.shutdown()
     elapsed = perf_counter() - started
 
-    artifact = Path(result.output_path)
+    artifact = _validate_result_identity(
+        request,
+        profile,
+        result,
+        expected_artifact,
+    )
     try:
         output_bytes = artifact.stat().st_size
     except OSError as exc:
