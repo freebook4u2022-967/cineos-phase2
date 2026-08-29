@@ -1,12 +1,15 @@
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from cineos.native_video.competitive_benchmark import (
     CompetitiveBenchmarkReport,
     ShotBenchmarkResult,
     default_connected_cases,
 )
 from cineos.native_video.competitive_gate import (
+    CompetitiveAcceptancePolicy,
     SEEDANCE_STYLE_CHALLENGE_METRICS,
     evaluate_competitive_acceptance,
 )
@@ -59,9 +62,11 @@ def test_full_measured_connected_suite_can_pass_competitive_gate(tmp_path):
     assert verdict.reasons == ()
     assert verdict.missing_challenges == frozenset()
     assert verdict.missing_metric_evidence == frozenset()
+    assert verdict.below_threshold_challenges == frozenset()
+    assert verdict.minimum_observed_challenge_score == pytest.approx(0.91)
     assert "identity_similarity" in verdict.evaluated_metric_names
     assert "long_range_continuity" in verdict.evaluated_metric_names
-    assert verdict.to_dict()["schema"] == "cineos-competitive-acceptance/0.2"
+    assert verdict.to_dict()["schema"] == "cineos-competitive-acceptance/0.3"
 
 
 def test_reduced_suite_cannot_be_mislabeled_as_competitive(tmp_path):
@@ -133,3 +138,71 @@ def test_generic_visual_quality_cannot_substitute_for_challenge_measurement(tmp_
         "missing challenge-specific metric evidence" in reason
         for reason in verdict.reasons
     )
+
+
+def test_one_good_tagged_shot_cannot_mask_unmeasured_same_challenge(tmp_path):
+    report = _passing_report(tmp_path)
+    identity_indexes = [
+        index
+        for index, shot in enumerate(report.shots)
+        if "identity_consistency" in shot.challenge_tags
+    ]
+    assert len(identity_indexes) >= 2
+
+    index = identity_indexes[-1]
+    shot = report.shots[index]
+    metrics = dict(shot.quality_metrics)
+    metrics.pop("identity_similarity", None)
+    changed = replace(shot, quality_metrics=metrics)
+    shots = list(report.shots)
+    shots[index] = changed
+    report = CompetitiveBenchmarkReport(
+        scene_id=report.scene_id,
+        foundation=report.foundation,
+        shots=tuple(shots),
+    )
+
+    verdict = evaluate_competitive_acceptance(report)
+
+    assert verdict.passed is False
+    assert "identity_consistency" in verdict.missing_metric_evidence
+
+
+def test_challenge_metric_below_threshold_fails_competitive_claim(tmp_path):
+    report = _passing_report(tmp_path)
+    index = next(
+        index
+        for index, shot in enumerate(report.shots)
+        if "dialogue" in shot.challenge_tags
+    )
+    shot = report.shots[index]
+    metrics = dict(shot.quality_metrics)
+    metrics["dialogue_lipsync"] = 0.61
+    changed = replace(shot, quality_metrics=metrics)
+    shots = list(report.shots)
+    shots[index] = changed
+    report = CompetitiveBenchmarkReport(
+        scene_id=report.scene_id,
+        foundation=report.foundation,
+        shots=tuple(shots),
+    )
+
+    verdict = evaluate_competitive_acceptance(report)
+
+    assert verdict.passed is False
+    assert "dialogue" in verdict.below_threshold_challenges
+    assert verdict.minimum_observed_challenge_score == pytest.approx(0.61)
+    assert any("below competitive threshold 0.80" in reason for reason in verdict.reasons)
+
+
+def test_threshold_is_configurable_and_validated(tmp_path):
+    report = _passing_report(tmp_path)
+    strict = CompetitiveAcceptancePolicy(min_challenge_metric_score=0.95)
+
+    verdict = evaluate_competitive_acceptance(report, policy=strict)
+
+    assert verdict.passed is False
+    assert verdict.below_threshold_challenges
+
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        CompetitiveAcceptancePolicy(min_challenge_metric_score=1.01)
