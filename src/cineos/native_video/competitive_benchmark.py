@@ -214,6 +214,7 @@ def _request_for_case(
     case: BenchmarkCase,
     *,
     index: int,
+    previous_shot_id: str | None,
     scene_id: str,
     approved_reference_ids: tuple[str, ...],
     seed: int,
@@ -221,7 +222,6 @@ def _request_for_case(
     fps: float,
     duration: float,
 ) -> NativeShotRequest:
-    previous = None if index == 0 else default_connected_cases()[index - 1].shot_id
     camera = {
         "resolution": resolution,
         "fps": fps,
@@ -248,7 +248,7 @@ def _request_for_case(
         wardrobe=[{"character_id": "benchmark-hero", "description": "same dark coat"}],
         props=[{"prop_id": "metal-key", "continuity": "same key from shot 3 onward"}],
         continuity={
-            "previous_shot_id": previous,
+            "previous_shot_id": previous_shot_id,
             "scene_anchor": "same corridor geography and character identity",
             "challenge_tags": list(case.challenge_tags),
         },
@@ -293,9 +293,11 @@ def run_competitive_benchmark(
 
     results: list[ShotBenchmarkResult] = []
     for index, case in enumerate(selected):
+        previous_shot_id = None if index == 0 else selected[index - 1].shot_id
         request = _request_for_case(
             case,
             index=index,
+            previous_shot_id=previous_shot_id,
             scene_id=scene_id,
             approved_reference_ids=approved_reference_ids,
             seed=seed,
