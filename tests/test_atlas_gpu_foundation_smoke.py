@@ -128,3 +128,71 @@ def test_gpu_foundation_shot_fails_closed_without_written_video_artifact(tmp_pat
             pipeline_factory=lambda *_args, **_kwargs: _Pipeline(),
             video_exporter=lambda *_args, **_kwargs: None,
         )
+
+
+def test_gpu_foundation_shot_removes_stale_artifact_before_render(tmp_path):
+    request = _request()
+    stale = tmp_path / f"{request.scene_id}-{request.shot_id}.mp4"
+    stale.write_bytes(b"stale-success-from-earlier-run")
+
+    with pytest.raises(GPUFoundationExecutionError, match="no readable video artifact"):
+        execute_foundation_gpu_shot(
+            request,
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            torch_module=_Torch(),
+            pipeline_factory=lambda *_args, **_kwargs: _Pipeline(),
+            video_exporter=lambda *_args, **_kwargs: None,
+        )
+
+    assert not stale.exists()
+
+
+def test_gpu_foundation_shot_rejects_artifact_from_wrong_output_path(tmp_path):
+    request = _request()
+
+    def exporter(_frames, output_path, *, fps):
+        del fps
+        requested = Path(output_path)
+        requested.write_bytes(b"current-render")
+
+    class _WrongPathProfile:
+        profile_id = WAN22_TI2V_5B_PROFILE.profile_id
+        provenance = WAN22_TI2V_5B_PROFILE.provenance
+        minimum_gpu_vram_gb = WAN22_TI2V_5B_PROFILE.minimum_gpu_vram_gb
+        origin = WAN22_TI2V_5B_PROFILE.origin
+
+        @staticmethod
+        def renderer(**kwargs):
+            renderer = WAN22_TI2V_5B_PROFILE.renderer(**kwargs)
+            original_render = renderer.render
+
+            def render(native_request):
+                result = original_render(native_request)
+                wrong = tmp_path / "wrong-shot.mp4"
+                wrong.write_bytes(Path(result.output_path).read_bytes())
+                return type(result)(
+                    shot_id=result.shot_id,
+                    scene_id=result.scene_id,
+                    output_path=str(wrong),
+                    frame_count=result.frame_count,
+                    seed=result.seed,
+                    foundation=result.foundation,
+                    request_hash=result.request_hash,
+                )
+
+            renderer.render = render
+            return renderer
+
+    with pytest.raises(
+        GPUFoundationExecutionError,
+        match="output path does not match the current shot artifact contract",
+    ):
+        execute_foundation_gpu_shot(
+            request,
+            _WrongPathProfile(),
+            output_dir=tmp_path,
+            torch_module=_Torch(),
+            pipeline_factory=lambda *_args, **_kwargs: _Pipeline(),
+            video_exporter=exporter,
+        )
