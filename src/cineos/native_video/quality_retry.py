@@ -10,6 +10,8 @@ accepted. Artifact existence alone never upgrades a failed shot to accepted.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -48,6 +50,7 @@ class QualityRetryAttempt:
     quality_metrics: dict[str, float]
     notes: tuple[str, ...]
     frame_count: int | None = None
+    conditioning_hash: str = ""
 
     @property
     def metric_mean(self) -> float | None:
@@ -72,6 +75,29 @@ class QualityRetryResult:
     @property
     def attempt_count(self) -> int:
         return len(self.attempts)
+
+
+def _conditioning_hash(request: NativeShotRequest) -> str:
+    """Fingerprint immutable directing/continuity constraints across QC retries.
+
+    Retry metadata and deterministic seed are intentionally excluded because those
+    are the only fields the retry primitive is permitted to vary. Everything else
+    remains part of the digest, including identity references, camera, scene,
+    wardrobe, props, performance, continuity and renderer requirements.
+    """
+
+    payload = request.payload()
+    payload.pop("deterministic_seed", None)
+    metadata = dict(payload.get("metadata") or {})
+    metadata.pop("qc_retry", None)
+    payload["metadata"] = metadata
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _derived_request(
@@ -124,6 +150,7 @@ def render_with_quality_retries(
 
     active = policy or QualityRetryPolicy()
     attempts: list[QualityRetryAttempt] = []
+    expected_conditioning_hash = _conditioning_hash(request)
 
     for attempt_number in range(1, active.max_attempts + 1):
         candidate = _derived_request(
@@ -131,6 +158,12 @@ def render_with_quality_retries(
             attempt=attempt_number,
             seed_stride=active.seed_stride,
         )
+        candidate_conditioning_hash = _conditioning_hash(candidate)
+        if candidate_conditioning_hash != expected_conditioning_hash:
+            raise RuntimeError(
+                "QC retry mutated immutable directing or continuity constraints"
+            )
+
         notes: list[str] = []
         output_path: Path | None = None
         artifact_bytes = 0
@@ -179,6 +212,7 @@ def render_with_quality_retries(
             quality_metrics=quality_metrics,
             notes=tuple(notes),
             frame_count=frame_count,
+            conditioning_hash=candidate_conditioning_hash,
         )
         attempts.append(evidence)
 
