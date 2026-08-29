@@ -328,10 +328,7 @@ class DiffusersVideoRenderer(BaseRenderer):
             for key, value in kwargs.items()
             if accepts_kwargs or key in parameters
         }
-        if (
-            required_keyword is not None
-            and required_keyword not in accepted_kwargs
-        ):
+        if required_keyword is not None and required_keyword not in accepted_kwargs:
             raise DiffusersVideoError(
                 f"loaded pipeline feature {name!r} cannot target {self._device}; "
                 f"it does not accept {required_keyword!r}"
