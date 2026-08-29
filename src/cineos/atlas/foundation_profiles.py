@@ -40,8 +40,12 @@ class FoundationExecutionProfile:
         if not self.provenance.model_id.strip():
             raise ValueError("foundation model_id must not be empty")
         revision = self.provenance.revision
-        if revision is None or len(revision) != 40 or any(
-            character not in "0123456789abcdef" for character in revision.lower()
+        if (
+            revision is None
+            or len(revision) != 40
+            or any(
+                character not in "0123456789abcdef" for character in revision.lower()
+            )
         ):
             raise ValueError(
                 "foundation execution profiles require an immutable 40-character "
