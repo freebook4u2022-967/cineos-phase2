@@ -27,12 +27,15 @@ class QualityRetryPolicy:
 
     max_attempts: int = 3
     seed_stride: int = 100_003
+    feedback_metric_limit: int = 3
 
     def __post_init__(self) -> None:
         if self.max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
         if self.seed_stride < 1:
             raise ValueError("seed_stride must be >= 1")
+        if self.feedback_metric_limit < 1:
+            raise ValueError("feedback_metric_limit must be >= 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,23 +103,59 @@ def _conditioning_hash(request: NativeShotRequest) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _retry_feedback(
+    previous: QualityRetryAttempt | None,
+    *,
+    metric_limit: int,
+) -> dict[str, Any] | None:
+    """Convert measured failure evidence into renderer-consumable retry hints.
+
+    The feedback is deliberately stored under ``metadata.qc_retry`` so it is
+    operational guidance, not a mutation of the director's immutable constraints.
+    Metrics are ordered from weakest to strongest because benchmark metrics are
+    normalized to ``[0, 1]`` with higher values representing better quality.
+    """
+
+    if previous is None:
+        return None
+
+    ranked = sorted(previous.quality_metrics.items(), key=lambda item: item[1])
+    weakest = ranked[:metric_limit]
+    feedback: dict[str, Any] = {
+        "source_attempt": previous.attempt,
+        "quality_passed": previous.quality_passed,
+        "weakest_metrics": [
+            {"name": name, "score": float(score)} for name, score in weakest
+        ],
+    }
+    if previous.notes:
+        feedback["evaluator_notes"] = list(previous.notes)
+    if not previous.execution_passed:
+        feedback["execution_failure"] = True
+    return feedback
+
+
 def _derived_request(
     request: NativeShotRequest,
     *,
     attempt: int,
     seed_stride: int,
+    feedback: dict[str, Any] | None = None,
 ) -> NativeShotRequest:
     candidate = copy.deepcopy(request)
     base_hash = request.content_hash or request.refresh_hash()
     candidate.deterministic_seed = (
         request.deterministic_seed + (attempt - 1) * seed_stride
     )
+    retry_metadata: dict[str, Any] = {
+        "attempt": attempt,
+        "base_request_hash": base_hash,
+    }
+    if feedback is not None:
+        retry_metadata["feedback"] = feedback
     candidate.metadata = {
         **dict(candidate.metadata),
-        "qc_retry": {
-            "attempt": attempt,
-            "base_request_hash": base_hash,
-        },
+        "qc_retry": retry_metadata,
     }
     candidate.refresh_hash()
     return candidate
@@ -143,9 +182,11 @@ def render_with_quality_retries(
 
     Every retry varies only the deterministic seed and retry metadata. Identity,
     scene, camera, continuity, wardrobe, props, and other conditioning stay intact.
-    This gives a renderer a new stochastic sample without silently weakening the
-    director's constraints. A shot is accepted only when the supplied evaluator
-    explicitly returns ``passed=True``.
+    Starting with attempt two, measured failure evidence from the preceding attempt
+    is attached as operational retry feedback so capable renderers can target the
+    weakest measured dimensions without silently weakening directing constraints.
+    A shot is accepted only when the supplied evaluator explicitly returns
+    ``passed=True``.
     """
 
     active = policy or QualityRetryPolicy()
@@ -153,10 +194,15 @@ def render_with_quality_retries(
     expected_conditioning_hash = _conditioning_hash(request)
 
     for attempt_number in range(1, active.max_attempts + 1):
+        previous = attempts[-1] if attempts else None
         candidate = _derived_request(
             request,
             attempt=attempt_number,
             seed_stride=active.seed_stride,
+            feedback=_retry_feedback(
+                previous,
+                metric_limit=active.feedback_metric_limit,
+            ),
         )
         candidate_conditioning_hash = _conditioning_hash(candidate)
         if candidate_conditioning_hash != expected_conditioning_hash:
