@@ -137,61 +137,95 @@ def default_connected_cases() -> tuple[BenchmarkCase, ...]:
     return (
         BenchmarkCase(
             "shot-01-identity-closeup",
-            "Close-up of the hero under soft window light, subtle breathing and eye movement.",
+            (
+                "Close-up of the hero under soft window light, subtle breathing "
+                "and eye movement."
+            ),
             ("identity_consistency", "facial_detail"),
             {"shot_size": "close-up", "movement": "locked"},
         ),
         BenchmarkCase(
             "shot-02-two-character",
-            "The hero crosses frame and meets a second character; both faces remain clearly visible.",
+            (
+                "The hero crosses frame and meets a second character; both faces "
+                "remain clearly visible."
+            ),
             ("identity_consistency", "multi_character_interaction"),
             {"shot_size": "medium-wide", "movement": "slow dolly"},
         ),
         BenchmarkCase(
             "shot-03-object-handoff",
-            "The second character hands a metal key to the hero; fingers grasp and release it naturally.",
-            ("hands_anatomy", "object_interaction", "multi_character_interaction"),
+            (
+                "The second character hands a metal key to the hero; fingers grasp "
+                "and release it naturally."
+            ),
+            (
+                "hands_anatomy",
+                "object_interaction",
+                "multi_character_interaction",
+            ),
             {"shot_size": "medium", "movement": "subtle push-in"},
         ),
         BenchmarkCase(
             "shot-04-walk",
-            "The hero walks down the corridor holding the same key, with natural full-body gait.",
+            (
+                "The hero walks down the corridor holding the same key, with natural "
+                "full-body gait."
+            ),
             ("walking", "identity_consistency", "prop_continuity"),
             {"shot_size": "full", "movement": "tracking"},
         ),
         BenchmarkCase(
             "shot-05-run",
-            "A sudden alarm sounds and the hero runs toward camera without body deformation.",
+            (
+                "A sudden alarm sounds and the hero runs toward camera without body "
+                "deformation."
+            ),
             ("running", "anatomy", "identity_consistency"),
             {"shot_size": "full", "movement": "backward tracking"},
         ),
         BenchmarkCase(
             "shot-06-dialogue",
-            "The hero stops and speaks one short urgent sentence to the second character.",
+            (
+                "The hero stops and speaks one short urgent sentence to the second "
+                "character."
+            ),
             ("dialogue", "facial_performance", "identity_consistency"),
             {"shot_size": "medium close-up", "movement": "locked"},
         ),
         BenchmarkCase(
             "shot-07-fast-camera",
-            "Fast whip-pan follows the hero turning through a doorway, preserving geometry and identity.",
+            (
+                "Fast whip-pan follows the hero turning through a doorway, preserving "
+                "geometry and identity."
+            ),
             ("fast_camera_movement", "temporal_consistency"),
             {"shot_size": "medium", "movement": "whip pan"},
         ),
         BenchmarkCase(
             "shot-08-light-change",
-            "The hero enters a dark room as warm corridor light shifts to cool emergency lighting.",
+            (
+                "The hero enters a dark room as warm corridor light shifts to cool "
+                "emergency lighting."
+            ),
             ("lighting_change", "identity_consistency", "temporal_consistency"),
             {"shot_size": "medium-wide", "movement": "steadicam"},
         ),
         BenchmarkCase(
             "shot-09-physics",
-            "A gust from an open window moves the hero's coat and loose papers across the floor naturally.",
+            (
+                "A gust from an open window moves the hero's coat and loose papers "
+                "across the floor naturally."
+            ),
             ("physics", "cloth_motion", "object_motion"),
             {"shot_size": "wide", "movement": "slow arc"},
         ),
         BenchmarkCase(
             "shot-10-continuity-payoff",
-            "The hero unlocks the final door with the same key and looks back toward the second character.",
+            (
+                "The hero unlocks the final door with the same key and looks back "
+                "toward the second character."
+            ),
             (
                 "identity_consistency",
                 "hands_anatomy",
@@ -248,8 +282,12 @@ def _request_for_case(
             "name": "benchmark corridor",
             "description": "same realistic interior corridor across all ten shots",
         },
-        wardrobe=[{"character_id": "benchmark-hero", "description": "same dark coat"}],
-        props=[{"prop_id": "metal-key", "continuity": "same key from shot 3 onward"}],
+        wardrobe=[
+            {"character_id": "benchmark-hero", "description": "same dark coat"}
+        ],
+        props=[
+            {"prop_id": "metal-key", "continuity": "same key from shot 3 onward"}
+        ],
         continuity={
             "previous_shot_id": previous_shot_id,
             "scene_anchor": "same corridor geography and character identity",
