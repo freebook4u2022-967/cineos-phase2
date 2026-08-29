@@ -282,12 +282,8 @@ def _request_for_case(
             "name": "benchmark corridor",
             "description": "same realistic interior corridor across all ten shots",
         },
-        wardrobe=[
-            {"character_id": "benchmark-hero", "description": "same dark coat"}
-        ],
-        props=[
-            {"prop_id": "metal-key", "continuity": "same key from shot 3 onward"}
-        ],
+        wardrobe=[{"character_id": "benchmark-hero", "description": "same dark coat"}],
+        props=[{"prop_id": "metal-key", "continuity": "same key from shot 3 onward"}],
         continuity={
             "previous_shot_id": previous_shot_id,
             "scene_anchor": "same corridor geography and character identity",
