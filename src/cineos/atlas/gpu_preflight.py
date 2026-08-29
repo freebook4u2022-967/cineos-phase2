@@ -109,14 +109,26 @@ def plan_gpu_execution(
 
     ``estimated_model_vram_gb`` is an operator/model-card estimate, not a value
     invented by CINEOS.  The thresholds deliberately leave headroom for activations,
-    references and video latents.
+    references and video latents.  When live free-VRAM telemetry is available it is
+    used instead of total capacity so a busy GPU cannot be incorrectly approved for
+    a render that is already certain to overcommit memory.
     """
     if estimated_model_vram_gb <= 0:
         raise ValueError("estimated_model_vram_gb must be positive")
     if profile.total_vram_gb <= 0:
         raise GPUPreflightError("GPU reports no usable VRAM")
+    if profile.free_vram_gb is not None:
+        if profile.free_vram_gb <= 0:
+            raise GPUPreflightError("GPU reports no free VRAM")
+        if profile.free_vram_gb > profile.total_vram_gb:
+            raise GPUPreflightError("GPU free VRAM exceeds reported total VRAM")
 
-    ratio = profile.total_vram_gb / estimated_model_vram_gb
+    usable_vram_gb = (
+        profile.free_vram_gb
+        if profile.free_vram_gb is not None
+        else profile.total_vram_gb
+    )
+    ratio = usable_vram_gb / estimated_model_vram_gb
     if ratio >= 1.20:
         strategy = "resident"
         tiling = False
@@ -134,8 +146,8 @@ def plan_gpu_execution(
         attention_slicing = True
     else:
         raise GPUPreflightError(
-            "observed GPU VRAM is below the conservative minimum for this model; "
-            "use a smaller foundation or a larger GPU"
+            "observed free GPU VRAM is below the conservative minimum for this model; "
+            "free GPU memory, use a smaller foundation, or use a larger GPU"
         )
 
     dtype = "bfloat16" if prefer_bfloat16 and profile.supports_bfloat16 else "float16"
@@ -149,7 +161,7 @@ def plan_gpu_execution(
         estimated_model_vram_gb=float(estimated_model_vram_gb),
         observed_total_vram_gb=profile.total_vram_gb,
         observed_free_vram_gb=profile.free_vram_gb,
-        fit_margin_gb=profile.total_vram_gb - float(estimated_model_vram_gb),
+        fit_margin_gb=usable_vram_gb - float(estimated_model_vram_gb),
     )
 
 
