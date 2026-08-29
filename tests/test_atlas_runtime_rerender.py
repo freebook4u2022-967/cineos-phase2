@@ -63,6 +63,42 @@ def test_runtime_rerenders_failed_shot_until_validation_passes() -> None:
     assert final.renderer_metadata["validation_history"][1]["overall_status"] == "pass"
 
 
+def test_runtime_can_adapt_rerender_from_previous_validation_report() -> None:
+    first_results = []
+    rerender_calls = []
+
+    def render(_task):
+        result = RenderResult(attempt=0)
+        first_results.append(result)
+        return result
+
+    def rerender(task, attempt, previous_report):
+        rerender_calls.append(
+            (task.shot_id, attempt, previous_report.overall_status)
+        )
+        return RenderResult(attempt=attempt)
+
+    def validate(task, result):
+        status = ValidationStatus.FAIL if result.attempt == 0 else ValidationStatus.PASS
+        return report(task, status)
+
+    job = AtlasRuntime().prepare(make_package())
+    AtlasRuntime().run_with_validation(
+        job,
+        render,
+        validate,
+        max_rerenders=2,
+        rerender_handler=rerender,
+    )
+
+    assert len(first_results) == 1
+    assert rerender_calls == [("shot-1", 1, ValidationStatus.FAIL)]
+    final = job.results["shot-1"]
+    assert final.attempt == 1
+    assert final.renderer_metadata["rerender_attempts"] == 1
+    assert final.renderer_metadata["mark_for_rerender"] is False
+
+
 def test_runtime_stops_when_rerender_budget_is_exhausted() -> None:
     attempts = []
 
@@ -124,4 +160,17 @@ def test_runtime_rejects_invalid_rerender_budget(value) -> None:
             render,
             validate,
             max_rerenders=value,
+        )
+
+
+def test_runtime_rejects_non_callable_rerender_handler() -> None:
+    job = AtlasRuntime().prepare(make_package())
+
+    with pytest.raises(TypeError, match="rerender_handler"):
+        AtlasRuntime().run_with_validation(
+            job,
+            lambda _task: RenderResult(attempt=0),
+            lambda task, _result: report(task, ValidationStatus.PASS),
+            max_rerenders=1,
+            rerender_handler="invalid",
         )
