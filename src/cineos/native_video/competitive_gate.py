@@ -31,10 +31,10 @@ SEEDANCE_STYLE_REQUIRED_CHALLENGES = frozenset(
 
 # A generic visual-quality score is useful but cannot substantiate a claim that the
 # renderer survived specific cinematic failure modes. Each required challenge must
-# therefore have at least one explicitly named measured metric somewhere among the
-# shots carrying that challenge tag. The names are intentionally model/evaluator
-# neutral: an evaluator may emit additional metrics, but it must expose these claim
-# dimensions before the competitive gate can pass.
+# therefore expose at least one explicitly named measured metric on every tagged shot.
+# The names are intentionally model/evaluator neutral: an evaluator may emit
+# additional metrics, but it must expose these claim dimensions before the
+# competitive gate can pass.
 SEEDANCE_STYLE_CHALLENGE_METRICS: dict[str, frozenset[str]] = {
     "identity_consistency": frozenset({"identity_similarity"}),
     "multi_character_interaction": frozenset({"interaction_quality"}),
@@ -60,12 +60,15 @@ class CompetitiveAcceptancePolicy:
     require_license_id: bool = True
     require_nonempty_metrics_per_shot: bool = True
     require_challenge_metric_evidence: bool = True
+    min_challenge_metric_score: float = 0.80
 
     def __post_init__(self) -> None:
         if self.min_connected_shots < 1:
             raise ValueError("min_connected_shots must be >= 1")
         if not self.required_challenges:
             raise ValueError("required_challenges must not be empty")
+        if not 0.0 <= self.min_challenge_metric_score <= 1.0:
+            raise ValueError("min_challenge_metric_score must be between 0 and 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,46 +81,66 @@ class CompetitiveAcceptance:
     missing_challenges: frozenset[str]
     evaluated_metric_names: frozenset[str]
     missing_metric_evidence: frozenset[str]
+    below_threshold_challenges: frozenset[str]
+    minimum_observed_challenge_score: float | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-competitive-acceptance/0.2",
+            "schema": "cineos-competitive-acceptance/0.3",
             "passed": self.passed,
             "reasons": list(self.reasons),
             "covered_challenges": sorted(self.covered_challenges),
             "missing_challenges": sorted(self.missing_challenges),
             "evaluated_metric_names": sorted(self.evaluated_metric_names),
             "missing_metric_evidence": sorted(self.missing_metric_evidence),
+            "below_threshold_challenges": sorted(self.below_threshold_challenges),
+            "minimum_observed_challenge_score": self.minimum_observed_challenge_score,
         }
 
 
-def _missing_challenge_metric_evidence(
+def _challenge_metric_scores(
     report: CompetitiveBenchmarkReport,
     required_challenges: frozenset[str],
-) -> frozenset[str]:
-    """Return required challenges lacking explicit metric evidence on tagged shots."""
+) -> tuple[dict[str, tuple[float, ...]], frozenset[str]]:
+    """Collect required metric scores and identify incomplete tagged-shot evidence.
 
+    A challenge is considered to have complete evidence only when every shot carrying
+    that challenge tag exposes at least one of the challenge's canonical metrics.
+    This prevents a single good shot from masking unmeasured failures elsewhere in a
+    connected sequence.
+    """
+
+    scores: dict[str, tuple[float, ...]] = {}
     missing: set[str] = set()
     for challenge in required_challenges:
         expected = SEEDANCE_STYLE_CHALLENGE_METRICS.get(challenge)
         if not expected:
-            # Custom policies may introduce challenges without a canonical metric.
-            # Coverage is still enforced, but metric evidence is only required for
-            # dimensions whose measurement contract CINEOS explicitly defines.
             continue
         tagged_shots = [
             shot for shot in report.shots if challenge in shot.challenge_tags
         ]
         if not tagged_shots:
             continue
-        measured_names = {
-            metric_name
-            for shot in tagged_shots
-            for metric_name in shot.quality_metrics.keys()
-        }
-        if expected.isdisjoint(measured_names):
+
+        challenge_scores: list[float] = []
+        complete = True
+        for shot in tagged_shots:
+            values = [
+                float(shot.quality_metrics[name])
+                for name in expected
+                if name in shot.quality_metrics
+            ]
+            if not values:
+                complete = False
+                continue
+            challenge_scores.append(min(values))
+
+        if not complete:
             missing.add(challenge)
-    return frozenset(missing)
+        if challenge_scores:
+            scores[challenge] = tuple(challenge_scores)
+
+    return scores, frozenset(missing)
 
 
 def evaluate_competitive_acceptance(
@@ -129,8 +152,8 @@ def evaluate_competitive_acceptance(
 
     This gate deliberately does not infer quality from artifact existence. A passing
     verdict requires the benchmark's measured quality verdict as well as coverage,
-    provenance and metric evidence. Reduced suites remain useful for development but
-    cannot accidentally graduate into a Seedance-class claim.
+    provenance and challenge-specific metric evidence. Reduced suites remain useful
+    for development but cannot accidentally graduate into a Seedance-class claim.
     """
 
     active = policy or CompetitiveAcceptancePolicy()
@@ -186,16 +209,31 @@ def evaluate_competitive_acceptance(
                 + ", ".join(missing_metric_shots)
             )
 
-    missing_metric_evidence = (
-        _missing_challenge_metric_evidence(report, active.required_challenges)
-        if active.require_challenge_metric_evidence
-        else frozenset()
+    challenge_scores, missing_metric_evidence = _challenge_metric_scores(
+        report, active.required_challenges
     )
-    if missing_metric_evidence:
+    if not active.require_challenge_metric_evidence:
+        missing_metric_evidence = frozenset()
+    elif missing_metric_evidence:
         reasons.append(
-            "missing challenge-specific metric evidence: "
+            "missing challenge-specific metric evidence on one or more tagged shots: "
             + ", ".join(sorted(missing_metric_evidence))
         )
+
+    below_threshold = frozenset(
+        challenge
+        for challenge, values in challenge_scores.items()
+        if values and min(values) < active.min_challenge_metric_score
+    )
+    if below_threshold:
+        reasons.append(
+            "challenge-specific metrics below competitive threshold "
+            f"{active.min_challenge_metric_score:.2f}: "
+            + ", ".join(sorted(below_threshold))
+        )
+
+    observed_scores = [score for values in challenge_scores.values() for score in values]
+    minimum_observed_score = min(observed_scores) if observed_scores else None
 
     return CompetitiveAcceptance(
         passed=not reasons,
@@ -204,6 +242,8 @@ def evaluate_competitive_acceptance(
         missing_challenges=missing,
         evaluated_metric_names=metric_names,
         missing_metric_evidence=missing_metric_evidence,
+        below_threshold_challenges=below_threshold,
+        minimum_observed_challenge_score=minimum_observed_score,
     )
 
 
