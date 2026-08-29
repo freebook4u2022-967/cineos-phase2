@@ -117,8 +117,10 @@ def write_render_evidence(
     path: str | Path | None = None,
 ) -> Path:
     """Atomically persist evidence next to the render unless a path is supplied."""
-    target = Path(path) if path is not None else Path(evidence.artifact_path).with_suffix(
-        ".render-evidence.json"
+    target = (
+        Path(path)
+        if path is not None
+        else Path(evidence.artifact_path).with_suffix(".render-evidence.json")
     )
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
