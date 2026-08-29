@@ -15,12 +15,18 @@ from .diffusers_video import (
     DiffusersVideoResult,
     FoundationProvenance,
 )
+from .gpu_foundation_smoke import (
+    GPUFoundationExecutionError,
+    GPUFoundationExecutionReceipt,
+    execute_foundation_gpu_shot,
+)
 from .gpu_preflight import (
     GPUDeviceProfile,
     GPUExecutionPlan,
     GPUPreflightError,
     inspect_cuda_environment,
     plan_gpu_execution,
+    select_gpu_execution,
 )
 from .native_ingest import (
     NativeRenderReceipt,
@@ -54,6 +60,8 @@ __all__ = [
     "FoundationProvenance",
     "GPUDeviceProfile",
     "GPUExecutionPlan",
+    "GPUFoundationExecutionError",
+    "GPUFoundationExecutionReceipt",
     "GPUPreflightError",
     "NATIVE_SHOT_SCHEMA",
     "NativeRenderReceipt",
@@ -75,8 +83,10 @@ __all__ = [
     "RuntimeTask",
     "TaskHandler",
     "compile_native_shot_request",
+    "execute_foundation_gpu_shot",
     "ingest_native_request",
     "inspect_cuda_environment",
     "plan_gpu_execution",
+    "select_gpu_execution",
     "validate_native_request",
 ]
