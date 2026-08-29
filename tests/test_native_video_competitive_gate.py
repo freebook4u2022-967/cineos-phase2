@@ -6,7 +6,18 @@ from cineos.native_video.competitive_benchmark import (
     ShotBenchmarkResult,
     default_connected_cases,
 )
-from cineos.native_video.competitive_gate import evaluate_competitive_acceptance
+from cineos.native_video.competitive_gate import (
+    SEEDANCE_STYLE_CHALLENGE_METRICS,
+    evaluate_competitive_acceptance,
+)
+
+
+def _metrics_for(challenge_tags: tuple[str, ...]) -> dict[str, float]:
+    metrics = {"visual_quality": 0.92}
+    for tag in challenge_tags:
+        for metric_name in SEEDANCE_STYLE_CHALLENGE_METRICS.get(tag, ()):
+            metrics[metric_name] = 0.91
+    return metrics
 
 
 def _passing_report(tmp_path: Path) -> CompetitiveBenchmarkReport:
@@ -25,7 +36,7 @@ def _passing_report(tmp_path: Path) -> CompetitiveBenchmarkReport:
                 execution_passed=True,
                 quality_evaluated=True,
                 quality_passed=True,
-                quality_metrics={"visual_quality": 0.92},
+                quality_metrics=_metrics_for(case.challenge_tags),
                 notes=("measured",),
             )
         )
@@ -47,8 +58,10 @@ def test_full_measured_connected_suite_can_pass_competitive_gate(tmp_path):
     assert verdict.passed is True
     assert verdict.reasons == ()
     assert verdict.missing_challenges == frozenset()
-    assert verdict.evaluated_metric_names == frozenset({"visual_quality"})
-    assert verdict.to_dict()["schema"] == "cineos-competitive-acceptance/0.1"
+    assert verdict.missing_metric_evidence == frozenset()
+    assert "identity_similarity" in verdict.evaluated_metric_names
+    assert "long_range_continuity" in verdict.evaluated_metric_names
+    assert verdict.to_dict()["schema"] == "cineos-competitive-acceptance/0.2"
 
 
 def test_reduced_suite_cannot_be_mislabeled_as_competitive(tmp_path):
@@ -96,3 +109,27 @@ def test_empty_metric_evidence_fails_even_when_boolean_quality_passed(tmp_path):
 
     assert verdict.passed is False
     assert any("returned no numeric metrics" in reason for reason in verdict.reasons)
+
+
+def test_generic_visual_quality_cannot_substitute_for_challenge_measurement(tmp_path):
+    report = _passing_report(tmp_path)
+    generic_only = tuple(
+        replace(shot, quality_metrics={"visual_quality": 0.99}) for shot in report.shots
+    )
+    report = CompetitiveBenchmarkReport(
+        scene_id=report.scene_id,
+        foundation=report.foundation,
+        shots=generic_only,
+    )
+
+    verdict = evaluate_competitive_acceptance(report)
+
+    assert verdict.passed is False
+    assert verdict.missing_metric_evidence
+    assert "identity_consistency" in verdict.missing_metric_evidence
+    assert "dialogue" in verdict.missing_metric_evidence
+    assert "physics" in verdict.missing_metric_evidence
+    assert any(
+        "missing challenge-specific metric evidence" in reason
+        for reason in verdict.reasons
+    )
