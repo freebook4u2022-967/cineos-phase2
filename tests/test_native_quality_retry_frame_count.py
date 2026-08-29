@@ -21,7 +21,9 @@ class _FrameCountRenderer:
         return SimpleNamespace(output_path=output, frame_count=24 + self.calls)
 
 
-def test_competitive_retry_preserves_selected_render_frame_count(tmp_path: Path) -> None:
+def test_competitive_retry_preserves_selected_render_frame_count(
+    tmp_path: Path,
+) -> None:
     renderer = _FrameCountRenderer(tmp_path)
     evaluations = 0
 
