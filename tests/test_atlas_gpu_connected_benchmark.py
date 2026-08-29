@@ -48,7 +48,9 @@ def _plan() -> GPUExecutionPlan:
     )
 
 
-def _receipt(request: NativeShotRequest, output_dir: Path) -> GPUFoundationExecutionReceipt:
+def _receipt(
+    request: NativeShotRequest, output_dir: Path
+) -> GPUFoundationExecutionReceipt:
     artifact = output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
     payload = f"video-{request.shot_id}".encode()
     artifact.write_bytes(payload)
@@ -98,7 +100,9 @@ def test_connected_gpu_benchmark_writes_manifest_only_after_five_fresh_shots(tmp
     assert payload["schema"] == "cineos-gpu-connected-benchmark/0.1"
     assert payload["shot_count"] == 5
     assert payload["origin"] == "external_pretrained_foundation"
-    assert payload["foundation_profile"]["profile_id"] == WAN22_TI2V_5B_PROFILE.profile_id
+    assert (
+        payload["foundation_profile"]["profile_id"] == WAN22_TI2V_5B_PROFILE.profile_id
+    )
     assert [shot["request_hash"] for shot in payload["shots"]] == [
         request.content_hash for request in requests
     ]
