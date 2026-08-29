@@ -1,8 +1,8 @@
 """Optional real GPU video execution through Hugging Face Diffusers.
 
-This module deliberately keeps pretrained-foundation provenance explicit.  A
+This module deliberately keeps pretrained-foundation provenance explicit. A
 Diffusers checkpoint can accelerate CINEOS research, but using one never turns
-that checkpoint into a CINEOS-native model.  CINEOS-owned conditioning,
+that checkpoint into a CINEOS-native model. CINEOS-owned conditioning,
 continuity, QC and orchestration live above this execution boundary.
 """
 
@@ -65,17 +65,26 @@ VideoExporter = Callable[..., Any]
 class DiffusersVideoRenderer(BaseRenderer):
     """Lazy optional GPU renderer for Diffusers-compatible video checkpoints.
 
-    The class has no hard dependency on torch or diffusers.  Production installs
+    The class has no hard dependency on torch or diffusers. Production installs
     opt in through the ``video`` extra; normal CINEOS core/tests stay lightweight.
     Tests can inject a pipeline factory/exporter without importing either package.
 
     ``memory_strategy`` is consumed by CINEOS rather than forwarded to
-    ``from_pretrained``.  This makes large foundations usable on constrained GPUs
+    ``from_pretrained``. This makes large foundations usable on constrained GPUs
     without hiding the fact that CPU offload is active.
     """
 
     _MEMORY_STRATEGIES = frozenset(
         {"resident", "model_cpu_offload", "sequential_cpu_offload"}
+    )
+    _INFERENCE_CONTROL_KEYS = frozenset(
+        {
+            "negative_prompt",
+            "guidance_scale",
+            "num_inference_steps",
+            "strength",
+            "max_sequence_length",
+        }
     )
 
     def __init__(
@@ -211,6 +220,7 @@ class DiffusersVideoRenderer(BaseRenderer):
             if image is not None:
                 kwargs["image"] = image
 
+        kwargs.update(self._compile_inference_controls(request, parameters))
         filtered = {key: value for key, value in kwargs.items() if key in parameters}
         output = call(**filtered)
         frames = self._extract_frames(output)
@@ -282,6 +292,59 @@ class DiffusersVideoRenderer(BaseRenderer):
         if self.reference_loader is None:
             return None
         return self.reference_loader(request.approved_reference_ids[0])
+
+    @classmethod
+    def _compile_inference_controls(
+        cls,
+        request: NativeShotRequest,
+        parameters: dict[str, inspect.Parameter] | Any,
+    ) -> dict[str, Any]:
+        """Forward an audited allow-list of quality controls to compatible pipelines.
+
+        Controls may be supplied under ``renderer_requirements['inference']`` or
+        ``metadata['inference']``. Metadata wins so benchmark jobs can tune a shot
+        without mutating the renderer-independent capability contract. Unsupported
+        controls are ignored rather than leaked into arbitrary pipeline kwargs.
+        """
+        controls: dict[str, Any] = {}
+        requirements = request.renderer_requirements.get("inference", {})
+        metadata = request.metadata.get("inference", {})
+        if isinstance(requirements, dict):
+            controls.update(requirements)
+        if isinstance(metadata, dict):
+            controls.update(metadata)
+
+        direct_negative = request.metadata.get("negative_prompt")
+        if direct_negative is not None:
+            controls["negative_prompt"] = direct_negative
+
+        result: dict[str, Any] = {}
+        for key in cls._INFERENCE_CONTROL_KEYS:
+            if key not in controls or key not in parameters:
+                continue
+            value = controls[key]
+            cls._validate_inference_control(key, value)
+            result[key] = value
+        return result
+
+    @staticmethod
+    def _validate_inference_control(key: str, value: Any) -> None:
+        if key == "negative_prompt":
+            if not isinstance(value, str):
+                raise DiffusersVideoError("negative_prompt must be a string")
+            return
+        if key in {"num_inference_steps", "max_sequence_length"}:
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise DiffusersVideoError(f"{key} must be a positive integer")
+            return
+        if key in {"guidance_scale", "strength"}:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise DiffusersVideoError(f"{key} must be numeric")
+            numeric = float(value)
+            if key == "guidance_scale" and numeric < 0:
+                raise DiffusersVideoError("guidance_scale must be non-negative")
+            if key == "strength" and not 0 <= numeric <= 1:
+                raise DiffusersVideoError("strength must be between 0 and 1")
 
     def _resolve_exporter(self) -> VideoExporter:
         if self._video_exporter is not None:
