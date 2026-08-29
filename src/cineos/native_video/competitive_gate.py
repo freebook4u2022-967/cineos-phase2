@@ -232,7 +232,9 @@ def evaluate_competitive_acceptance(
             + ", ".join(sorted(below_threshold))
         )
 
-    observed_scores = [score for values in challenge_scores.values() for score in values]
+    observed_scores = [
+        score for values in challenge_scores.values() for score in values
+    ]
     minimum_observed_score = min(observed_scores) if observed_scores else None
 
     return CompetitiveAcceptance(

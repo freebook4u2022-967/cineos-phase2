@@ -9,8 +9,8 @@ from cineos.native_video.competitive_benchmark import (
     default_connected_cases,
 )
 from cineos.native_video.competitive_gate import (
-    CompetitiveAcceptancePolicy,
     SEEDANCE_STYLE_CHALLENGE_METRICS,
+    CompetitiveAcceptancePolicy,
     evaluate_competitive_acceptance,
 )
 
@@ -192,7 +192,9 @@ def test_challenge_metric_below_threshold_fails_competitive_claim(tmp_path):
     assert verdict.passed is False
     assert "dialogue" in verdict.below_threshold_challenges
     assert verdict.minimum_observed_challenge_score == pytest.approx(0.61)
-    assert any("below competitive threshold 0.80" in reason for reason in verdict.reasons)
+    assert any(
+        "below competitive threshold 0.80" in reason for reason in verdict.reasons
+    )
 
 
 def test_threshold_is_configurable_and_validated(tmp_path):
