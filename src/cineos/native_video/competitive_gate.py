@@ -105,7 +105,9 @@ def _missing_challenge_metric_evidence(
             # Coverage is still enforced, but metric evidence is only required for
             # dimensions whose measurement contract CINEOS explicitly defines.
             continue
-        tagged_shots = [shot for shot in report.shots if challenge in shot.challenge_tags]
+        tagged_shots = [
+            shot for shot in report.shots if challenge in shot.challenge_tags
+        ]
         if not tagged_shots:
             continue
         measured_names = {
