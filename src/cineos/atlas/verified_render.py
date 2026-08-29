@@ -17,7 +17,11 @@ from typing import Any
 
 from .diffusers_video import DiffusersVideoRenderer, DiffusersVideoResult
 from .native_request import NativeShotRequest
-from .render_evidence import RenderEvidence, collect_render_evidence, write_render_evidence
+from .render_evidence import (
+    RenderEvidence,
+    collect_render_evidence,
+    write_render_evidence,
+)
 
 
 class VerifiedRenderError(RuntimeError):
