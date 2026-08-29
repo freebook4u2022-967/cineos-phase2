@@ -73,9 +73,7 @@ def test_runtime_can_adapt_rerender_from_previous_validation_report() -> None:
         return result
 
     def rerender(task, attempt, previous_report):
-        rerender_calls.append(
-            (task.shot_id, attempt, previous_report.overall_status)
-        )
+        rerender_calls.append((task.shot_id, attempt, previous_report.overall_status))
         return RenderResult(attempt=attempt)
 
     def validate(task, result):
