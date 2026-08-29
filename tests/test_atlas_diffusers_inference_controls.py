@@ -160,9 +160,7 @@ def test_renderer_does_not_forward_control_missing_from_pipeline_signature(tmp_p
         ("negative_prompt", ["bad hands"], "must be a string"),
     ],
 )
-def test_renderer_rejects_invalid_quality_controls(
-    tmp_path, control, value, message
-):
+def test_renderer_rejects_invalid_quality_controls(tmp_path, control, value, message):
     pipeline = QualityAwarePipeline()
     renderer = DiffusersVideoRenderer(
         FoundationProvenance(model_id="declared/model"),
