@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from .foundation_profiles import FoundationExecutionProfile
 from .gpu_foundation_smoke import (
@@ -112,7 +113,9 @@ def run_connected_gpu_benchmark(
     profile: FoundationExecutionProfile,
     *,
     output_dir: str | Path,
-    shot_executor: Callable[..., GPUFoundationExecutionReceipt] = execute_foundation_gpu_shot,
+    shot_executor: Callable[
+        ..., GPUFoundationExecutionReceipt
+    ] = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
     """Execute 5-10 connected shots and persist evidence only after full success.
@@ -141,7 +144,10 @@ def run_connected_gpu_benchmark(
                 output_dir=output_root,
                 **kwargs,
             )
-            if receipt.profile_id != profile.profile_id or receipt.origin != profile.origin:
+            if (
+                receipt.profile_id != profile.profile_id
+                or receipt.origin != profile.origin
+            ):
                 raise GPUConnectedBenchmarkError(
                     "shot receipt provenance does not match selected benchmark profile"
                 )
