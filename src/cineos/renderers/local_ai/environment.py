@@ -64,8 +64,8 @@ def validate_environment(config: LocalAIConfig) -> EnvironmentReport:
             if config.model_revision:
                 details["remote_model_revision"] = config.model_revision
             warnings.append(
-                "remote model download is enabled; verify license terms and pin a revision "
-                "for reproducible production runs"
+                "remote model download is enabled; verify license terms and pin a "
+                "revision for reproducible production runs"
             )
 
     output = Path(config.output_directory).expanduser()
