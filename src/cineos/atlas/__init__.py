@@ -15,6 +15,11 @@ from .diffusers_video import (
     DiffusersVideoResult,
     FoundationProvenance,
 )
+from .gpu_connected_benchmark import (
+    GPUConnectedBenchmarkError,
+    GPUConnectedBenchmarkReceipt,
+    run_connected_gpu_benchmark,
+)
 from .gpu_foundation_smoke import (
     GPUFoundationExecutionError,
     GPUFoundationExecutionReceipt,
@@ -58,6 +63,8 @@ __all__ = [
     "DiffusersVideoRenderer",
     "DiffusersVideoResult",
     "FoundationProvenance",
+    "GPUConnectedBenchmarkError",
+    "GPUConnectedBenchmarkReceipt",
     "GPUDeviceProfile",
     "GPUExecutionPlan",
     "GPUFoundationExecutionError",
@@ -87,6 +94,7 @@ __all__ = [
     "ingest_native_request",
     "inspect_cuda_environment",
     "plan_gpu_execution",
+    "run_connected_gpu_benchmark",
     "select_gpu_execution",
     "validate_native_request",
 ]
