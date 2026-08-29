@@ -97,7 +97,9 @@ def evaluate_competitive_acceptance(
             f"got {len(report.shots)}"
         )
     if missing:
-        reasons.append("missing required challenge coverage: " + ", ".join(sorted(missing)))
+        reasons.append(
+            "missing required challenge coverage: " + ", ".join(sorted(missing))
+        )
     if not report.execution_passed:
         reasons.append("one or more benchmark shots lack real execution evidence")
     if not report.quality_validated:
@@ -106,12 +108,17 @@ def evaluate_competitive_acceptance(
         reasons.append("one or more benchmark shots failed measured visual quality")
 
     foundation = dict(report.foundation)
-    if active.require_declared_provenance and not foundation.get("provenance_declared", False):
+    if active.require_declared_provenance and not foundation.get(
+        "provenance_declared", False
+    ):
         reasons.append("renderer foundation provenance is not declared")
     model_id = str(foundation.get("model_id", "")).strip()
     if not model_id or model_id.lower() == "unknown":
         reasons.append("renderer foundation model_id is missing or unknown")
-    if active.require_model_revision and not str(foundation.get("revision", "")).strip():
+    if (
+        active.require_model_revision
+        and not str(foundation.get("revision", "")).strip()
+    ):
         reasons.append("renderer foundation revision is not declared")
     if active.require_license_id and not str(foundation.get("license_id", "")).strip():
         reasons.append("renderer foundation license_id is not declared")
