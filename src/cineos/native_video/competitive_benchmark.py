@@ -388,7 +388,9 @@ def run_competitive_benchmark(
                     quality_metrics = dict(evaluation.metrics)
                     notes.extend(evaluation.notes)
                 except Exception as exc:
-                    notes.append(f"visual evaluation failed: {type(exc).__name__}: {exc}")
+                    notes.append(
+                        f"visual evaluation failed: {type(exc).__name__}: {exc}"
+                    )
 
         results.append(
             ShotBenchmarkResult(

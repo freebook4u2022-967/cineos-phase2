@@ -22,7 +22,9 @@ class RetryRenderer:
         return path
 
 
-def test_competitive_benchmark_rerenders_measured_failure_and_records_evidence(tmp_path):
+def test_competitive_benchmark_rerenders_measured_failure_and_records_evidence(
+    tmp_path,
+):
     renderer = RetryRenderer(tmp_path)
     evaluations = iter(
         [
@@ -53,7 +55,10 @@ def test_competitive_benchmark_rerenders_measured_failure_and_records_evidence(t
     assert renderer.requests[0].camera == renderer.requests[1].camera
     assert renderer.requests[0].characters == renderer.requests[1].characters
     assert renderer.requests[0].continuity == renderer.requests[1].continuity
-    assert renderer.requests[0].approved_reference_ids == renderer.requests[1].approved_reference_ids
+    assert (
+        renderer.requests[0].approved_reference_ids
+        == renderer.requests[1].approved_reference_ids
+    )
     assert shot.request_hash == renderer.requests[1].content_hash
     assert "measured quality retry attempts=2, selected_attempt=2" in shot.notes
 
