@@ -1,8 +1,8 @@
 """Fail-closed 5-10 shot GPU benchmark for connected CINEOS film evidence.
 
-The benchmark deliberately sits above the single-shot foundation smoke path.  It
+The benchmark deliberately sits above the single-shot foundation smoke path. It
 only writes a benchmark manifest after every requested shot has produced fresh,
-hash-bound video evidence.  Third-party pretrained weights remain explicitly
+hash-bound video evidence. Third-party pretrained weights remain explicitly
 identified by the selected :class:`FoundationExecutionProfile`; the benchmark is
 CINEOS orchestration/evidence, not a claim that those weights are CINEOS-native.
 """
@@ -75,10 +75,12 @@ def _validate_requests(requests: Sequence[NativeShotRequest]) -> None:
             raise GPUConnectedBenchmarkError(
                 f"shot {request.scene_id}/{request.shot_id} has no approved identity references"
             )
+
+        supplied_hash = request.content_hash
         expected_hash = request.refresh_hash()
-        if request.content_hash != expected_hash:
+        if not supplied_hash or supplied_hash != expected_hash:
             raise GPUConnectedBenchmarkError(
-                f"shot {request.scene_id}/{request.shot_id} has unstable request hash"
+                f"shot {request.scene_id}/{request.shot_id} request hash is missing or stale"
             )
 
 
@@ -157,8 +159,8 @@ def run_connected_gpu_benchmark(
                 )
             receipts.append(receipt)
     except Exception:
-        # A partial render set can remain useful for debugging, but it must never be
-        # represented by a completed benchmark manifest.
+        # Partial videos may remain useful for debugging, but no completed manifest
+        # is allowed to survive a failed connected benchmark.
         _remove_stale_manifest(manifest)
         raise
 
