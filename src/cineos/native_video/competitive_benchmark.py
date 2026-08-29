@@ -355,6 +355,7 @@ def run_competitive_benchmark(
                 if selected_evidence.output_path is not None:
                     output_path = Path(selected_evidence.output_path)
                 artifact_bytes = selected_evidence.artifact_bytes
+                frame_count = selected_evidence.frame_count
                 execution_passed = selected_evidence.execution_passed
                 quality_evaluated = selected_evidence.quality_evaluated
                 quality_passed = selected_evidence.quality_passed
