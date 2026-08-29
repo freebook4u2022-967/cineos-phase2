@@ -1,3 +1,6 @@
+import hashlib
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -54,6 +57,21 @@ class NativeStubRenderer(BaseRenderer):
         pass
 
 
+@dataclass
+class FileRenderResult:
+    output_path: str
+
+
+class FileClaimingRenderer(NativeStubRenderer):
+    def __init__(self, output_path: Path) -> None:
+        super().__init__()
+        self.output_path = output_path
+
+    def render(self, request):
+        self.requests.append(request)
+        return FileRenderResult(str(self.output_path))
+
+
 def _request(character_count=1):
     characters = [
         CharacterConditioning(
@@ -98,7 +116,41 @@ def test_atlas_ingests_valid_native_request():
     assert receipt.shot_id == "shot-001"
     assert receipt.request_hash == request.content_hash
     assert receipt.result["native"] is True
+    assert receipt.artifact_path is None
+    assert receipt.artifact_bytes is None
+    assert receipt.artifact_sha256 is None
     assert renderer.requests == [request]
+
+
+def test_atlas_records_content_addressed_evidence_for_claimed_artifact(tmp_path):
+    artifact = tmp_path / "shot-001.mp4"
+    payload = b"real-render-evidence"
+    artifact.write_bytes(payload)
+    request = _request()
+
+    with RendererSession(FileClaimingRenderer(artifact)) as session:
+        receipt = ingest_native_request(session, request)
+
+    assert receipt.artifact_path == str(artifact)
+    assert receipt.artifact_bytes == len(payload)
+    assert receipt.artifact_sha256 == hashlib.sha256(payload).hexdigest()
+
+
+def test_atlas_rejects_claimed_artifact_that_does_not_exist(tmp_path):
+    request = _request()
+    missing = tmp_path / "missing.mp4"
+    with RendererSession(FileClaimingRenderer(missing)) as session:
+        with pytest.raises(NativeRequestError, match="missing output artifact"):
+            ingest_native_request(session, request)
+
+
+def test_atlas_rejects_claimed_artifact_that_is_empty(tmp_path):
+    request = _request()
+    empty = tmp_path / "empty.mp4"
+    empty.write_bytes(b"")
+    with RendererSession(FileClaimingRenderer(empty)) as session:
+        with pytest.raises(NativeRequestError, match="empty output artifact"):
+            ingest_native_request(session, request)
 
 
 def test_atlas_rejects_tampered_native_request():
