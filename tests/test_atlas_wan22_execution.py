@@ -1,7 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from cineos.atlas.wan22_execution import (
     Wan22ExecutionConfig,
+    Wan22ExecutionError,
     aligned_wan22_frame_count,
     build_wan22_execution_request,
     run_wan22_gpu_validation,
@@ -83,7 +86,7 @@ def test_wan22_validation_routes_real_execution_controls_and_returns_receipt(tmp
         exported["frames"] = frames
         exported["output_path"] = output_path
         exported["fps"] = fps
-        Path(output_path).touch()
+        Path(output_path).write_bytes(b"fake-mp4-artifact")
 
     receipt = run_wan22_gpu_validation(
         Wan22ExecutionConfig(
@@ -109,6 +112,33 @@ def test_wan22_validation_routes_real_execution_controls_and_returns_receipt(tmp
     assert "identity drift" in pipeline.calls[0]["negative_prompt"]
     assert receipt["actual_frame_count"] == 121
     assert receipt["execution_frame_count"] == 121
+    assert receipt["artifact"]["exists"] is True
+    assert receipt["artifact"]["size_bytes"] == len(b"fake-mp4-artifact")
+    assert len(receipt["artifact"]["sha256"]) == 64
+    assert receipt["execution_elapsed_seconds"] >= 0
+    assert receipt["runtime"] == {
+        "device": "cuda",
+        "dtype": "bfloat16",
+        "memory_strategy": "model_cpu_offload",
+        "vae_tiling": True,
+        "num_inference_steps": 28,
+        "guidance_scale": 4.5,
+    }
     assert receipt["foundation_profile"]["origin"] == "external_pretrained_foundation"
     assert receipt["foundation"]["model_id"] == "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
     assert exported["fps"] == 24.0
+
+
+def test_wan22_validation_rejects_empty_export(tmp_path):
+    pipeline = FakeWanPipeline()
+
+    def empty_exporter(_frames, output_path, _fps):
+        Path(output_path).touch()
+
+    with pytest.raises(Wan22ExecutionError, match="empty artifact"):
+        run_wan22_gpu_validation(
+            Wan22ExecutionConfig(prompt="auditable GPU render"),
+            output_dir=tmp_path,
+            pipeline_factory=lambda *_args, **_kwargs: pipeline,
+            video_exporter=empty_exporter,
+        )
