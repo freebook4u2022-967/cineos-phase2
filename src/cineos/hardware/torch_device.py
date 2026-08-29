@@ -93,5 +93,6 @@ def resolve_torch_device(
         return f"cuda:{index}"
 
     raise ValueError(
-        f"unsupported torch device {requested!r}; expected auto, cpu, mps, cuda, or cuda:N"
+        f"unsupported torch device {requested!r}; expected auto, cpu, mps, "
+        "cuda, or cuda:N"
     )
