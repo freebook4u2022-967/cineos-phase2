@@ -29,6 +29,25 @@ SEEDANCE_STYLE_REQUIRED_CHALLENGES = frozenset(
     }
 )
 
+# A generic visual-quality score is useful but cannot substantiate a claim that the
+# renderer survived specific cinematic failure modes. Each required challenge must
+# therefore have at least one explicitly named measured metric somewhere among the
+# shots carrying that challenge tag. The names are intentionally model/evaluator
+# neutral: an evaluator may emit additional metrics, but it must expose these claim
+# dimensions before the competitive gate can pass.
+SEEDANCE_STYLE_CHALLENGE_METRICS: dict[str, frozenset[str]] = {
+    "identity_consistency": frozenset({"identity_similarity"}),
+    "multi_character_interaction": frozenset({"interaction_quality"}),
+    "hands_anatomy": frozenset({"anatomy_quality"}),
+    "walking": frozenset({"motion_naturalness"}),
+    "running": frozenset({"motion_naturalness"}),
+    "dialogue": frozenset({"dialogue_lipsync"}),
+    "fast_camera_movement": frozenset({"camera_geometry_stability"}),
+    "lighting_change": frozenset({"lighting_consistency"}),
+    "physics": frozenset({"physics_plausibility"}),
+    "long_range_continuity": frozenset({"long_range_continuity"}),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class CompetitiveAcceptancePolicy:
@@ -40,6 +59,7 @@ class CompetitiveAcceptancePolicy:
     require_model_revision: bool = True
     require_license_id: bool = True
     require_nonempty_metrics_per_shot: bool = True
+    require_challenge_metric_evidence: bool = True
 
     def __post_init__(self) -> None:
         if self.min_connected_shots < 1:
@@ -57,16 +77,45 @@ class CompetitiveAcceptance:
     covered_challenges: frozenset[str]
     missing_challenges: frozenset[str]
     evaluated_metric_names: frozenset[str]
+    missing_metric_evidence: frozenset[str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-competitive-acceptance/0.1",
+            "schema": "cineos-competitive-acceptance/0.2",
             "passed": self.passed,
             "reasons": list(self.reasons),
             "covered_challenges": sorted(self.covered_challenges),
             "missing_challenges": sorted(self.missing_challenges),
             "evaluated_metric_names": sorted(self.evaluated_metric_names),
+            "missing_metric_evidence": sorted(self.missing_metric_evidence),
         }
+
+
+def _missing_challenge_metric_evidence(
+    report: CompetitiveBenchmarkReport,
+    required_challenges: frozenset[str],
+) -> frozenset[str]:
+    """Return required challenges lacking explicit metric evidence on tagged shots."""
+
+    missing: set[str] = set()
+    for challenge in required_challenges:
+        expected = SEEDANCE_STYLE_CHALLENGE_METRICS.get(challenge)
+        if not expected:
+            # Custom policies may introduce challenges without a canonical metric.
+            # Coverage is still enforced, but metric evidence is only required for
+            # dimensions whose measurement contract CINEOS explicitly defines.
+            continue
+        tagged_shots = [shot for shot in report.shots if challenge in shot.challenge_tags]
+        if not tagged_shots:
+            continue
+        measured_names = {
+            metric_name
+            for shot in tagged_shots
+            for metric_name in shot.quality_metrics.keys()
+        }
+        if expected.isdisjoint(measured_names):
+            missing.add(challenge)
+    return frozenset(missing)
 
 
 def evaluate_competitive_acceptance(
@@ -135,18 +184,31 @@ def evaluate_competitive_acceptance(
                 + ", ".join(missing_metric_shots)
             )
 
+    missing_metric_evidence = (
+        _missing_challenge_metric_evidence(report, active.required_challenges)
+        if active.require_challenge_metric_evidence
+        else frozenset()
+    )
+    if missing_metric_evidence:
+        reasons.append(
+            "missing challenge-specific metric evidence: "
+            + ", ".join(sorted(missing_metric_evidence))
+        )
+
     return CompetitiveAcceptance(
         passed=not reasons,
         reasons=tuple(reasons),
         covered_challenges=covered,
         missing_challenges=missing,
         evaluated_metric_names=metric_names,
+        missing_metric_evidence=missing_metric_evidence,
     )
 
 
 __all__ = [
     "CompetitiveAcceptance",
     "CompetitiveAcceptancePolicy",
+    "SEEDANCE_STYLE_CHALLENGE_METRICS",
     "SEEDANCE_STYLE_REQUIRED_CHALLENGES",
     "evaluate_competitive_acceptance",
 ]
