@@ -93,7 +93,9 @@ class CompetitiveBenchmarkReport:
 
     @property
     def quality_passed(self) -> bool:
-        return self.quality_validated and all(item.quality_passed for item in self.shots)
+        return self.quality_validated and all(
+            item.quality_passed for item in self.shots
+        )
 
     @property
     def production_passed(self) -> bool:
