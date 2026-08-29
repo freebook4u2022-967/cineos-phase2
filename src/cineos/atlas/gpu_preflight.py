@@ -165,6 +165,63 @@ def plan_gpu_execution(
     )
 
 
+def select_gpu_execution(
+    profiles: tuple[GPUDeviceProfile, ...],
+    *,
+    estimated_model_vram_gb: float,
+    prefer_bfloat16: bool = True,
+) -> GPUExecutionPlan:
+    """Select the safest usable GPU instead of assuming device zero.
+
+    Candidate plans are ranked first by memory strategy (resident is preferred over
+    model offload, which is preferred over sequential offload), then by measured free
+    memory headroom.  Devices that cannot satisfy the conservative working-set floor
+    are skipped.  This keeps multi-GPU render workers from choosing a busy card when a
+    safer device is available.
+    """
+    if not profiles:
+        raise GPUPreflightError("no CUDA device profiles were supplied")
+
+    strategy_rank = {
+        "resident": 3,
+        "model_cpu_offload": 2,
+        "sequential_cpu_offload": 1,
+    }
+    candidates: list[GPUExecutionPlan] = []
+    rejected: list[str] = []
+    for profile in profiles:
+        try:
+            candidates.append(
+                plan_gpu_execution(
+                    profile,
+                    estimated_model_vram_gb=estimated_model_vram_gb,
+                    prefer_bfloat16=prefer_bfloat16,
+                )
+            )
+        except GPUPreflightError as exc:
+            rejected.append(f"cuda:{profile.index}: {exc}")
+
+    if not candidates:
+        detail = "; ".join(rejected) if rejected else "no usable candidates"
+        raise GPUPreflightError(f"no GPU can safely execute the model: {detail}")
+
+    def score(plan: GPUExecutionPlan) -> tuple[int, int, float, float]:
+        telemetry_rank = 1 if plan.observed_free_vram_gb is not None else 0
+        free_or_total = (
+            plan.observed_free_vram_gb
+            if plan.observed_free_vram_gb is not None
+            else plan.observed_total_vram_gb
+        )
+        return (
+            strategy_rank[plan.memory_strategy],
+            telemetry_rank,
+            plan.fit_margin_gb,
+            free_or_total,
+        )
+
+    return max(candidates, key=score)
+
+
 def _supports_bfloat16(cuda: Any) -> bool:
     checker = getattr(cuda, "is_bf16_supported", None)
     return bool(checker()) if callable(checker) else False
@@ -184,9 +241,18 @@ def _free_vram_gb(cuda: Any, index: int, current_device: int | None) -> float | 
     mem_get_info = getattr(cuda, "mem_get_info", None)
     if not callable(mem_get_info):
         return None
+
     try:
-        if current_device is not None and index != current_device:
+        free_bytes, _total_bytes = mem_get_info(index)
+        return float(free_bytes) / _GIB
+    except TypeError:
+        # Older torch/test doubles expose mem_get_info() without a device argument.
+        if current_device is None or index != current_device:
             return None
+    except (RuntimeError, ValueError):
+        return None
+
+    try:
         free_bytes, _total_bytes = mem_get_info()
     except (RuntimeError, TypeError, ValueError):
         return None
