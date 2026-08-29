@@ -3,7 +3,10 @@ from types import SimpleNamespace
 
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.native_video.competitive_benchmark import VisualEvaluation
-from cineos.native_video.quality_retry import QualityRetryPolicy, render_with_quality_retries
+from cineos.native_video.quality_retry import (
+    QualityRetryPolicy,
+    render_with_quality_retries,
+)
 
 
 class _FeedbackAwareRenderer:
@@ -43,7 +46,9 @@ def _request() -> NativeShotRequest:
     return request
 
 
-def test_failed_metrics_are_forwarded_as_targeted_retry_feedback(tmp_path: Path) -> None:
+def test_failed_metrics_are_forwarded_as_targeted_retry_feedback(
+    tmp_path: Path,
+) -> None:
     renderer = _FeedbackAwareRenderer(tmp_path)
 
     def evaluator(path: Path, request: NativeShotRequest) -> VisualEvaluation:
@@ -100,4 +105,7 @@ def test_failed_metrics_are_forwarded_as_targeted_retry_feedback(tmp_path: Path)
     assert renderer.requests[0].camera == renderer.requests[1].camera
     assert renderer.requests[0].characters == renderer.requests[1].characters
     assert renderer.requests[0].continuity == renderer.requests[1].continuity
-    assert renderer.requests[0].approved_reference_ids == renderer.requests[1].approved_reference_ids
+    assert (
+        renderer.requests[0].approved_reference_ids
+        == renderer.requests[1].approved_reference_ids
+    )
