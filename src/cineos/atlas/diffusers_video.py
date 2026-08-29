@@ -252,11 +252,9 @@ class DiffusersVideoRenderer(BaseRenderer):
             if hasattr(self._pipeline, "to"):
                 self._pipeline.to(self._device)
         elif self._memory_strategy == "model_cpu_offload":
-            self._invoke_pipeline_feature("enable_model_cpu_offload", required=True)
+            self._invoke_offload_feature("enable_model_cpu_offload")
         elif self._memory_strategy == "sequential_cpu_offload":
-            self._invoke_pipeline_feature(
-                "enable_sequential_cpu_offload", required=True
-            )
+            self._invoke_offload_feature("enable_sequential_cpu_offload")
 
         if self._enable_vae_tiling:
             self._invoke_pipeline_feature("enable_vae_tiling", required=True)
@@ -265,7 +263,51 @@ class DiffusersVideoRenderer(BaseRenderer):
         if self._enable_attention_slicing:
             self._invoke_pipeline_feature("enable_attention_slicing", required=True)
 
-    def _invoke_pipeline_feature(self, name: str, *, required: bool) -> None:
+    def _invoke_offload_feature(self, name: str) -> None:
+        """Route Diffusers CPU offload to the GPU selected by CINEOS.
+
+        Diffusers defaults ``gpu_id`` to zero. That default is unsafe after the GPU
+        preflight has deliberately selected another CUDA device, because a busy GPU
+        zero could receive the model despite a plan targeting ``cuda:1`` or later.
+        Older/custom pipelines that cannot accept ``gpu_id`` remain usable on GPU
+        zero, but fail closed for non-zero devices instead of silently misrouting.
+        """
+        gpu_id = self._cuda_device_index()
+        self._invoke_pipeline_feature(
+            name,
+            required=True,
+            required_keyword="gpu_id" if gpu_id != 0 else None,
+            gpu_id=gpu_id,
+        )
+
+    def _cuda_device_index(self) -> int:
+        if self._device == "cuda":
+            return 0
+        prefix, separator, suffix = self._device.partition(":")
+        if prefix != "cuda" or not separator:
+            raise DiffusersVideoError(
+                f"CPU offload requires an explicit CUDA device, got {self._device!r}"
+            )
+        try:
+            index = int(suffix)
+        except ValueError as exc:
+            raise DiffusersVideoError(
+                f"invalid CUDA device {self._device!r} for CPU offload"
+            ) from exc
+        if index < 0:
+            raise DiffusersVideoError(
+                f"invalid CUDA device {self._device!r} for CPU offload"
+            )
+        return index
+
+    def _invoke_pipeline_feature(
+        self,
+        name: str,
+        *,
+        required: bool,
+        required_keyword: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         if self._pipeline is None:
             raise DiffusersVideoError("renderer model is not loaded")
         feature = getattr(self._pipeline, name, None)
@@ -275,7 +317,26 @@ class DiffusersVideoRenderer(BaseRenderer):
                     f"loaded pipeline does not support requested feature {name!r}"
                 )
             return
-        feature()
+
+        parameters = inspect.signature(feature).parameters
+        accepts_kwargs = any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
+        accepted_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if accepts_kwargs or key in parameters
+        }
+        if (
+            required_keyword is not None
+            and required_keyword not in accepted_kwargs
+        ):
+            raise DiffusersVideoError(
+                f"loaded pipeline feature {name!r} cannot target {self._device}; "
+                f"it does not accept {required_keyword!r}"
+            )
+        feature(**accepted_kwargs)
 
     def _generator(self, seed: int) -> Any:
         if self._torch is None:
