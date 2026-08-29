@@ -73,6 +73,7 @@ class RuntimeJob:
 
 TaskHandler = Callable[[RuntimeTask], Any]
 ResultValidator = Callable[[RuntimeTask, Any], Any]
+RerenderHandler = Callable[[RuntimeTask, int, Any], Any]
 
 
 class AtlasRuntime:
@@ -138,14 +139,20 @@ class AtlasRuntime:
         validator: ResultValidator,
         *,
         max_rerenders: int = 0,
+        rerender_handler: RerenderHandler | None = None,
     ) -> RuntimeJob:
         """Render, validate, and optionally rerender failed shots immediately.
 
         ``max_rerenders`` is a bounded production retry budget per shot. The default
         remains zero for backwards compatibility, preserving the previous behavior
         of validating once and marking failures for a later rerender. When retries
-        are enabled, Atlas repeatedly invokes the same renderer boundary until the
-        validator accepts the shot or the budget is exhausted.
+        are enabled, Atlas retries until the validator accepts the shot or the budget
+        is exhausted.
+
+        A production ``rerender_handler`` can vary the seed, conditioning, or quality
+        controls for each retry. It receives ``(task, attempt, previous_report)``;
+        ``attempt`` starts at one for the first rerender. If it is omitted, Atlas
+        falls back to the original handler, which preserves older integrations.
 
         Each renderer result that exposes a mutable ``renderer_metadata`` mapping
         receives the final validation report plus an auditable validation history,
@@ -154,6 +161,8 @@ class AtlasRuntime:
         """
         if not callable(validator):
             raise TypeError("validator must be callable")
+        if rerender_handler is not None and not callable(rerender_handler):
+            raise TypeError("rerender_handler must be callable")
         if isinstance(max_rerenders, bool) or not isinstance(max_rerenders, int):
             raise TypeError("max_rerenders must be an integer")
         if max_rerenders < 0:
@@ -164,8 +173,13 @@ class AtlasRuntime:
 
             history: list[dict[str, Any]] = []
             rerender_attempts = 0
+            previous_report: Any | None = None
             while True:
-                result = handler(task)
+                if rerender_attempts and rerender_handler is not None:
+                    result = rerender_handler(task, rerender_attempts, previous_report)
+                else:
+                    result = handler(task)
+
                 report = validator(task, result)
                 serialized_report = report_to_dict(report)
                 history.append(serialized_report)
@@ -181,6 +195,7 @@ class AtlasRuntime:
                 if not should_rerender or rerender_attempts >= max_rerenders:
                     return result
 
+                previous_report = report
                 rerender_attempts += 1
 
         return self.run(job, render_and_validate)
