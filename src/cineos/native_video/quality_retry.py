@@ -1,10 +1,10 @@
 """Measured QC-driven rerender orchestration for native video shots.
 
 This module provides the execution primitive used when a real render completes but
-fails an explicit visual evaluator.  Retries are deterministic, auditable variants
+fails an explicit visual evaluator. Retries are deterministic, auditable variants
 of the original native shot request: each attempt receives a derived seed, records
 the original request hash, and must independently pass measured QC before it can be
-accepted.  Artifact existence alone never upgrades a failed shot to accepted.
+accepted. Artifact existence alone never upgrades a failed shot to accepted.
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ class QualityRetryAttempt:
     quality_passed: bool | None
     quality_metrics: dict[str, float]
     notes: tuple[str, ...]
+    frame_count: int | None = None
 
     @property
     def metric_mean(self) -> float | None:
@@ -114,10 +115,10 @@ def render_with_quality_retries(
 ) -> QualityRetryResult:
     """Render until measured QC passes or the retry budget is exhausted.
 
-    Every retry varies only the deterministic seed and retry metadata.  Identity,
+    Every retry varies only the deterministic seed and retry metadata. Identity,
     scene, camera, continuity, wardrobe, props, and other conditioning stay intact.
     This gives a renderer a new stochastic sample without silently weakening the
-    director's constraints.  A shot is accepted only when the supplied evaluator
+    director's constraints. A shot is accepted only when the supplied evaluator
     explicitly returns ``passed=True``.
     """
 
@@ -133,6 +134,7 @@ def render_with_quality_retries(
         notes: list[str] = []
         output_path: Path | None = None
         artifact_bytes = 0
+        frame_count: int | None = None
         execution_passed = False
         quality_evaluated = False
         quality_passed: bool | None = None
@@ -142,6 +144,9 @@ def render_with_quality_retries(
             rendered: Any = renderer.render(candidate)
             raw_path = getattr(rendered, "output_path", rendered)
             output_path = Path(raw_path)
+            frame_count_value = getattr(rendered, "frame_count", None)
+            if frame_count_value is not None:
+                frame_count = int(frame_count_value)
             if output_path.is_file():
                 artifact_bytes = output_path.stat().st_size
                 execution_passed = artifact_bytes > 0
@@ -173,6 +178,7 @@ def render_with_quality_retries(
             quality_passed=quality_passed,
             quality_metrics=quality_metrics,
             notes=tuple(notes),
+            frame_count=frame_count,
         )
         attempts.append(evidence)
 
