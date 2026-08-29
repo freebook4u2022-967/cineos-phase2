@@ -3,7 +3,10 @@ from types import SimpleNamespace
 
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.native_video.competitive_benchmark import VisualEvaluation
-from cineos.native_video.quality_retry import QualityRetryPolicy, render_with_quality_retries
+from cineos.native_video.quality_retry import (
+    QualityRetryPolicy,
+    render_with_quality_retries,
+)
 
 
 class _Renderer:
@@ -43,7 +46,9 @@ def _request() -> NativeShotRequest:
     return request
 
 
-def test_quality_retries_preserve_conditioning_hash_while_varying_seed(tmp_path: Path) -> None:
+def test_quality_retries_preserve_conditioning_hash_while_varying_seed(
+    tmp_path: Path,
+) -> None:
     renderer = _Renderer(tmp_path)
     evaluations = 0
 
