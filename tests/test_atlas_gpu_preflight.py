@@ -48,13 +48,15 @@ class FakeTorch:
         self.cuda = cuda
 
 
-def _profile(total_gb, *, bf16=True):
+def _profile(total_gb, *, free_gb=None, bf16=True):
+    if free_gb is None:
+        free_gb = total_gb - 2
     return GPUDeviceProfile(
         index=0,
         name="Test GPU",
         compute_capability=(8, 0),
         total_vram_gb=total_gb,
-        free_vram_gb=total_gb - 2,
+        free_vram_gb=free_gb,
         supports_bfloat16=bf16,
     )
 
@@ -106,6 +108,49 @@ def test_plan_uses_sequential_offload_for_tight_gpu():
 def test_plan_rejects_gpu_that_is_too_small_for_declared_model():
     with pytest.raises(GPUPreflightError, match="below the conservative minimum"):
         plan_gpu_execution(_profile(8.0), estimated_model_vram_gb=32.0)
+
+
+def test_plan_uses_live_free_vram_instead_of_idle_total_capacity():
+    profile = _profile(48.0, free_gb=18.0)
+
+    plan = plan_gpu_execution(profile, estimated_model_vram_gb=32.0)
+
+    assert plan.memory_strategy == "model_cpu_offload"
+    assert plan.fit_margin_gb == pytest.approx(-14.0)
+    assert plan.observed_total_vram_gb == pytest.approx(48.0)
+    assert plan.observed_free_vram_gb == pytest.approx(18.0)
+
+
+def test_plan_rejects_busy_gpu_when_free_vram_is_below_working_set_floor():
+    with pytest.raises(GPUPreflightError, match="free GPU VRAM"):
+        plan_gpu_execution(
+            _profile(48.0, free_gb=6.0),
+            estimated_model_vram_gb=32.0,
+        )
+
+
+def test_plan_falls_back_to_total_vram_when_live_free_vram_is_unknown():
+    profile = GPUDeviceProfile(
+        index=1,
+        name="Telemetry-limited GPU",
+        compute_capability=(8, 0),
+        total_vram_gb=48.0,
+        free_vram_gb=None,
+        supports_bfloat16=True,
+    )
+
+    plan = plan_gpu_execution(profile, estimated_model_vram_gb=32.0)
+
+    assert plan.memory_strategy == "resident"
+    assert plan.fit_margin_gb == pytest.approx(16.0)
+
+
+def test_plan_rejects_inconsistent_or_empty_free_vram_telemetry():
+    with pytest.raises(GPUPreflightError, match="no free VRAM"):
+        plan_gpu_execution(_profile(24.0, free_gb=0.0), estimated_model_vram_gb=16.0)
+
+    with pytest.raises(GPUPreflightError, match="exceeds reported total"):
+        plan_gpu_execution(_profile(24.0, free_gb=25.0), estimated_model_vram_gb=16.0)
 
 
 def test_plan_rejects_non_positive_model_memory_estimate():
