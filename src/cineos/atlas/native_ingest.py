@@ -98,7 +98,9 @@ def _verify_claimed_artifact(result: Any) -> tuple[str | None, int | None, str |
 
     artifact = Path(claimed)
     if not artifact.is_file():
-        raise NativeRequestError(f"renderer returned missing output artifact: {artifact}")
+        raise NativeRequestError(
+            f"renderer returned missing output artifact: {artifact}"
+        )
     byte_size = artifact.stat().st_size
     if byte_size <= 0:
         raise NativeRequestError(f"renderer returned empty output artifact: {artifact}")
