@@ -81,7 +81,9 @@ def _derived_request(
 ) -> NativeShotRequest:
     candidate = copy.deepcopy(request)
     base_hash = request.content_hash or request.refresh_hash()
-    candidate.deterministic_seed = request.deterministic_seed + (attempt - 1) * seed_stride
+    candidate.deterministic_seed = (
+        request.deterministic_seed + (attempt - 1) * seed_stride
+    )
     candidate.metadata = {
         **dict(candidate.metadata),
         "qc_retry": {

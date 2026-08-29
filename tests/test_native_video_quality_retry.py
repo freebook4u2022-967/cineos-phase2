@@ -76,7 +76,10 @@ def test_failed_qc_is_rerendered_with_new_seed_and_same_constraints(tmp_path):
     assert [item.deterministic_seed for item in result.attempts] == [17, 117]
     assert len({item.request_hash for item in result.attempts}) == 2
     assert base.content_hash == base_hash
-    assert [request.camera for request in renderer.requests] == [base.camera, base.camera]
+    assert [request.camera for request in renderer.requests] == [
+        base.camera,
+        base.camera,
+    ]
     assert [request.characters for request in renderer.requests] == [
         base.characters,
         base.characters,
