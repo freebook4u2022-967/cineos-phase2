@@ -9,9 +9,10 @@ scene/shot identity, approved references, continuity contract, and provenance.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from .native_request import NativeShotRequest
 
@@ -69,14 +70,18 @@ def build_quality_retry_request(
             f"attempt_index {attempt_index} exceeds max_attempts={retry_policy.max_attempts}"
         )
     if report.get("accepted") is True:
-        raise QualityRetryError("accepted quality reports must not create retry requests")
+        raise QualityRetryError(
+            "accepted quality reports must not create retry requests"
+        )
 
     directives = _normalized_strings(report.get("directives"), field="directives")
     failed_metrics = _normalized_strings(
         report.get("failed_metrics"), field="failed_metrics"
     )
     if not directives:
-        raise QualityRetryError("rejected quality report must provide correction directives")
+        raise QualityRetryError(
+            "rejected quality report must provide correction directives"
+        )
 
     parent_hash = request.content_hash
     if not parent_hash:
@@ -87,7 +92,9 @@ def build_quality_retry_request(
     if existing_directives is None:
         existing_directives = []
     if not isinstance(existing_directives, (list, tuple)):
-        raise QualityRetryError("request metadata quality_directives must be a list or tuple")
+        raise QualityRetryError(
+            "request metadata quality_directives must be a list or tuple"
+        )
 
     merged_directives = _normalized_strings(
         [*existing_directives, *directives], field="quality_directives"
