@@ -49,7 +49,9 @@ def _plan() -> GPUExecutionPlan:
     )
 
 
-def _receipt(request: NativeShotRequest, output_dir: Path) -> GPUFoundationExecutionReceipt:
+def _receipt(
+    request: NativeShotRequest, output_dir: Path
+) -> GPUFoundationExecutionReceipt:
     artifact = output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
     payload = f"video-{request.shot_id}".encode()
     artifact.write_bytes(payload)
