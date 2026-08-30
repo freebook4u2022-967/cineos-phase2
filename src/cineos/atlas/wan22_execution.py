@@ -44,6 +44,7 @@ class Wan22ExecutionConfig:
         "low quality, blurry, deformed anatomy, extra fingers, duplicate people, "
         "identity drift, temporal flicker, warped geometry"
     )
+    approved_reference_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.prompt.strip():
@@ -58,6 +59,8 @@ class Wan22ExecutionConfig:
             raise ValueError("num_inference_steps must be positive")
         if self.guidance_scale < 0:
             raise ValueError("guidance_scale must be non-negative")
+        if self.approved_reference_id is not None and not self.approved_reference_id.strip():
+            raise ValueError("approved_reference_id must not be blank")
 
 
 def aligned_wan22_frame_count(duration_seconds: float, fps: float = 24.0) -> int:
@@ -85,6 +88,11 @@ def build_wan22_execution_request(config: Wan22ExecutionConfig) -> NativeShotReq
         config.fps,
     )
     execution_duration = frames / config.fps
+    approved_reference_ids = (
+        [config.approved_reference_id]
+        if config.approved_reference_id is not None
+        else []
+    )
     request = NativeShotRequest(
         shot_id="wan22-gpu-validation-shot",
         scene_id="wan22-gpu-validation",
@@ -107,7 +115,7 @@ def build_wan22_execution_request(config: Wan22ExecutionConfig) -> NativeShotReq
             "mode": "single-shot-foundation-validation",
         },
         performance={},
-        approved_reference_ids=[],
+        approved_reference_ids=approved_reference_ids,
         deterministic_seed=config.seed,
         renderer_requirements={
             "inference": {
@@ -123,6 +131,7 @@ def build_wan22_execution_request(config: Wan22ExecutionConfig) -> NativeShotReq
             "execution_frame_count": frames,
             "foundation_origin": WAN22_TI2V_5B_PROFILE.origin,
             "foundation_profile_id": WAN22_TI2V_5B_PROFILE.profile_id,
+            "reference_conditioned": config.approved_reference_id is not None,
         },
     )
     request.refresh_hash()
@@ -173,6 +182,7 @@ def run_wan22_gpu_validation(
     memory_strategy: str = "model_cpu_offload",
     dtype: str = "bfloat16",
     enable_vae_tiling: bool = True,
+    reference_loader: Any | None = None,
     pipeline_factory: Any | None = None,
     video_exporter: Any | None = None,
 ) -> dict[str, Any]:
@@ -182,6 +192,10 @@ def run_wan22_gpu_validation(
     omitted, the function loads the pinned external Wan2.2 checkpoint through
     Diffusers and therefore requires the optional video dependencies plus a GPU.
 
+    When an approved reference is declared, ``reference_loader`` is mandatory.
+    This prevents an identity-conditioned benchmark from silently degrading into
+    text-only generation while still reporting a successful render.
+
     A run is reported as rendered only after the exported artifact exists, is
     non-empty, and its frame count matches the aligned Wan2.2 temporal contract.
     The receipt records an artifact digest and execution controls so benchmark
@@ -189,9 +203,15 @@ def run_wan22_gpu_validation(
     successful GPU render.
     """
 
+    if config.approved_reference_id is not None and reference_loader is None:
+        raise Wan22ExecutionError(
+            "approved reference conditioning requires a reference_loader"
+        )
+
     request = build_wan22_execution_request(config)
     renderer = WAN22_TI2V_5B_PROFILE.renderer(
         output_dir=output_dir,
+        reference_loader=reference_loader,
         pipeline_factory=pipeline_factory,
         video_exporter=video_exporter,
     )
@@ -229,6 +249,10 @@ def run_wan22_gpu_validation(
         "fps": config.fps,
         "seed": result.seed,
         "request_hash": result.request_hash,
+        "conditioning": {
+            "reference_conditioned": config.approved_reference_id is not None,
+            "approved_reference_id": config.approved_reference_id,
+        },
         "runtime": {
             "device": device,
             "dtype": dtype,
