@@ -164,9 +164,7 @@ def run_quality_retry_connected_gpu_benchmark(
                     break
 
                 if attempt_index + 1 >= policy.max_attempts:
-                    failed = report.get("failed_metrics") or [
-                        "unknown_quality_failure"
-                    ]
+                    failed = report.get("failed_metrics") or ["unknown_quality_failure"]
                     raise GPUQualityRetryBenchmarkError(
                         f"quality retry exhausted for "
                         f"{original.scene_id}/{original.shot_id}: "
