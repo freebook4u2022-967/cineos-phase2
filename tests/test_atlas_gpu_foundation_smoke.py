@@ -129,10 +129,12 @@ def test_gpu_foundation_shot_binds_preflight_render_and_artifact_evidence(tmp_pa
     assert receipt.result.frame_count == 24
     assert receipt.execution_plan.memory_strategy == "resident"
     assert receipt.output_bytes == len(artifact_bytes)
+    assert receipt.media_payload_bytes == len(b"generated-frame-payload")
     assert len(receipt.output_sha256) == 64
     assert receipt.profile_id == WAN22_TI2V_5B_PROFILE.profile_id
     assert receipt.origin == "external_pretrained_foundation"
     assert receipt.to_dict()["foundation"]["model_id"].startswith("Wan-AI/")
+    assert receipt.to_dict()["media_payload_bytes"] == len(b"generated-frame-payload")
 
 
 def test_gpu_foundation_shot_rejects_arbitrary_bytes_with_mp4_suffix(tmp_path):
