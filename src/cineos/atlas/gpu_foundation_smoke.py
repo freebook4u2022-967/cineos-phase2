@@ -3,9 +3,9 @@
 This module binds CINEOS GPU preflight, an explicitly external pretrained
 foundation profile, Diffusers execution, and output-artifact evidence into one
 operation. It is intentionally small: success means a renderer actually wrote a
-fresh, non-empty video artifact for the current request. Planning, model
-construction, or a stale artifact from an earlier run is never reported as a
-successful GPU render.
+fresh, structurally plausible video artifact for the current request. Planning,
+model construction, arbitrary bytes with an ``.mp4`` suffix, or a stale artifact
+from an earlier run are never reported as a successful GPU render.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from .gpu_preflight import (
     select_gpu_execution,
 )
 from .native_request import NativeShotRequest
+from .video_artifact import VideoArtifactError, inspect_mp4_container
 
 
 class GPUFoundationExecutionError(RuntimeError):
@@ -132,6 +133,16 @@ def _validate_result_identity(
     return artifact
 
 
+def _validate_video_artifact(artifact: Path) -> None:
+    """Reject arbitrary bytes masquerading as completed MP4 render evidence."""
+    try:
+        inspect_mp4_container(artifact)
+    except VideoArtifactError as exc:
+        raise GPUFoundationExecutionError(
+            f"renderer output is not structurally valid MP4 evidence: {artifact}"
+        ) from exc
+
+
 def execute_foundation_gpu_shot(
     request: NativeShotRequest,
     profile: FoundationExecutionProfile,
@@ -197,6 +208,8 @@ def execute_foundation_gpu_shot(
         raise GPUFoundationExecutionError(
             f"renderer produced an empty video artifact at {artifact}"
         )
+
+    _validate_video_artifact(artifact)
 
     digest = hashlib.sha256()
     try:
