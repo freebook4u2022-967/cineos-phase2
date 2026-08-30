@@ -108,6 +108,50 @@ def test_connected_gpu_benchmark_writes_manifest_only_after_five_fresh_shots(tmp
     ]
 
 
+def test_connected_gpu_benchmark_accepts_legacy_previous_shot_id_alias(tmp_path):
+    requests = [_request(index) for index in range(5)]
+    for request in requests:
+        previous = request.continuity.pop("previous_shot")
+        request.continuity["previous_shot_id"] = previous
+        request.refresh_hash()
+
+    def executor(request, profile, *, output_dir):
+        assert profile is WAN22_TI2V_5B_PROFILE
+        return _receipt(request, Path(output_dir))
+
+    receipt = run_connected_gpu_benchmark(
+        "legacy-continuity-alias",
+        requests,
+        WAN22_TI2V_5B_PROFILE,
+        output_dir=tmp_path,
+        shot_executor=executor,
+    )
+
+    assert len(receipt.shot_receipts) == 5
+
+
+def test_connected_gpu_benchmark_rejects_conflicting_continuity_aliases(tmp_path):
+    requests = [_request(index) for index in range(5)]
+    requests[2].continuity["previous_shot_id"] = "shot-0"
+    requests[2].refresh_hash()
+    calls = []
+
+    def executor(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("executor must not run")
+
+    with pytest.raises(GPUConnectedBenchmarkError, match="conflicting previous_shot"):
+        run_connected_gpu_benchmark(
+            "conflicting-aliases",
+            requests,
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            shot_executor=executor,
+        )
+
+    assert calls == []
+
+
 def test_connected_gpu_benchmark_rejects_stale_request_hash_before_execution(tmp_path):
     requests = [_request(index) for index in range(5)]
     requests[2].camera["movement"] = "changed-after-hash"
