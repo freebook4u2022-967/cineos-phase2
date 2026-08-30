@@ -12,7 +12,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-
 CORE_METRICS = (
     "identity_similarity",
     "temporal_consistency",
@@ -71,7 +70,9 @@ def _validated_metrics(report: Mapping[str, Any]) -> dict[str, float]:
             continue
         numeric = float(value)
         if not 0.0 <= numeric <= 1.0:
-            raise SequenceQualityError(f"quality metric {name!r} must be between 0 and 1")
+            raise SequenceQualityError(
+                f"quality metric {name!r} must be between 0 and 1"
+            )
         metrics[name] = numeric
     return metrics
 
@@ -106,7 +107,9 @@ class CineosSequenceQualityEvaluator:
     and therefore remains foundation-model neutral.
     """
 
-    def __init__(self, metric_extractor: Any, policy: SequenceQualityPolicy | None = None) -> None:
+    def __init__(
+        self, metric_extractor: Any, policy: SequenceQualityPolicy | None = None
+    ) -> None:
         if not callable(metric_extractor):
             raise TypeError("metric_extractor must be callable")
         self.metric_extractor = metric_extractor
@@ -150,7 +153,9 @@ class CineosSequenceQualityEvaluator:
 
         if overall < self.policy.overall_floor:
             failures.append("overall_score")
-            directives.append("increase total shot quality without sacrificing identity continuity")
+            directives.append(
+                "increase total shot quality without sacrificing identity continuity"
+            )
 
         accepted = not failures
         return {
