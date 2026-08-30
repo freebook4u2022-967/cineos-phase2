@@ -115,7 +115,9 @@ def test_rejected_shot_is_correctively_rerendered_and_hash_bound(tmp_path):
     assert "preserve approved character identity" in shot2_calls[1][3]
 
     assert requests[2].content_hash == shot2_calls[1][2]
-    assert requests[2].metadata["quality_retry"]["initial_request_hash"] == original_hash
+    assert (
+        requests[2].metadata["quality_retry"]["initial_request_hash"] == original_hash
+    )
 
     report = receipt.quality_reports[2]
     assert report["accepted"] is True
