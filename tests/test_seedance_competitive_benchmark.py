@@ -1,3 +1,7 @@
+import pytest
+
+from cineos.benchmarks.exceptions import BenchmarkError
+from cineos.benchmarks.runner import BenchmarkRunner
 from cineos.benchmarks.seedance_competitive import seedance_competitive_suite
 
 
@@ -76,3 +80,18 @@ def test_competitive_suite_hash_is_stable_and_foundation_provenance_is_explicit(
     )
     assert "conditioning" in first.metadata["cineos_owned_layers"]
     assert "automatic_qc" in first.metadata["cineos_owned_layers"]
+
+
+def test_generic_runner_cannot_fake_real_inference_competitive_pass(tmp_path):
+    suite = seedance_competitive_suite()
+
+    with pytest.raises(BenchmarkError, match="real-inference benchmark suites"):
+        BenchmarkRunner().run(
+            suite,
+            tmp_path,
+            include_slow=True,
+            hardware_profile="gpu",
+            dry_run=True,
+        )
+
+    assert not (tmp_path / "report.json").exists()
