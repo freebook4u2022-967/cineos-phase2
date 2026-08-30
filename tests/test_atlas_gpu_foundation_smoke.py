@@ -71,6 +71,22 @@ class _Pipeline:
         return _Output([object() for _ in range(num_frames)])
 
 
+def _box(box_type: bytes, payload: bytes = b"") -> bytes:
+    return (8 + len(payload)).to_bytes(4, "big") + box_type + payload
+
+
+def _minimal_mp4_bytes() -> bytes:
+    # Structural test fixture only. Production validation intentionally checks the
+    # ISO BMFF envelope here; decoder-level QC remains a downstream production gate.
+    return b"".join(
+        (
+            _box(b"ftyp", b"isom\x00\x00\x02\x00isomiso2"),
+            _box(b"moov"),
+            _box(b"mdat", b"generated-frame-payload"),
+        )
+    )
+
+
 def _request():
     request = NativeShotRequest(
         shot_id="shot-001",
@@ -93,10 +109,11 @@ def _request():
 
 def test_gpu_foundation_shot_binds_preflight_render_and_artifact_evidence(tmp_path):
     pipeline = _Pipeline()
+    artifact_bytes = _minimal_mp4_bytes()
 
     def exporter(_frames, output_path, *, fps):
         assert fps == 24.0
-        Path(output_path).write_bytes(b"real-video-artifact")
+        Path(output_path).write_bytes(artifact_bytes)
 
     receipt = execute_foundation_gpu_shot(
         _request(),
@@ -111,11 +128,27 @@ def test_gpu_foundation_shot_binds_preflight_render_and_artifact_evidence(tmp_pa
     assert pipeline.progress_disabled is True
     assert receipt.result.frame_count == 24
     assert receipt.execution_plan.memory_strategy == "resident"
-    assert receipt.output_bytes == len(b"real-video-artifact")
+    assert receipt.output_bytes == len(artifact_bytes)
     assert len(receipt.output_sha256) == 64
     assert receipt.profile_id == WAN22_TI2V_5B_PROFILE.profile_id
     assert receipt.origin == "external_pretrained_foundation"
     assert receipt.to_dict()["foundation"]["model_id"].startswith("Wan-AI/")
+
+
+def test_gpu_foundation_shot_rejects_arbitrary_bytes_with_mp4_suffix(tmp_path):
+    def exporter(_frames, output_path, *, fps):
+        del fps
+        Path(output_path).write_bytes(b"not-a-video-despite-the-extension")
+
+    with pytest.raises(GPUFoundationExecutionError, match="not structurally valid MP4 evidence"):
+        execute_foundation_gpu_shot(
+            _request(),
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            torch_module=_Torch(),
+            pipeline_factory=lambda *_args, **_kwargs: _Pipeline(),
+            video_exporter=exporter,
+        )
 
 
 def test_gpu_foundation_shot_fails_closed_without_written_video_artifact(tmp_path):
@@ -154,7 +187,7 @@ def test_gpu_foundation_shot_rejects_artifact_from_wrong_output_path(tmp_path):
     def exporter(_frames, output_path, *, fps):
         del fps
         requested = Path(output_path)
-        requested.write_bytes(b"current-render")
+        requested.write_bytes(_minimal_mp4_bytes())
 
     class _WrongPathProfile:
         profile_id = WAN22_TI2V_5B_PROFILE.profile_id
