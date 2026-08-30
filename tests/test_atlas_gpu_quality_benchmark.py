@@ -109,6 +109,12 @@ def test_quality_gated_connected_benchmark_persists_hash_bound_quality_evidence(
     assert gate["schema"] == "cineos-gpu-connected-quality-gate/0.1"
     assert gate["accepted"] is True
     assert gate["shot_count"] == 5
+    assert len(receipt.quality_reports) == 5
+    assert payload["quality_gate_applied"] is True
+    assert payload["quality_reports"] == gate["reports"]
+    assert payload["quality_reports"] == list(receipt.quality_reports)
+    assert payload["production_gpu_evidence"] is receipt.production_gpu_evidence
+    assert payload["evidence_tier"] == receipt.evidence_tier
     assert [report["request_hash"] for report in gate["reports"]] == [
         request.content_hash for request in requests
     ]
