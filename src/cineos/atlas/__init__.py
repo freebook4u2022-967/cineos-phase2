@@ -33,6 +33,11 @@ from .gpu_preflight import (
     plan_gpu_execution,
     select_gpu_execution,
 )
+from .gpu_quality_benchmark import (
+    GPUQualityBenchmarkError,
+    QualityGatedShotExecutor,
+    run_quality_gated_connected_gpu_benchmark,
+)
 from .native_ingest import (
     NativeRenderReceipt,
     NativeRequestError,
@@ -70,11 +75,13 @@ __all__ = [
     "GPUFoundationExecutionError",
     "GPUFoundationExecutionReceipt",
     "GPUPreflightError",
+    "GPUQualityBenchmarkError",
     "NATIVE_SHOT_SCHEMA",
     "NativeRenderReceipt",
     "NativeRequestError",
     "NativeShotRequest",
     "NegotiatedCapabilities",
+    "QualityGatedShotExecutor",
     "Range",
     "RendererAdapter",
     "RendererCapabilities",
@@ -95,6 +102,7 @@ __all__ = [
     "inspect_cuda_environment",
     "plan_gpu_execution",
     "run_connected_gpu_benchmark",
+    "run_quality_gated_connected_gpu_benchmark",
     "select_gpu_execution",
     "validate_native_request",
 ]
