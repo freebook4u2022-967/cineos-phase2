@@ -11,9 +11,10 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from .foundation_profiles import WAN22_TI2V_5B_PROFILE
 from .wan22_execution import (
