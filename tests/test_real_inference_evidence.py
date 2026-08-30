@@ -14,8 +14,11 @@ def _case():
 
 
 def _write_expected_outputs(root: Path) -> None:
-    for name in _case().expected_outputs:
-        (root / name).write_bytes(b"real-artifact")
+    (root / "report.json").write_text('{"passed": true}', encoding="utf-8")
+    (root / "render_receipt.json").write_text('{"renderer": "gpu"}', encoding="utf-8")
+    (root / "output.mp4").write_bytes(
+        b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2mp41"
+    )
 
 
 def _passing_result():
@@ -39,7 +42,7 @@ def _foundation():
     }
 
 
-def test_real_inference_evidence_accepts_nonempty_artifacts_measured_metrics_and_provenance(
+def test_real_inference_evidence_accepts_structured_artifacts_measured_metrics_and_provenance(
     tmp_path,
 ):
     _write_expected_outputs(tmp_path)
@@ -54,6 +57,36 @@ def test_real_inference_evidence_rejects_missing_or_empty_media(tmp_path):
     (tmp_path / "output.mp4").write_bytes(b"")
 
     with pytest.raises(BenchmarkError, match="missing or empty benchmark artifact"):
+        validate_real_inference_evidence(
+            _case(), _passing_result(), tmp_path, foundation=_foundation()
+        )
+
+
+def test_real_inference_evidence_rejects_placeholder_non_mp4_media(tmp_path):
+    _write_expected_outputs(tmp_path)
+    (tmp_path / "output.mp4").write_bytes(b"not-a-real-video")
+
+    with pytest.raises(BenchmarkError, match="not an MP4/ISO-BMFF container"):
+        validate_real_inference_evidence(
+            _case(), _passing_result(), tmp_path, foundation=_foundation()
+        )
+
+
+def test_real_inference_evidence_rejects_malformed_json_receipt(tmp_path):
+    _write_expected_outputs(tmp_path)
+    (tmp_path / "render_receipt.json").write_text("not-json", encoding="utf-8")
+
+    with pytest.raises(BenchmarkError, match="JSON artifact is malformed"):
+        validate_real_inference_evidence(
+            _case(), _passing_result(), tmp_path, foundation=_foundation()
+        )
+
+
+def test_real_inference_evidence_rejects_non_object_json_report(tmp_path):
+    _write_expected_outputs(tmp_path)
+    (tmp_path / "report.json").write_text("[]", encoding="utf-8")
+
+    with pytest.raises(BenchmarkError, match="must contain an object"):
         validate_real_inference_evidence(
             _case(), _passing_result(), tmp_path, foundation=_foundation()
         )
