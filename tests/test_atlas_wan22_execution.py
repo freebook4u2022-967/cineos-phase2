@@ -132,7 +132,8 @@ def test_wan22_validation_routes_real_execution_controls_and_returns_receipt(tmp
 def test_wan22_validation_rejects_empty_export(tmp_path):
     pipeline = FakeWanPipeline()
 
-    def empty_exporter(_frames, output_path, _fps):
+    def empty_exporter(_frames, output_path, fps):
+        _ = fps
         Path(output_path).touch()
 
     with pytest.raises(Wan22ExecutionError, match="empty artifact"):
