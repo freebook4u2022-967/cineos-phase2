@@ -29,6 +29,34 @@ class GPUConnectedBenchmarkError(RuntimeError):
     """Raised when connected-shot benchmark evidence is incomplete or ambiguous."""
 
 
+def _production_gpu_evidence(
+    receipts: Sequence[GPUFoundationExecutionReceipt],
+) -> bool:
+    """Return true only for receipts from the unmodified default GPU runtime.
+
+    Older receipts and deterministic test executors do not carry runtime
+    provenance and therefore fail closed. This intentionally separates a useful
+    orchestration regression benchmark from evidence that CINEOS actually ran its
+    default CUDA + Diffusers execution path.
+    """
+    if not receipts:
+        return False
+    for receipt in receipts:
+        provenance = receipt.runtime_provenance
+        if not isinstance(provenance, Mapping):
+            return False
+        if provenance.get("schema") != "cineos-gpu-runtime-provenance/0.1":
+            return False
+        if provenance.get("runtime_mode") != "default":
+            return False
+        if provenance.get("production_default_runtime") is not True:
+            return False
+        device = provenance.get("cuda_device")
+        if not isinstance(device, str) or not device.startswith("cuda"):
+            return False
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class GPUConnectedBenchmarkReceipt:
     """Auditable evidence for one successful connected 5-10 shot GPU run."""
@@ -43,9 +71,21 @@ class GPUConnectedBenchmarkReceipt:
     manifest_path: str
     quality_reports: tuple[dict[str, Any], ...] = ()
 
+    @property
+    def production_gpu_evidence(self) -> bool:
+        return _production_gpu_evidence(self.shot_receipts)
+
+    @property
+    def evidence_tier(self) -> str:
+        if self.production_gpu_evidence and self.quality_reports:
+            return "production-gpu-quality-gated"
+        if self.production_gpu_evidence:
+            return "production-gpu-execution"
+        return "non-production-or-injected"
+
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-gpu-connected-benchmark/0.1",
+            "schema": "cineos-gpu-connected-benchmark/0.2",
             "benchmark_id": self.benchmark_id,
             "profile_id": self.profile_id,
             "origin": self.origin,
@@ -56,6 +96,8 @@ class GPUConnectedBenchmarkReceipt:
             "manifest_path": self.manifest_path,
             "quality_gate_applied": bool(self.quality_reports),
             "quality_reports": list(self.quality_reports),
+            "production_gpu_evidence": self.production_gpu_evidence,
+            "evidence_tier": self.evidence_tier,
             "shots": [receipt.to_dict() for receipt in self.shot_receipts],
         }
 
@@ -93,17 +135,7 @@ def _previous_shot_id(request: NativeShotRequest) -> str | None:
 
 
 def _validate_continuity_chain(requests: Sequence[NativeShotRequest]) -> None:
-    """Require an explicit linear handoff instead of accepting unrelated clips.
-
-    A connected benchmark is film-level evidence only when every shot after the
-    first points at the immediately preceding shot. This deliberately fails closed:
-    callers must compile/rebuild requests after fixing continuity metadata so the
-    request hashes bind the exact chain being rendered.
-
-    ``previous_shot`` is the canonical key. ``previous_shot_id`` remains accepted
-    as a compatibility alias for existing competitive-benchmark requests. Supplying
-    both is allowed only when they normalize to the same value.
-    """
+    """Require an explicit linear handoff instead of accepting unrelated clips."""
     first = requests[0]
     if _previous_shot_id(first) is not None:
         raise GPUConnectedBenchmarkError(
@@ -180,13 +212,7 @@ def _validate_unique_render_evidence(
     seen_paths: set[str],
     seen_hashes: set[str],
 ) -> None:
-    """Reject recycled output masquerading as a connected multi-shot render.
-
-    A benchmark is useful only when each shot owns distinct render evidence.
-    Reusing one artifact path is always invalid. Reusing an identical payload hash
-    across different shot identities is also rejected because it means the run did
-    not demonstrate distinct shot execution, even if metadata differs.
-    """
+    """Reject recycled output masquerading as a connected multi-shot render."""
     try:
         artifact_path = str(Path(receipt.result.output_path).resolve(strict=False))
     except OSError as exc:
@@ -270,13 +296,12 @@ def run_connected_gpu_benchmark(
 
     ``shot_executor`` is injectable for deterministic regression tests. Production
     callers should use the default, which performs CUDA preflight and real
-    Diffusers-backed rendering for every shot.
+    Diffusers-backed rendering for every shot. The resulting manifest explicitly
+    marks whether every receipt came from the unmodified default GPU runtime; an
+    injected/test executor can never silently become production evidence.
 
     When ``quality_evaluator`` is supplied, every rendered artifact must return an
-    accepted, normalized report before the benchmark can complete. This lets real
-    identity/temporal/motion observers turn the connected GPU benchmark into a
-    fail-closed film-quality gate without breaking legacy callers that only need
-    execution-integrity evidence.
+    accepted, normalized report before the benchmark can complete.
     """
     if not benchmark_id.strip():
         raise GPUConnectedBenchmarkError("benchmark_id must not be empty")
@@ -334,8 +359,6 @@ def run_connected_gpu_benchmark(
                 )
             receipts.append(receipt)
     except Exception:
-        # Partial videos may remain useful for debugging, but no completed manifest
-        # is allowed to survive a failed connected benchmark.
         _remove_stale_manifest(manifest)
         raise
 
