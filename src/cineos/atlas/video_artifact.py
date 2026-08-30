@@ -24,6 +24,7 @@ class MP4ContainerEvidence:
     has_ftyp: bool
     has_movie_metadata: bool
     has_media_data: bool
+    media_payload_bytes: int
 
 
 def _read_box_header(handle, *, offset: int, file_size: int) -> tuple[int, str, int]:
@@ -62,9 +63,10 @@ def inspect_mp4_container(
 ) -> MP4ContainerEvidence:
     """Validate top-level MP4 structure without loading the whole artifact.
 
-    Accepted evidence requires ``ftyp`` plus media data (``mdat``), and either a
-    normal movie metadata box (``moov``) or a fragmented-movie box (``moof``).
-    The scan is bounded to avoid pathological files from consuming unbounded work.
+    Accepted evidence requires ``ftyp`` plus non-empty media payload in one or
+    more ``mdat`` boxes, and either a normal movie metadata box (``moov``) or a
+    fragmented-movie box (``moof``). The scan is bounded to avoid pathological
+    files from consuming unbounded work.
     """
     artifact = Path(path)
     try:
@@ -81,16 +83,19 @@ def inspect_mp4_container(
         raise ValueError("max_boxes must be positive")
 
     box_types: list[str] = []
+    media_payload_bytes = 0
     offset = 0
     try:
         with artifact.open("rb") as handle:
             while offset < file_size and len(box_types) < max_boxes:
-                box_size, box_type, _header_size = _read_box_header(
+                box_size, box_type, header_size = _read_box_header(
                     handle,
                     offset=offset,
                     file_size=file_size,
                 )
                 box_types.append(box_type)
+                if box_type == "mdat":
+                    media_payload_bytes += box_size - header_size
                 offset += box_size
     except OSError as exc:
         raise VideoArtifactError(
@@ -111,12 +116,15 @@ def inspect_mp4_container(
         raise VideoArtifactError("rendered artifact is missing MP4 movie metadata")
     if not has_media_data:
         raise VideoArtifactError("rendered artifact is missing MP4 media data")
+    if media_payload_bytes <= 0:
+        raise VideoArtifactError("rendered artifact has empty MP4 media payload")
 
     return MP4ContainerEvidence(
         box_types=tuple(box_types),
         has_ftyp=has_ftyp,
         has_movie_metadata=has_movie_metadata,
         has_media_data=has_media_data,
+        media_payload_bytes=media_payload_bytes,
     )
 
 
