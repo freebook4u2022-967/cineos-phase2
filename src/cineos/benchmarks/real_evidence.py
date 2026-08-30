@@ -7,8 +7,8 @@ synthetic metrics, missing media, or ambiguous foundation provenance.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 from .case import BenchmarkCase
 from .exceptions import BenchmarkError
@@ -47,7 +47,9 @@ def validate_real_inference_evidence(
         try:
             artifact.relative_to(root)
         except ValueError as exc:
-            raise BenchmarkError("benchmark output escapes the case output directory") from exc
+            raise BenchmarkError(
+                "benchmark output escapes the case output directory"
+            ) from exc
         if not artifact.is_file() or artifact.stat().st_size <= 0:
             raise BenchmarkError(f"missing or empty benchmark artifact: {expected}")
 
@@ -72,4 +74,6 @@ def validate_real_inference_evidence(
             "competitive real inference must declare external_pretrained_foundation origin"
         )
     if not isinstance(model_id, str) or not model_id.strip():
-        raise BenchmarkError("competitive real inference must declare foundation model_id")
+        raise BenchmarkError(
+            "competitive real inference must declare foundation model_id"
+        )
