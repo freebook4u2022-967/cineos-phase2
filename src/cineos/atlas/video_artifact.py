@@ -75,9 +75,9 @@ def inspect_mp4_container(
         raise VideoArtifactError(
             f"cannot stat rendered video artifact: {artifact}"
         ) from exc
-    if file_size < 24:
+    if file_size < 8:
         raise VideoArtifactError(
-            "rendered artifact is too small to be a plausible MP4 container"
+            "rendered artifact is too small to contain an MP4 box header"
         )
     if max_boxes <= 0:
         raise ValueError("max_boxes must be positive")
