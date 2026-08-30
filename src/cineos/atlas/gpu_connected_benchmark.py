@@ -171,6 +171,39 @@ def _chain_digest(receipts: Sequence[GPUFoundationExecutionReceipt]) -> str:
     return digest.hexdigest()
 
 
+def _validate_unique_render_evidence(
+    receipt: GPUFoundationExecutionReceipt,
+    *,
+    seen_paths: set[str],
+    seen_hashes: set[str],
+) -> None:
+    """Reject recycled output masquerading as a connected multi-shot render.
+
+    A benchmark is useful only when each shot owns distinct render evidence.
+    Reusing one artifact path is always invalid. Reusing an identical payload hash
+    across different shot identities is also rejected because it means the run did
+    not demonstrate distinct shot execution, even if metadata differs.
+    """
+    try:
+        artifact_path = str(Path(receipt.result.output_path).resolve(strict=False))
+    except OSError as exc:
+        raise GPUConnectedBenchmarkError(
+            f"cannot resolve connected benchmark artifact: {receipt.result.output_path}"
+        ) from exc
+
+    if artifact_path in seen_paths:
+        raise GPUConnectedBenchmarkError(
+            "connected GPU benchmark reused one output artifact across multiple shots"
+        )
+    if receipt.output_sha256 in seen_hashes:
+        raise GPUConnectedBenchmarkError(
+            "connected GPU benchmark produced duplicate video payloads across multiple shots"
+        )
+
+    seen_paths.add(artifact_path)
+    seen_hashes.add(receipt.output_sha256)
+
+
 def run_connected_gpu_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
@@ -198,6 +231,8 @@ def run_connected_gpu_benchmark(
     _remove_stale_manifest(manifest)
 
     receipts: list[GPUFoundationExecutionReceipt] = []
+    seen_paths: set[str] = set()
+    seen_hashes: set[str] = set()
     kwargs = dict(shot_executor_kwargs or {})
     started = perf_counter()
     try:
@@ -219,6 +254,11 @@ def run_connected_gpu_benchmark(
                 raise GPUConnectedBenchmarkError(
                     "shot receipt request hash does not match connected benchmark request"
                 )
+            _validate_unique_render_evidence(
+                receipt,
+                seen_paths=seen_paths,
+                seen_hashes=seen_hashes,
+            )
             receipts.append(receipt)
     except Exception:
         # Partial videos may remain useful for debugging, but no completed manifest
