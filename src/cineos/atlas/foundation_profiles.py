@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .diffusers_video import DiffusersVideoRenderer, FoundationProvenance
+from .production_diffusers_video import ValidatedDiffusersVideoRenderer
 
 EXTERNAL_PRETRAINED_FOUNDATION = "external_pretrained_foundation"
 WAN22_TI2V_5B_DIFFUSERS_REVISION = "4c6ca6c2ded5c79550a3ca25555efc561112891a"
@@ -73,8 +74,12 @@ class FoundationExecutionProfile:
         pipeline_factory: Any | None = None,
         video_exporter: Any | None = None,
     ) -> DiffusersVideoRenderer:
-        """Build a renderer whose declared limits match this pinned foundation."""
-        return DiffusersVideoRenderer(
+        """Build a renderer whose declared limits match this pinned foundation.
+
+        Pinned production profiles use the validated renderer boundary so a malformed,
+        truncated, or empty exporter output cannot become accepted GPU evidence.
+        """
+        return ValidatedDiffusersVideoRenderer(
             self.provenance,
             output_dir=output_dir,
             resolutions=self.resolutions,
