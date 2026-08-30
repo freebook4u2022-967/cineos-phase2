@@ -42,6 +42,7 @@ class GPUFoundationExecutionReceipt:
     output_bytes: int
     output_sha256: str
     elapsed_seconds: float
+    media_payload_bytes: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +51,7 @@ class GPUFoundationExecutionReceipt:
             "request_hash": self.result.request_hash,
             "output_path": self.result.output_path,
             "output_bytes": self.output_bytes,
+            "media_payload_bytes": self.media_payload_bytes,
             "output_sha256": self.output_sha256,
             "frame_count": self.result.frame_count,
             "seed": self.result.seed,
@@ -133,14 +135,15 @@ def _validate_result_identity(
     return artifact
 
 
-def _validate_video_artifact(artifact: Path) -> None:
-    """Reject arbitrary bytes masquerading as completed MP4 render evidence."""
+def _validate_video_artifact(artifact: Path) -> int:
+    """Reject arbitrary bytes and return measured MP4 media payload evidence."""
     try:
-        inspect_mp4_container(artifact)
+        evidence = inspect_mp4_container(artifact)
     except VideoArtifactError as exc:
         raise GPUFoundationExecutionError(
             f"renderer output is not structurally valid MP4 evidence: {artifact}"
         ) from exc
+    return evidence.media_payload_bytes
 
 
 def execute_foundation_gpu_shot(
@@ -209,7 +212,7 @@ def execute_foundation_gpu_shot(
             f"renderer produced an empty video artifact at {artifact}"
         )
 
-    _validate_video_artifact(artifact)
+    media_payload_bytes = _validate_video_artifact(artifact)
 
     digest = hashlib.sha256()
     try:
@@ -229,6 +232,7 @@ def execute_foundation_gpu_shot(
         output_bytes=output_bytes,
         output_sha256=digest.hexdigest(),
         elapsed_seconds=elapsed,
+        media_payload_bytes=media_payload_bytes,
     )
 
 
