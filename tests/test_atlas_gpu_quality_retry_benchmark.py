@@ -50,7 +50,9 @@ def _plan() -> GPUExecutionPlan:
     )
 
 
-def _receipt(request: NativeShotRequest, output_dir: Path) -> GPUFoundationExecutionReceipt:
+def _receipt(
+    request: NativeShotRequest, output_dir: Path
+) -> GPUFoundationExecutionReceipt:
     artifact = output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
     payload = f"video-{request.shot_id}-{request.content_hash}".encode()
     artifact.write_bytes(payload)
@@ -87,7 +89,9 @@ def test_rejected_shot_is_rerendered_with_fresh_hash_seed_and_lineage(tmp_path):
             return {
                 "accepted": False,
                 "failed_metrics": ["identity_similarity"],
-                "directives": ["preserve approved character identity and facial structure"],
+                "directives": [
+                    "preserve approved character identity and facial structure"
+                ],
             }
         return {
             "accepted": True,
@@ -117,8 +121,13 @@ def test_rejected_shot_is_rerendered_with_fresh_hash_seed_and_lineage(tmp_path):
     assert retried["original_request_hash"] == original.content_hash
     assert retried["accepted_request_hash"] != original.content_hash
     assert accepted.result.seed == original.deterministic_seed + 101
-    assert retried["attempts"][1]["effective_request_hash"] == accepted.result.request_hash
-    assert rendered[3].metadata["quality_retry"]["parent_request_hash"] == original.content_hash
+    assert (
+        retried["attempts"][1]["effective_request_hash"] == accepted.result.request_hash
+    )
+    assert (
+        rendered[3].metadata["quality_retry"]["parent_request_hash"]
+        == original.content_hash
+    )
     assert rendered[3].metadata["quality_directives"] == [
         "preserve approved character identity and facial structure"
     ]
@@ -174,7 +183,9 @@ def test_retry_receipt_must_bind_effective_request_hash(tmp_path):
             elapsed_seconds=receipt.elapsed_seconds,
         )
 
-    with pytest.raises(GPUQualityRetryBenchmarkError, match="effective rerender request"):
+    with pytest.raises(
+        GPUQualityRetryBenchmarkError, match="effective rerender request"
+    ):
         run_quality_retry_connected_gpu_benchmark(
             "retry-bad-hash",
             requests,
