@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -41,6 +41,7 @@ class GPUConnectedBenchmarkReceipt:
     total_output_bytes: int
     elapsed_seconds: float
     manifest_path: str
+    quality_reports: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -53,6 +54,8 @@ class GPUConnectedBenchmarkReceipt:
             "total_output_bytes": self.total_output_bytes,
             "elapsed_seconds": self.elapsed_seconds,
             "manifest_path": self.manifest_path,
+            "quality_gate_applied": bool(self.quality_reports),
+            "quality_reports": list(self.quality_reports),
             "shots": [receipt.to_dict() for receipt in self.shot_receipts],
         }
 
@@ -204,6 +207,53 @@ def _validate_unique_render_evidence(
     seen_hashes.add(receipt.output_sha256)
 
 
+def _validated_quality_report(
+    report: Mapping[str, Any],
+    *,
+    request: NativeShotRequest,
+) -> dict[str, Any]:
+    """Normalize one measured quality decision and fail closed on weak evidence."""
+    accepted = report.get("accepted")
+    if not isinstance(accepted, bool):
+        raise GPUConnectedBenchmarkError(
+            f"shot {request.scene_id}/{request.shot_id} quality report is missing boolean accepted"
+        )
+
+    score = report.get("score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        raise GPUConnectedBenchmarkError(
+            f"shot {request.scene_id}/{request.shot_id} quality report is missing numeric score"
+        )
+    numeric_score = float(score)
+    if not 0.0 <= numeric_score <= 1.0:
+        raise GPUConnectedBenchmarkError(
+            f"shot {request.scene_id}/{request.shot_id} quality score must be between 0 and 1"
+        )
+
+    normalized = dict(report)
+    normalized["scene_id"] = request.scene_id
+    normalized["shot_id"] = request.shot_id
+    normalized["request_hash"] = request.content_hash
+    normalized["score"] = numeric_score
+    try:
+        json.dumps(normalized, sort_keys=True)
+    except (TypeError, ValueError) as exc:
+        raise GPUConnectedBenchmarkError(
+            f"shot {request.scene_id}/{request.shot_id} quality report is not JSON serializable"
+        ) from exc
+
+    if not accepted:
+        failed_metrics = normalized.get("failed_metrics")
+        if isinstance(failed_metrics, list) and failed_metrics:
+            reason = ", ".join(str(item) for item in failed_metrics)
+        else:
+            reason = "quality gate rejected rendered artifact"
+        raise GPUConnectedBenchmarkError(
+            f"shot {request.scene_id}/{request.shot_id} failed connected quality gate: {reason}"
+        )
+    return normalized
+
+
 def run_connected_gpu_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
@@ -214,16 +264,25 @@ def run_connected_gpu_benchmark(
         ..., GPUFoundationExecutionReceipt
     ] = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
+    quality_evaluator: Callable[..., Mapping[str, Any]] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
     """Execute 5-10 connected shots and persist evidence only after full success.
 
     ``shot_executor`` is injectable for deterministic regression tests. Production
     callers should use the default, which performs CUDA preflight and real
     Diffusers-backed rendering for every shot.
+
+    When ``quality_evaluator`` is supplied, every rendered artifact must return an
+    accepted, normalized report before the benchmark can complete. This lets real
+    identity/temporal/motion observers turn the connected GPU benchmark into a
+    fail-closed film-quality gate without breaking legacy callers that only need
+    execution-integrity evidence.
     """
     if not benchmark_id.strip():
         raise GPUConnectedBenchmarkError("benchmark_id must not be empty")
     _validate_requests(requests)
+    if quality_evaluator is not None and not callable(quality_evaluator):
+        raise TypeError("quality_evaluator must be callable")
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -231,6 +290,7 @@ def run_connected_gpu_benchmark(
     _remove_stale_manifest(manifest)
 
     receipts: list[GPUFoundationExecutionReceipt] = []
+    quality_reports: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
     seen_hashes: set[str] = set()
     kwargs = dict(shot_executor_kwargs or {})
@@ -259,6 +319,19 @@ def run_connected_gpu_benchmark(
                 seen_paths=seen_paths,
                 seen_hashes=seen_hashes,
             )
+            if quality_evaluator is not None:
+                raw_report = quality_evaluator(
+                    receipt.result.output_path,
+                    shot=request,
+                    attempt_index=0,
+                )
+                if not isinstance(raw_report, Mapping):
+                    raise GPUConnectedBenchmarkError(
+                        f"shot {request.scene_id}/{request.shot_id} quality evaluator must return a mapping"
+                    )
+                quality_reports.append(
+                    _validated_quality_report(raw_report, request=request)
+                )
             receipts.append(receipt)
     except Exception:
         # Partial videos may remain useful for debugging, but no completed manifest
@@ -278,6 +351,7 @@ def run_connected_gpu_benchmark(
         total_output_bytes=total_output_bytes,
         elapsed_seconds=elapsed,
         manifest_path=str(manifest),
+        quality_reports=tuple(quality_reports),
     )
 
     payload = completed.to_dict()
