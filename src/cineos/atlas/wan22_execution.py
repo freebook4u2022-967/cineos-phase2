@@ -59,7 +59,10 @@ class Wan22ExecutionConfig:
             raise ValueError("num_inference_steps must be positive")
         if self.guidance_scale < 0:
             raise ValueError("guidance_scale must be non-negative")
-        if self.approved_reference_id is not None and not self.approved_reference_id.strip():
+        if (
+            self.approved_reference_id is not None
+            and not self.approved_reference_id.strip()
+        ):
             raise ValueError("approved_reference_id must not be blank")
 
 
