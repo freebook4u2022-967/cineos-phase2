@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from .exceptions import BenchmarkError
 from .metrics import METRIC_NAMES, Metric, MetricStatus
 from .report import BenchmarkReport, CaseResult
 from .serializer import save
@@ -23,6 +24,12 @@ class BenchmarkRunner:
         renderer: str | None = None,
         dry_run: bool = False,
     ) -> BenchmarkReport:
+        if suite.metadata.get("real_inference") is True:
+            raise BenchmarkError(
+                "real-inference benchmark suites cannot run through BenchmarkRunner; "
+                "use the production GPU execution path and measured artifact evidence"
+            )
+
         results = []
         for case in suite.cases:
             if (mandatory_only and not case.mandatory) or (
