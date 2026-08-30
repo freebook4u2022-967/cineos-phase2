@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .diffusers_video import DiffusersVideoError, DiffusersVideoRenderer, DiffusersVideoResult
+from .diffusers_video import (
+    DiffusersVideoError,
+    DiffusersVideoRenderer,
+    DiffusersVideoResult,
+)
 from .video_artifact import VideoArtifactError, inspect_mp4_container
 
 
