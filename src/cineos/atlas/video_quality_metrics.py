@@ -49,7 +49,9 @@ def _default_frame_reader(output_path: str) -> Iterable[Any]:
     try:
         return iio.imiter(output_path, plugin="ffmpeg")
     except Exception as exc:  # pragma: no cover - backend-specific failure
-        raise VideoQualityMetricError(f"cannot open rendered video: {output_path}") from exc
+        raise VideoQualityMetricError(
+            f"cannot open rendered video: {output_path}"
+        ) from exc
 
 
 def _coerce_rgb_frame(frame: Any) -> DecodedRGBFrame:
@@ -63,7 +65,9 @@ def _coerce_rgb_frame(frame: Any) -> DecodedRGBFrame:
         rgb_source = frame if channels == 3 else frame[..., :3]
         payload = rgb_source.tobytes()
     except Exception as exc:
-        raise VideoQualityMetricError("decoded video frame cannot expose RGB bytes") from exc
+        raise VideoQualityMetricError(
+            "decoded video frame cannot expose RGB bytes"
+        ) from exc
     expected = width * height * 3
     if len(payload) != expected:
         raise VideoQualityMetricError(
@@ -99,8 +103,7 @@ def _spatial_similarity(
     left: PixelFrameDescriptor, right: PixelFrameDescriptor
 ) -> float:
     distance = sum(
-        abs(a - b)
-        for a, b in zip(left.spatial_luma, right.spatial_luma, strict=True)
+        abs(a - b) for a, b in zip(left.spatial_luma, right.spatial_luma, strict=True)
     ) / len(left.spatial_luma)
     return _bounded(1.0 - distance)
 
@@ -120,12 +123,9 @@ def _pair_temporal_similarity(
     )
 
 
-def _motion_magnitude(
-    left: PixelFrameDescriptor, right: PixelFrameDescriptor
-) -> float:
+def _motion_magnitude(left: PixelFrameDescriptor, right: PixelFrameDescriptor) -> float:
     spatial = sum(
-        abs(a - b)
-        for a, b in zip(left.spatial_luma, right.spatial_luma, strict=True)
+        abs(a - b) for a, b in zip(left.spatial_luma, right.spatial_luma, strict=True)
     ) / len(left.spatial_luma)
     edge = abs(left.edge_energy - right.edge_energy)
     histogram = 1.0 - _histogram_similarity(left, right)
