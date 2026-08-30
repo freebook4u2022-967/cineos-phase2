@@ -49,6 +49,11 @@ from .native_request import (
     NativeShotRequest,
     compile_native_shot_request,
 )
+from .quality_retry import (
+    QualityRetryError,
+    QualityRetryPolicy,
+    build_quality_retry_request,
+)
 from .registry import RendererFactory, RendererRegistry
 from .runtime import (
     AtlasRuntime,
@@ -82,6 +87,8 @@ __all__ = [
     "NativeShotRequest",
     "NegotiatedCapabilities",
     "QualityGatedShotExecutor",
+    "QualityRetryError",
+    "QualityRetryPolicy",
     "Range",
     "RendererAdapter",
     "RendererCapabilities",
@@ -96,6 +103,7 @@ __all__ = [
     "RuntimeStateError",
     "RuntimeTask",
     "TaskHandler",
+    "build_quality_retry_request",
     "compile_native_shot_request",
     "execute_foundation_gpu_shot",
     "ingest_native_request",
