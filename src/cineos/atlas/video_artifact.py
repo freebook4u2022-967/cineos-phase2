@@ -57,7 +57,9 @@ def _read_box_header(handle, *, offset: int, file_size: int) -> tuple[int, str, 
     return box_size, box_type, header_size
 
 
-def inspect_mp4_container(path: str | Path, *, max_boxes: int = 256) -> MP4ContainerEvidence:
+def inspect_mp4_container(
+    path: str | Path, *, max_boxes: int = 256
+) -> MP4ContainerEvidence:
     """Validate top-level MP4 structure without loading the whole artifact.
 
     Accepted evidence requires ``ftyp`` plus media data (``mdat``), and either a
@@ -68,9 +70,13 @@ def inspect_mp4_container(path: str | Path, *, max_boxes: int = 256) -> MP4Conta
     try:
         file_size = artifact.stat().st_size
     except OSError as exc:
-        raise VideoArtifactError(f"cannot stat rendered video artifact: {artifact}") from exc
+        raise VideoArtifactError(
+            f"cannot stat rendered video artifact: {artifact}"
+        ) from exc
     if file_size < 24:
-        raise VideoArtifactError("rendered artifact is too small to be a plausible MP4 container")
+        raise VideoArtifactError(
+            "rendered artifact is too small to be a plausible MP4 container"
+        )
     if max_boxes <= 0:
         raise ValueError("max_boxes must be positive")
 
@@ -87,7 +93,9 @@ def inspect_mp4_container(path: str | Path, *, max_boxes: int = 256) -> MP4Conta
                 box_types.append(box_type)
                 offset += box_size
     except OSError as exc:
-        raise VideoArtifactError(f"cannot read rendered video artifact: {artifact}") from exc
+        raise VideoArtifactError(
+            f"cannot read rendered video artifact: {artifact}"
+        ) from exc
 
     if offset != file_size:
         if len(box_types) >= max_boxes:
