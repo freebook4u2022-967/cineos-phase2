@@ -97,7 +97,7 @@ def test_connected_gpu_benchmark_writes_manifest_only_after_five_fresh_shots(tmp
     manifest = Path(receipt.manifest_path)
     assert manifest.is_file()
     payload = json.loads(manifest.read_text(encoding="utf-8"))
-    assert payload["schema"] == "cineos-gpu-connected-benchmark/0.1"
+    assert payload["schema"] == "cineos-gpu-connected-benchmark/0.2"
     assert payload["shot_count"] == 5
     assert payload["origin"] == "external_pretrained_foundation"
     assert (
