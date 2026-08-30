@@ -129,6 +129,58 @@ def test_connected_gpu_benchmark_rejects_stale_request_hash_before_execution(tmp
     assert calls == []
 
 
+def test_connected_gpu_benchmark_rejects_broken_previous_shot_chain(tmp_path):
+    requests = [_request(index) for index in range(5)]
+    requests[3].continuity["previous_shot"] = "shot-0"
+    requests[3].refresh_hash()
+    calls = []
+
+    def executor(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("executor must not run")
+
+    with pytest.raises(GPUConnectedBenchmarkError, match="continuity chain is broken"):
+        run_connected_gpu_benchmark(
+            "broken-chain",
+            requests,
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            shot_executor=executor,
+        )
+
+    assert calls == []
+
+
+def test_connected_gpu_benchmark_rejects_previous_shot_on_first_clip(tmp_path):
+    requests = [_request(index) for index in range(5)]
+    requests[0].continuity["previous_shot"] = "shot-before-benchmark"
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUConnectedBenchmarkError, match="must not declare previous_shot"):
+        run_connected_gpu_benchmark(
+            "bad-first-shot",
+            requests,
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            shot_executor=lambda *args, **kwargs: None,
+        )
+
+
+def test_connected_gpu_benchmark_rejects_non_string_previous_shot(tmp_path):
+    requests = [_request(index) for index in range(5)]
+    requests[1].continuity["previous_shot"] = 123
+    requests[1].refresh_hash()
+
+    with pytest.raises(GPUConnectedBenchmarkError, match="must be a string or null"):
+        run_connected_gpu_benchmark(
+            "bad-link-type",
+            requests,
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            shot_executor=lambda *args, **kwargs: None,
+        )
+
+
 def test_connected_gpu_benchmark_removes_stale_manifest_when_shot_fails(tmp_path):
     requests = [_request(index) for index in range(5)]
     manifest = tmp_path / "partial.gpu-benchmark.json"
