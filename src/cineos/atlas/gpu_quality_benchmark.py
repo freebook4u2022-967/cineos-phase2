@@ -88,6 +88,28 @@ class QualityGatedShotExecutor:
         return receipt
 
 
+def _with_quality_reports(
+    receipt: GPUConnectedBenchmarkReceipt,
+    reports: Sequence[dict[str, Any]],
+) -> GPUConnectedBenchmarkReceipt:
+    """Return one receipt whose evidence tier includes the measured quality gate."""
+    if len(reports) != len(receipt.shot_receipts):
+        raise GPUQualityBenchmarkError(
+            "quality evidence count does not match connected benchmark shot count"
+        )
+    return GPUConnectedBenchmarkReceipt(
+        benchmark_id=receipt.benchmark_id,
+        profile_id=receipt.profile_id,
+        origin=receipt.origin,
+        shot_receipts=receipt.shot_receipts,
+        chain_sha256=receipt.chain_sha256,
+        total_output_bytes=receipt.total_output_bytes,
+        elapsed_seconds=receipt.elapsed_seconds,
+        manifest_path=receipt.manifest_path,
+        quality_reports=tuple(dict(report) for report in reports),
+    )
+
+
 def _persist_quality_evidence(
     receipt: GPUConnectedBenchmarkReceipt,
     reports: Sequence[dict[str, Any]],
@@ -105,6 +127,13 @@ def _persist_quality_evidence(
             f"cannot read connected benchmark manifest for quality evidence: {manifest}"
         ) from exc
 
+    # Keep the canonical connected-benchmark fields synchronized with the returned
+    # receipt. Otherwise a passing quality gate can be present only in a sidecar
+    # section while the receipt/manifest still claims plain GPU execution.
+    payload["quality_gate_applied"] = True
+    payload["quality_reports"] = list(reports)
+    payload["production_gpu_evidence"] = receipt.production_gpu_evidence
+    payload["evidence_tier"] = receipt.evidence_tier
     payload["quality_gate"] = {
         "schema": "cineos-gpu-connected-quality-gate/0.1",
         "accepted": True,
@@ -142,7 +171,8 @@ def run_quality_gated_connected_gpu_benchmark(
 
     A rejected shot aborts the connected benchmark through the existing fail-closed
     path, so no completed benchmark manifest survives. A fully accepted run stores
-    hash-bound per-shot quality evidence in the same benchmark manifest.
+    hash-bound per-shot quality evidence in the same benchmark manifest and returns
+    a receipt whose evidence tier reflects that quality gate.
     """
     if not callable(quality_evaluator):
         raise TypeError("quality_evaluator must be callable")
@@ -151,7 +181,7 @@ def run_quality_gated_connected_gpu_benchmark(
         evaluator=quality_evaluator,
         executor=shot_executor,
     )
-    receipt = run_connected_gpu_benchmark(
+    base_receipt = run_connected_gpu_benchmark(
         benchmark_id,
         requests,
         profile,
@@ -159,6 +189,7 @@ def run_quality_gated_connected_gpu_benchmark(
         shot_executor=gated,
         shot_executor_kwargs=shot_executor_kwargs,
     )
+    receipt = _with_quality_reports(base_receipt, gated.reports)
     _persist_quality_evidence(receipt, gated.reports)
     return receipt
 
