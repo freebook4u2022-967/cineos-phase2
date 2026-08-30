@@ -50,7 +50,9 @@ def _plan() -> GPUExecutionPlan:
     )
 
 
-def _receipt(request: NativeShotRequest, output_dir: Path) -> GPUFoundationExecutionReceipt:
+def _receipt(
+    request: NativeShotRequest, output_dir: Path
+) -> GPUFoundationExecutionReceipt:
     artifact = output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
     payload = f"quality-video-{request.shot_id}".encode()
     artifact.write_bytes(payload)
@@ -86,7 +88,9 @@ def _passing_evaluator():
     )
 
 
-def test_quality_gated_connected_benchmark_persists_hash_bound_quality_evidence(tmp_path):
+def test_quality_gated_connected_benchmark_persists_hash_bound_quality_evidence(
+    tmp_path,
+):
     requests = [_request(index) for index in range(5)]
 
     receipt = run_quality_gated_connected_gpu_benchmark(

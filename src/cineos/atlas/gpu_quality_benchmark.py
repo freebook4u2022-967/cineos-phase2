@@ -16,8 +16,8 @@ from typing import Any
 
 from .foundation_profiles import FoundationExecutionProfile
 from .gpu_connected_benchmark import (
-    GPUConnectedBenchmarkReceipt,
     GPUConnectedBenchmarkError,
+    GPUConnectedBenchmarkReceipt,
     run_connected_gpu_benchmark,
 )
 from .gpu_foundation_smoke import (
@@ -63,7 +63,9 @@ class QualityGatedShotExecutor:
             attempt_index=0,
         )
         if not isinstance(raw_report, dict):
-            raise GPUQualityBenchmarkError("quality evaluator must return a dict report")
+            raise GPUQualityBenchmarkError(
+                "quality evaluator must return a dict report"
+            )
 
         report = dict(raw_report)
         report["scene_id"] = request.scene_id
