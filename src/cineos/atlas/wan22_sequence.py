@@ -73,7 +73,8 @@ def _validate_sequence_contract(
     if require_shared_reference:
         if any(reference is None for reference in references):
             raise Wan22ExecutionError(
-                "identity sequence validation requires an approved reference on every shot"
+                "identity sequence validation requires an approved reference "
+                "on every shot"
             )
         unique = {reference for reference in references if reference is not None}
         if len(unique) != 1:
