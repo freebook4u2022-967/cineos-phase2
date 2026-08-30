@@ -33,7 +33,13 @@ class GPUFoundationExecutionError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class GPUFoundationExecutionReceipt:
-    """Evidence captured after one successful real foundation-backed GPU shot."""
+    """Evidence captured after one successful foundation-backed GPU shot.
+
+    ``runtime_provenance`` is deliberately optional for backward compatibility
+    with older serialized/test receipts. Production execution created by
+    :func:`execute_foundation_gpu_shot` always populates it. A missing value must
+    therefore be treated as *unverified*, never inferred to mean a real GPU run.
+    """
 
     result: DiffusersVideoResult
     execution_plan: GPUExecutionPlan
@@ -43,6 +49,7 @@ class GPUFoundationExecutionReceipt:
     output_sha256: str
     elapsed_seconds: float
     media_payload_bytes: int = 0
+    runtime_provenance: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +78,7 @@ class GPUFoundationExecutionReceipt:
                 "observed_free_vram_gb": self.execution_plan.observed_free_vram_gb,
                 "fit_margin_gb": self.execution_plan.fit_margin_gb,
             },
+            "runtime_provenance": self.runtime_provenance,
         }
 
 
@@ -146,6 +154,38 @@ def _validate_video_artifact(artifact: Path) -> int:
     return evidence.media_payload_bytes
 
 
+def _runtime_provenance(
+    plan: GPUExecutionPlan,
+    *,
+    torch_module: Any | None,
+    reference_loader: Any | None,
+    pipeline_factory: Any | None,
+    video_exporter: Any | None,
+) -> dict[str, Any]:
+    """Describe whether evidence came from the unmodified production runtime.
+
+    Injection points are valuable for tests and specialist integrations, but an
+    injected runtime must never be silently promoted to proof of default CINEOS
+    GPU execution. The manifest remains useful while explicitly carrying the
+    lower evidence tier.
+    """
+    injected = {
+        "torch_module": torch_module is not None,
+        "reference_loader": reference_loader is not None,
+        "pipeline_factory": pipeline_factory is not None,
+        "video_exporter": video_exporter is not None,
+    }
+    runtime_mode = "injected" if any(injected.values()) else "default"
+    return {
+        "schema": "cineos-gpu-runtime-provenance/0.1",
+        "runtime_mode": runtime_mode,
+        "production_default_runtime": runtime_mode == "default",
+        "cuda_device": plan.device,
+        "dtype": plan.dtype,
+        "injected_boundaries": injected,
+    }
+
+
 def execute_foundation_gpu_shot(
     request: NativeShotRequest,
     profile: FoundationExecutionProfile,
@@ -162,7 +202,9 @@ def execute_foundation_gpu_shot(
 
     The function accepts injectable runtime boundaries for regression tests, but
     production callers normally leave them unset so torch, Diffusers and the video
-    exporter are loaded from the installed ``video`` extra.
+    exporter are loaded from the installed ``video`` extra. Receipts explicitly
+    record whether any boundary was injected so tests cannot masquerade as default
+    production GPU evidence.
     """
     estimated_vram = (
         profile.minimum_gpu_vram_gb
@@ -233,6 +275,13 @@ def execute_foundation_gpu_shot(
         output_sha256=digest.hexdigest(),
         elapsed_seconds=elapsed,
         media_payload_bytes=media_payload_bytes,
+        runtime_provenance=_runtime_provenance(
+            plan,
+            torch_module=torch_module,
+            reference_loader=reference_loader,
+            pipeline_factory=pipeline_factory,
+            video_exporter=video_exporter,
+        ),
     )
 
 
