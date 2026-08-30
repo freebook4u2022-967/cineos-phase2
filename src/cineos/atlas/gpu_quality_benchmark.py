@@ -84,6 +84,21 @@ class QualityGatedShotExecutor:
             if directive not in merged:
                 merged.append(directive)
         request.metadata["quality_directives"] = merged
+
+        # DiffusersVideoRenderer already consumes metadata['prompt']; bind QC
+        # corrections there so retries are not just new random seeds. Preserve the
+        # original directing prompt and append a compact, auditable correction.
+        if directives:
+            base_prompt = str(
+                request.metadata.get("prompt")
+                or request.metadata.get("action")
+                or f"cinematic shot {request.shot_id}"
+            ).strip()
+            correction = "; ".join(directives)
+            request.metadata["prompt"] = (
+                f"{base_prompt}. Quality correction: {correction}"
+            )
+
         request.metadata["quality_retry"] = {
             "schema": "cineos-quality-retry/0.1",
             "attempt_index": attempt_index,
@@ -203,7 +218,7 @@ def _persist_quality_evidence(
     payload["production_gpu_evidence"] = receipt.production_gpu_evidence
     payload["evidence_tier"] = receipt.evidence_tier
     payload["quality_gate"] = {
-        "schema": "cineos-gpu-connected-quality-gate/0.2",
+        "schema": "cineos-gpu-connected-quality-gate/0.1",
         "accepted": True,
         "shot_count": len(reports),
         "rerendered_shot_count": sum(
@@ -244,7 +259,7 @@ def run_quality_gated_connected_gpu_benchmark(
 
     With ``max_quality_attempts=1`` this preserves the historical fail-closed
     behavior. Larger values enable deterministic corrective rerenders: evaluator
-    directives are injected into the CINEOS request, the seed is advanced, the
+    directives are injected into the CINEOS prompt, the seed is advanced, the
     request hash is refreshed, and only the accepted revision enters the connected
     benchmark receipt. Every attempt remains recorded in the quality evidence.
     """
