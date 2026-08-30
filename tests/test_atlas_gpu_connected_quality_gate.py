@@ -48,7 +48,9 @@ def _plan() -> GPUExecutionPlan:
     )
 
 
-def _receipt(request: NativeShotRequest, output_dir: Path) -> GPUFoundationExecutionReceipt:
+def _receipt(
+    request: NativeShotRequest, output_dir: Path
+) -> GPUFoundationExecutionReceipt:
     artifact = output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
     payload = f"quality-video-{request.shot_id}".encode()
     artifact.write_bytes(payload)
@@ -125,7 +127,9 @@ def test_connected_gpu_benchmark_persists_quality_evidence_for_every_shot(tmp_pa
     assert all(report["accepted"] for report in payload["quality_reports"])
 
 
-def test_connected_gpu_benchmark_rejects_failed_measured_quality_without_manifest(tmp_path):
+def test_connected_gpu_benchmark_rejects_failed_measured_quality_without_manifest(
+    tmp_path,
+):
     requests = [_request(index) for index in range(5)]
     manifest = tmp_path / "quality-rejected.gpu-benchmark.json"
 
@@ -175,7 +179,9 @@ def test_connected_gpu_benchmark_rejects_malformed_quality_report(tmp_path):
         )
 
 
-def test_connected_gpu_benchmark_remains_backward_compatible_without_quality_gate(tmp_path):
+def test_connected_gpu_benchmark_remains_backward_compatible_without_quality_gate(
+    tmp_path,
+):
     requests = [_request(index) for index in range(5)]
 
     receipt = run_connected_gpu_benchmark(
