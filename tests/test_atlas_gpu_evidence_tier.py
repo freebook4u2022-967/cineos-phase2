@@ -103,7 +103,9 @@ def test_quality_gated_default_cuda_run_gets_strongest_evidence_tier():
 
 
 def test_one_injected_receipt_downgrades_entire_connected_sequence():
-    receipts = [_shot(index, runtime_provenance=_default_runtime()) for index in range(5)]
+    receipts = [
+        _shot(index, runtime_provenance=_default_runtime()) for index in range(5)
+    ]
     receipts[3] = _shot(
         3,
         runtime_provenance={
