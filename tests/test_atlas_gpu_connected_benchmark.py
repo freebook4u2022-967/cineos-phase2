@@ -156,7 +156,9 @@ def test_connected_gpu_benchmark_rejects_previous_shot_on_first_clip(tmp_path):
     requests[0].continuity["previous_shot"] = "shot-before-benchmark"
     requests[0].refresh_hash()
 
-    with pytest.raises(GPUConnectedBenchmarkError, match="must not declare previous_shot"):
+    with pytest.raises(
+        GPUConnectedBenchmarkError, match="must not declare previous_shot"
+    ):
         run_connected_gpu_benchmark(
             "bad-first-shot",
             requests,
