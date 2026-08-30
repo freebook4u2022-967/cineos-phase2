@@ -58,15 +58,35 @@ class GPUConnectedBenchmarkReceipt:
 
 
 def _previous_shot_id(request: NativeShotRequest) -> str | None:
-    value = request.continuity.get("previous_shot")
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise GPUConnectedBenchmarkError(
-            f"shot {request.scene_id}/{request.shot_id} previous_shot must be a string or null"
-        )
-    value = value.strip()
-    return value or None
+    missing = object()
+    canonical = request.continuity.get("previous_shot", missing)
+    legacy = request.continuity.get("previous_shot_id", missing)
+
+    def normalize(value: Any, *, field: str) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise GPUConnectedBenchmarkError(
+                f"shot {request.scene_id}/{request.shot_id} {field} must be a string or null"
+            )
+        value = value.strip()
+        return value or None
+
+    if canonical is not missing and legacy is not missing:
+        canonical_value = normalize(canonical, field="previous_shot")
+        legacy_value = normalize(legacy, field="previous_shot_id")
+        if canonical_value != legacy_value:
+            raise GPUConnectedBenchmarkError(
+                f"shot {request.scene_id}/{request.shot_id} has conflicting "
+                "previous_shot and previous_shot_id continuity links"
+            )
+        return canonical_value
+
+    if canonical is not missing:
+        return normalize(canonical, field="previous_shot")
+    if legacy is not missing:
+        return normalize(legacy, field="previous_shot_id")
+    return None
 
 
 def _validate_continuity_chain(requests: Sequence[NativeShotRequest]) -> None:
@@ -76,6 +96,10 @@ def _validate_continuity_chain(requests: Sequence[NativeShotRequest]) -> None:
     first points at the immediately preceding shot. This deliberately fails closed:
     callers must compile/rebuild requests after fixing continuity metadata so the
     request hashes bind the exact chain being rendered.
+
+    ``previous_shot`` is the canonical key. ``previous_shot_id`` remains accepted
+    as a compatibility alias for existing competitive-benchmark requests. Supplying
+    both is allowed only when they normalize to the same value.
     """
     first = requests[0]
     if _previous_shot_id(first) is not None:
