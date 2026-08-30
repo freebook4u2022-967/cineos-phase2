@@ -13,7 +13,6 @@ import uuid
 from .case import BenchmarkCase
 from .suite import BenchmarkSuite
 
-
 COMPETITIVE_CASES = (
     (
         "identity-closeup",
@@ -27,7 +26,11 @@ COMPETITIVE_CASES = (
         "Two-character dialogue and turn taking",
         "Measure distinct identities, eyelines, lip timing, and shot/reverse-shot continuity.",
         ("multi_character", "dialogue", "identity_lock"),
-        {"identity_score": 0.88, "lip_sync_timing_accuracy": 0.80, "audio_alignment": 0.85},
+        {
+            "identity_score": 0.88,
+            "lip_sync_timing_accuracy": 0.80,
+            "audio_alignment": 0.85,
+        },
     ),
     (
         "hands-object",

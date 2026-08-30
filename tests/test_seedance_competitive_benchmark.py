@@ -11,7 +11,9 @@ def test_seedance_competitive_suite_covers_required_difficult_cases():
     assert len(suite.cases) == 10
     assert all(case.mandatory and case.slow for case in suite.cases)
     assert all(case.hardware_requirements["gpu"] is True for case in suite.cases)
-    assert all(case.hardware_requirements["real_inference"] is True for case in suite.cases)
+    assert all(
+        case.hardware_requirements["real_inference"] is True for case in suite.cases
+    )
 
     case_ids = {case.case_id for case in suite.cases}
     assert case_ids == {
@@ -30,7 +32,9 @@ def test_seedance_competitive_suite_covers_required_difficult_cases():
 
 def test_connected_film_gate_requires_complete_film_signals():
     suite = seedance_competitive_suite()
-    connected = next(case for case in suite.cases if case.case_id.endswith("connected-film"))
+    connected = next(
+        case for case in suite.cases if case.case_id.endswith("connected-film")
+    )
 
     assert connected.renderer_requirements == (
         "identity_lock",
@@ -67,6 +71,8 @@ def test_competitive_suite_hash_is_stable_and_foundation_provenance_is_explicit(
     second = seedance_competitive_suite()
 
     assert first.content_hash == second.content_hash
-    assert first.metadata["foundation_origin_required"] == "external_pretrained_foundation"
+    assert (
+        first.metadata["foundation_origin_required"] == "external_pretrained_foundation"
+    )
     assert "conditioning" in first.metadata["cineos_owned_layers"]
     assert "automatic_qc" in first.metadata["cineos_owned_layers"]
