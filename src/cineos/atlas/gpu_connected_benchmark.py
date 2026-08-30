@@ -57,6 +57,42 @@ class GPUConnectedBenchmarkReceipt:
         }
 
 
+def _previous_shot_id(request: NativeShotRequest) -> str | None:
+    value = request.continuity.get("previous_shot")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise GPUConnectedBenchmarkError(
+            f"shot {request.scene_id}/{request.shot_id} previous_shot must be a string or null"
+        )
+    value = value.strip()
+    return value or None
+
+
+def _validate_continuity_chain(requests: Sequence[NativeShotRequest]) -> None:
+    """Require an explicit linear handoff instead of accepting unrelated clips.
+
+    A connected benchmark is film-level evidence only when every shot after the
+    first points at the immediately preceding shot. This deliberately fails closed:
+    callers must compile/rebuild requests after fixing continuity metadata so the
+    request hashes bind the exact chain being rendered.
+    """
+    first = requests[0]
+    if _previous_shot_id(first) is not None:
+        raise GPUConnectedBenchmarkError(
+            f"first benchmark shot {first.scene_id}/{first.shot_id} must not declare previous_shot"
+        )
+
+    for previous, current in zip(requests, requests[1:]):
+        declared = _previous_shot_id(current)
+        if declared != previous.shot_id:
+            raise GPUConnectedBenchmarkError(
+                "connected GPU benchmark continuity chain is broken: "
+                f"{current.scene_id}/{current.shot_id} declares previous_shot={declared!r}, "
+                f"expected {previous.shot_id!r}"
+            )
+
+
 def _validate_requests(requests: Sequence[NativeShotRequest]) -> None:
     if not 5 <= len(requests) <= 10:
         raise GPUConnectedBenchmarkError(
@@ -82,6 +118,8 @@ def _validate_requests(requests: Sequence[NativeShotRequest]) -> None:
             raise GPUConnectedBenchmarkError(
                 f"shot {request.scene_id}/{request.shot_id} request hash is missing or stale"
             )
+
+    _validate_continuity_chain(requests)
 
 
 def _remove_stale_manifest(path: Path) -> None:
