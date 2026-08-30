@@ -102,7 +102,9 @@ class EmbeddingBankVideoIdentitySource:
     ) -> float:
         del output_path, attempt_index
         if not frames:
-            raise VideoIdentityMetricError("video identity scoring requires sampled frames")
+            raise VideoIdentityMetricError(
+                "video identity scoring requires sampled frames"
+            )
 
         scores_by_character: dict[str, list[float]] = {}
         for character_id in _character_ids(shot):
