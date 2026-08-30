@@ -140,7 +140,9 @@ def test_gpu_foundation_shot_rejects_arbitrary_bytes_with_mp4_suffix(tmp_path):
         del fps
         Path(output_path).write_bytes(b"not-a-video-despite-the-extension")
 
-    with pytest.raises(GPUFoundationExecutionError, match="not structurally valid MP4 evidence"):
+    with pytest.raises(
+        GPUFoundationExecutionError, match="not structurally valid MP4 evidence"
+    ):
         execute_foundation_gpu_shot(
             _request(),
             WAN22_TI2V_5B_PROFILE,
