@@ -102,7 +102,9 @@ class ChallengeCoverage:
             },
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        payload["contract_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        payload["contract_sha256"] = hashlib.sha256(
+            canonical.encode("utf-8")
+        ).hexdigest()
         return payload
 
 
@@ -116,7 +118,9 @@ def validate_challenge_coverage(
             "competitive challenge coverage requires between 5 and 10 shots"
         )
 
-    coverage: dict[str, list[str]] = {challenge: [] for challenge in REQUIRED_CHALLENGES}
+    coverage: dict[str, list[str]] = {
+        challenge: [] for challenge in REQUIRED_CHALLENGES
+    }
     for request in requests:
         shot_key = f"{request.scene_id}/{request.shot_id}"
         for challenge in _normalized_challenges(request):
@@ -147,7 +151,9 @@ def _bind_coverage_to_manifest(
             f"cannot read connected benchmark manifest for challenge binding: {manifest}"
         ) from exc
     if not isinstance(payload, dict):
-        raise SeedanceStyleChallengeError("connected benchmark manifest must be a JSON object")
+        raise SeedanceStyleChallengeError(
+            "connected benchmark manifest must be a JSON object"
+        )
     if payload.get("chain_sha256") != receipt.chain_sha256:
         raise SeedanceStyleChallengeError(
             "connected benchmark manifest chain hash does not match completed receipt"
