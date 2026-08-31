@@ -85,10 +85,14 @@ def _quality_evaluator():
     )
 
 
-def test_production_requirement_rejects_injected_executor_and_removes_manifest(tmp_path):
+def test_production_requirement_rejects_injected_executor_and_removes_manifest(
+    tmp_path,
+):
     benchmark_id = "production-required"
 
-    with pytest.raises(GPUQualityBenchmarkError, match="production GPU evidence required"):
+    with pytest.raises(
+        GPUQualityBenchmarkError, match="production GPU evidence required"
+    ):
         run_quality_gated_connected_gpu_benchmark(
             benchmark_id,
             [_request(index) for index in range(5)],
