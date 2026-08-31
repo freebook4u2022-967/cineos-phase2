@@ -6,6 +6,7 @@ import pytest
 
 from cineos.atlas.diffusers_video import DiffusersVideoResult
 from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
+from cineos.atlas.gpu_connected_benchmark import GPUConnectedBenchmarkError
 from cineos.atlas.gpu_foundation_smoke import GPUFoundationExecutionReceipt
 from cineos.atlas.gpu_preflight import GPUExecutionPlan
 from cineos.atlas.native_request import NativeShotRequest
@@ -166,7 +167,7 @@ def test_challenge_metadata_change_must_be_rehashed_before_execution(tmp_path):
     def executor(*args, **kwargs):
         raise AssertionError("stale native request must fail before rendering")
 
-    with pytest.raises(Exception, match="missing or stale"):
+    with pytest.raises(GPUConnectedBenchmarkError, match="missing or stale"):
         run_seedance_style_gpu_benchmark(
             "stale-challenge-metadata",
             requests,
