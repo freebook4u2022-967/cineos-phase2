@@ -44,13 +44,15 @@ def _validated_quality_report(
     """
     if not isinstance(report, Mapping):
         raise GPUConnectedBenchmarkError("quality report must be a mapping")
+    if not isinstance(report.get("accepted"), bool):
+        raise GPUConnectedBenchmarkError("quality report missing boolean accepted")
 
+    request_hash = getattr(request, "content_hash", None)
     normalized = dict(report)
     normalized.setdefault("scene_id", getattr(request, "scene_id", None))
     normalized.setdefault("shot_id", getattr(request, "shot_id", None))
-    normalized.setdefault(
-        "effective_request_hash", getattr(request, "content_hash", None)
-    )
+    normalized.setdefault("request_hash", request_hash)
+    normalized.setdefault("effective_request_hash", request_hash)
 
     if normalized.get("production_measurement_evidence") is not True:
         return normalized
@@ -83,6 +85,7 @@ def _validated_quality_report(
         )
 
     normalized["measurement"] = dict(measurement)
+    normalized["output_sha256"] = receipt_sha256
     return normalized
 
 
@@ -99,7 +102,7 @@ def _production_gpu_evidence(
     if not receipts:
         return False
     for receipt in receipts:
-        provenance = receipt.runtime_provenance
+        provenance = getattr(receipt, "runtime_provenance", None)
         if not isinstance(provenance, Mapping):
             return False
         if provenance.get("schema") != "cineos-gpu-runtime-provenance/0.1":
@@ -118,17 +121,13 @@ def _production_quality_evidence(
     reports: Sequence[Mapping[str, Any]],
     receipts: Sequence[GPUFoundationExecutionReceipt],
 ) -> bool:
-    """Return true only when every accepted shot carries artifact-bound measured QC.
-
-    Production QC evidence must be bound to the exact accepted render receipt, not
-    merely contain a syntactically valid SHA-256. This protects the milestone gate
-    from stale, swapped, or tampered measurement reports whose artifact digest or
-    scene/shot identity belongs to a different render.
-    """
+    """Return true only when every accepted shot carries artifact-bound measured QC."""
     if not reports or len(reports) != len(receipts):
         return False
     for report, receipt in zip(reports, receipts):
         if not isinstance(report, Mapping):
+            return False
+        if report.get("accepted") is not True:
             return False
         if report.get("production_measurement_evidence") is not True:
             return False
@@ -143,17 +142,33 @@ def _production_quality_evidence(
             return False
         if not isinstance(artifact_sha256, str) or len(artifact_sha256) != 64:
             return False
-        if artifact_sha256 != receipt.output_sha256:
+
+        receipt_sha256 = getattr(receipt, "output_sha256", None)
+        if not isinstance(receipt_sha256, str) or artifact_sha256 != receipt_sha256:
             return False
-        if report.get("output_sha256") != receipt.output_sha256:
+        if report.get("output_sha256") != receipt_sha256:
             return False
-        if report.get("scene_id") != receipt.result.scene_id:
+
+        result = getattr(receipt, "result", None)
+        if result is None:
             return False
-        if report.get("shot_id") != receipt.result.shot_id:
+        if report.get("scene_id") != getattr(result, "scene_id", None):
             return False
-        if report.get("effective_request_hash") != receipt.result.request_hash:
+        if report.get("shot_id") != getattr(result, "shot_id", None):
+            return False
+        if report.get("effective_request_hash") != getattr(result, "request_hash", None):
             return False
     return True
+
+
+def _receipt_payload(receipt: Any) -> dict[str, Any]:
+    serializer = getattr(receipt, "to_dict", None)
+    if callable(serializer):
+        return serializer()
+    return {
+        "runtime_provenance": getattr(receipt, "runtime_provenance", None),
+        "output_sha256": getattr(receipt, "output_sha256", None),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +217,7 @@ class GPUConnectedBenchmarkReceipt:
             "production_gpu_evidence": self.production_gpu_evidence,
             "production_quality_evidence": self.production_quality_evidence,
             "evidence_tier": self.evidence_tier,
-            "shots": [receipt.to_dict() for receipt in self.shot_receipts],
+            "shots": [_receipt_payload(receipt) for receipt in self.shot_receipts],
         }
 
 
@@ -326,14 +341,35 @@ def _validate_unique_render_evidence(
 
     if artifact_path in seen_paths:
         raise GPUConnectedBenchmarkError(
-            f"connected GPU benchmark reused output path: {artifact_path}"
+            f"connected GPU benchmark reused one output artifact: {artifact_path}"
         )
     if receipt.output_sha256 in seen_hashes:
         raise GPUConnectedBenchmarkError(
-            "connected GPU benchmark reused identical rendered bytes across shots"
+            "connected GPU benchmark contains duplicate video payloads across shots"
         )
     seen_paths.add(artifact_path)
     seen_hashes.add(receipt.output_sha256)
+
+
+def _evaluate_quality(
+    evaluator: Callable[..., Mapping[str, Any]],
+    request: NativeShotRequest,
+    receipt: GPUFoundationExecutionReceipt,
+) -> dict[str, Any]:
+    raw = evaluator(
+        receipt.result.output_path,
+        shot=request,
+        attempt_index=0,
+    )
+    report = _validated_quality_report(raw, request=request, receipt=receipt)
+    if report["accepted"] is not True:
+        failed = report.get("failed_metrics")
+        if isinstance(failed, Sequence) and not isinstance(failed, (str, bytes)):
+            reasons = ", ".join(str(item) for item in failed) or "unknown_quality_failure"
+        else:
+            reasons = "unknown_quality_failure"
+        raise GPUConnectedBenchmarkError(f"failed connected quality gate: {reasons}")
+    return report
 
 
 def run_connected_gpu_benchmark(
@@ -346,11 +382,14 @@ def run_connected_gpu_benchmark(
         ..., GPUFoundationExecutionReceipt
     ] = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
+    quality_evaluator: Callable[..., Mapping[str, Any]] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
     """Render 5-10 connected shots and persist a manifest only on total success."""
 
     if not benchmark_id.strip():
         raise GPUConnectedBenchmarkError("benchmark_id must not be empty")
+    if quality_evaluator is not None and not callable(quality_evaluator):
+        raise TypeError("quality_evaluator must be callable")
     _validate_requests(requests)
 
     output_root = Path(output_dir)
@@ -359,6 +398,7 @@ def run_connected_gpu_benchmark(
     _remove_stale_manifest(manifest)
 
     receipts: list[GPUFoundationExecutionReceipt] = []
+    quality_reports: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
     seen_hashes: set[str] = set()
     kwargs = dict(shot_executor_kwargs or {})
@@ -388,6 +428,10 @@ def run_connected_gpu_benchmark(
                 seen_paths=seen_paths,
                 seen_hashes=seen_hashes,
             )
+            if quality_evaluator is not None:
+                quality_reports.append(
+                    _evaluate_quality(quality_evaluator, request, receipt)
+                )
             receipts.append(receipt)
     except Exception:
         _remove_stale_manifest(manifest)
@@ -403,6 +447,7 @@ def run_connected_gpu_benchmark(
         total_output_bytes=sum(receipt.output_bytes for receipt in receipts),
         elapsed_seconds=elapsed,
         manifest_path=str(manifest),
+        quality_reports=tuple(quality_reports),
     )
     payload = completed.to_dict()
     payload["foundation_profile"] = profile.snapshot()
