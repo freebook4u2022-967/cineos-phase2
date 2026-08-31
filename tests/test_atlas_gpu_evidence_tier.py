@@ -73,6 +73,24 @@ def _default_runtime(device: str = "cuda:0"):
     }
 
 
+def _measured_report(index: int):
+    digest = f"{index + 1:064x}"
+    return {
+        "accepted": True,
+        "score": 0.9,
+        "production_measurement_evidence": True,
+        "output_sha256": digest,
+        "scene_id": "scene-evidence",
+        "shot_id": f"shot-{index}",
+        "effective_request_hash": f"request-{index}",
+        "measurement": {
+            "schema": "cineos-sequence-quality-measurement/0.1",
+            "observer_id": "cineos-artifact-video-observer/0.1",
+            "artifact_sha256": digest,
+        },
+    }
+
+
 def test_legacy_or_test_receipts_cannot_be_claimed_as_production_gpu_evidence():
     receipt = _benchmark(*[_shot(index) for index in range(5)])
 
@@ -92,13 +110,25 @@ def test_all_default_cuda_receipts_are_production_execution_evidence():
     assert receipt.evidence_tier == "production-gpu-execution"
 
 
-def test_quality_gated_default_cuda_run_gets_strongest_evidence_tier():
+def test_generic_quality_reports_cannot_claim_strongest_evidence_tier():
     receipt = _benchmark(
         *[_shot(index, runtime_provenance=_default_runtime()) for index in range(5)],
         quality_reports=({"accepted": True, "score": 0.9},) * 5,
     )
 
     assert receipt.production_gpu_evidence is True
+    assert receipt.production_quality_evidence is False
+    assert receipt.evidence_tier == "production-gpu-execution"
+
+
+def test_exact_artifact_bound_quality_gets_strongest_evidence_tier():
+    receipt = _benchmark(
+        *[_shot(index, runtime_provenance=_default_runtime()) for index in range(5)],
+        quality_reports=tuple(_measured_report(index) for index in range(5)),
+    )
+
+    assert receipt.production_gpu_evidence is True
+    assert receipt.production_quality_evidence is True
     assert receipt.evidence_tier == "production-gpu-quality-gated"
 
 
