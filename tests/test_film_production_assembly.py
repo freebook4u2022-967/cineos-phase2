@@ -237,9 +237,15 @@ def test_rejects_unapproved_or_wrong_final_media_profile(tmp_path, monkeypatch):
 
     bad_profiles = [
         ({**_probe(), "format_name": "matroska,webm"}, "not an MP4 container"),
-        ({**_probe(), "video_stream_count": 2, "video_codecs": ["h264", "h264"]}, "exactly one video stream"),
+        (
+            {**_probe(), "video_stream_count": 2, "video_codecs": ["h264", "h264"]},
+            "exactly one video stream",
+        ),
         (_probe(video_codec="hevc"), "exactly one H.264 video stream"),
-        ({**_probe(), "video_dimensions": [{"width": 1279, "height": 720}]}, "invalid H.264/yuv420p video dimensions"),
+        (
+            {**_probe(), "video_dimensions": [{"width": 1279, "height": 720}]},
+            "invalid H.264/yuv420p video dimensions",
+        ),
     ]
     for profile, message in bad_profiles:
         monkeypatch.setattr(
