@@ -48,9 +48,10 @@ def test_video_observer_binds_decoded_measurements_to_exact_artifact(tmp_path):
 
     measurement = observer(str(artifact), shot=Shot(), attempt_index=0)
 
-    assert measurement["artifact_sha256"] == hashlib.sha256(
-        artifact.read_bytes()
-    ).hexdigest()
+    assert (
+        measurement["artifact_sha256"]
+        == hashlib.sha256(artifact.read_bytes()).hexdigest()
+    )
     assert measurement["observer_id"] == "test-video-observer/0.1"
     assert measurement["sample"] == {"width": 2, "height": 2, "frame_count": 3}
     assert measurement["metrics"]["identity_similarity"] == pytest.approx(0.94)
