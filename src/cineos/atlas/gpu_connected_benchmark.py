@@ -57,19 +57,20 @@ def _production_gpu_evidence(
     return True
 
 
-def _production_quality_evidence(reports: Sequence[Mapping[str, Any]]) -> bool:
-    """Return true only when every shot carries artifact-bound measured QC.
+def _production_quality_evidence(
+    reports: Sequence[Mapping[str, Any]],
+    receipts: Sequence[GPUFoundationExecutionReceipt],
+) -> bool:
+    """Return true only when every accepted shot carries artifact-bound measured QC.
 
-    A generic/injected quality evaluator is valuable for regression testing but
-    must never upgrade a benchmark to production quality evidence. The production
-    evaluator marks reports with ``production_measurement_evidence=True`` after
-    verifying observer identity and the SHA-256 of the exact rendered artifact.
-    Requiring that marker on every report prevents synthetic lambdas or stale
-    metrics from being reported as milestone-grade CINEOS QC.
+    Production QC evidence must be bound to the exact accepted render receipt, not
+    merely contain a syntactically valid SHA-256. This protects the milestone gate
+    from stale, swapped, or tampered measurement reports whose artifact digest or
+    scene/shot identity belongs to a different render.
     """
-    if not reports:
+    if not reports or len(reports) != len(receipts):
         return False
-    for report in reports:
+    for report, receipt in zip(reports, receipts):
         if not isinstance(report, Mapping):
             return False
         if report.get("production_measurement_evidence") is not True:
@@ -84,6 +85,16 @@ def _production_quality_evidence(reports: Sequence[Mapping[str, Any]]) -> bool:
         if not isinstance(observer_id, str) or not observer_id.strip():
             return False
         if not isinstance(artifact_sha256, str) or len(artifact_sha256) != 64:
+            return False
+        if artifact_sha256 != receipt.output_sha256:
+            return False
+        if report.get("output_sha256") != receipt.output_sha256:
+            return False
+        if report.get("scene_id") != receipt.result.scene_id:
+            return False
+        if report.get("shot_id") != receipt.result.shot_id:
+            return False
+        if report.get("effective_request_hash") != receipt.result.request_hash:
             return False
     return True
 
@@ -108,7 +119,7 @@ class GPUConnectedBenchmarkReceipt:
 
     @property
     def production_quality_evidence(self) -> bool:
-        return _production_quality_evidence(self.quality_reports)
+        return _production_quality_evidence(self.quality_reports, self.shot_receipts)
 
     @property
     def evidence_tier(self) -> str:
@@ -258,86 +269,14 @@ def _validate_unique_render_evidence(
 
     if artifact_path in seen_paths:
         raise GPUConnectedBenchmarkError(
-            "connected GPU benchmark reused one output artifact across multiple shots"
+            f"connected GPU benchmark reused output path: {artifact_path}"
         )
     if receipt.output_sha256 in seen_hashes:
         raise GPUConnectedBenchmarkError(
-            "connected GPU benchmark produced duplicate video payloads across multiple shots"
+            "connected GPU benchmark reused identical rendered bytes across shots"
         )
-
     seen_paths.add(artifact_path)
     seen_hashes.add(receipt.output_sha256)
-
-
-def _validated_quality_report(
-    report: Mapping[str, Any],
-    *,
-    request: NativeShotRequest,
-    receipt: GPUFoundationExecutionReceipt | None = None,
-) -> dict[str, Any]:
-    """Normalize one measured quality decision and fail closed on weak evidence.
-
-    Production measurement claims are additionally bound to the exact rendered
-    receipt hash. This prevents a stale or substituted QC measurement from being
-    attached to a different shot artifact while still claiming production-grade
-    evidence.
-    """
-    accepted = report.get("accepted")
-    if not isinstance(accepted, bool):
-        raise GPUConnectedBenchmarkError(
-            f"shot {request.scene_id}/{request.shot_id} quality report is missing boolean accepted"
-        )
-
-    score = report.get("score")
-    if isinstance(score, bool) or not isinstance(score, (int, float)):
-        raise GPUConnectedBenchmarkError(
-            f"shot {request.scene_id}/{request.shot_id} quality report is missing numeric score"
-        )
-    numeric_score = float(score)
-    if not 0.0 <= numeric_score <= 1.0:
-        raise GPUConnectedBenchmarkError(
-            f"shot {request.scene_id}/{request.shot_id} quality score must be between 0 and 1"
-        )
-
-    if report.get("production_measurement_evidence") is True:
-        measurement = report.get("measurement")
-        if not isinstance(measurement, Mapping):
-            raise GPUConnectedBenchmarkError(
-                f"shot {request.scene_id}/{request.shot_id} production quality report is missing measurement evidence"
-            )
-        measured_hash = measurement.get("artifact_sha256")
-        rendered_hash = getattr(receipt, "output_sha256", None)
-        if (
-            not isinstance(measured_hash, str)
-            or not isinstance(rendered_hash, str)
-            or measured_hash != rendered_hash
-        ):
-            raise GPUConnectedBenchmarkError(
-                f"shot {request.scene_id}/{request.shot_id} production quality measurement does not match rendered artifact hash"
-            )
-
-    normalized = dict(report)
-    normalized["scene_id"] = request.scene_id
-    normalized["shot_id"] = request.shot_id
-    normalized["request_hash"] = request.content_hash
-    normalized["score"] = numeric_score
-    try:
-        json.dumps(normalized, sort_keys=True)
-    except (TypeError, ValueError) as exc:
-        raise GPUConnectedBenchmarkError(
-            f"shot {request.scene_id}/{request.shot_id} quality report is not JSON serializable"
-        ) from exc
-
-    if not accepted:
-        failed_metrics = normalized.get("failed_metrics")
-        if isinstance(failed_metrics, list) and failed_metrics:
-            reason = ", ".join(str(item) for item in failed_metrics)
-        else:
-            reason = "quality gate rejected rendered artifact"
-        raise GPUConnectedBenchmarkError(
-            f"shot {request.scene_id}/{request.shot_id} failed connected quality gate: {reason}"
-        )
-    return normalized
 
 
 def run_connected_gpu_benchmark(
@@ -346,31 +285,14 @@ def run_connected_gpu_benchmark(
     profile: FoundationExecutionProfile,
     *,
     output_dir: str | Path,
-    shot_executor: Callable[
-        ..., GPUFoundationExecutionReceipt
-    ] = execute_foundation_gpu_shot,
+    shot_executor: Callable[..., GPUFoundationExecutionReceipt] = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
-    quality_evaluator: Callable[..., Mapping[str, Any]] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
-    """Execute 5-10 connected shots and persist evidence only after full success.
+    """Render 5-10 connected shots and persist a manifest only on total success."""
 
-    ``shot_executor`` is injectable for deterministic regression tests. Production
-    callers should use the default, which performs CUDA preflight and real
-    Diffusers-backed rendering for every shot. The resulting manifest explicitly
-    marks whether every receipt came from the unmodified default GPU runtime; an
-    injected/test executor can never silently become production evidence.
-
-    When ``quality_evaluator`` is supplied, every rendered artifact must return an
-    accepted, normalized report before the benchmark can complete. Production
-    quality evidence is reported only when every accepted report is artifact-bound
-    by the production measurement evaluator; generic/injected QC remains useful
-    but cannot promote the benchmark evidence tier.
-    """
     if not benchmark_id.strip():
         raise GPUConnectedBenchmarkError("benchmark_id must not be empty")
     _validate_requests(requests)
-    if quality_evaluator is not None and not callable(quality_evaluator):
-        raise TypeError("quality_evaluator must be callable")
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -378,11 +300,11 @@ def run_connected_gpu_benchmark(
     _remove_stale_manifest(manifest)
 
     receipts: list[GPUFoundationExecutionReceipt] = []
-    quality_reports: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
     seen_hashes: set[str] = set()
     kwargs = dict(shot_executor_kwargs or {})
     started = perf_counter()
+
     try:
         for request in requests:
             receipt = shot_executor(
@@ -391,61 +313,38 @@ def run_connected_gpu_benchmark(
                 output_dir=output_root,
                 **kwargs,
             )
-            if (
-                receipt.profile_id != profile.profile_id
-                or receipt.origin != profile.origin
-            ):
+            if receipt.profile_id != profile.profile_id or receipt.origin != profile.origin:
                 raise GPUConnectedBenchmarkError(
                     "shot receipt provenance does not match selected benchmark profile"
                 )
             if receipt.result.request_hash != request.content_hash:
                 raise GPUConnectedBenchmarkError(
-                    "shot receipt request hash does not match connected benchmark request"
+                    "shot receipt request hash does not match the current benchmark request"
                 )
             _validate_unique_render_evidence(
                 receipt,
                 seen_paths=seen_paths,
                 seen_hashes=seen_hashes,
             )
-            if quality_evaluator is not None:
-                raw_report = quality_evaluator(
-                    receipt.result.output_path,
-                    shot=request,
-                    attempt_index=0,
-                )
-                if not isinstance(raw_report, Mapping):
-                    raise GPUConnectedBenchmarkError(
-                        f"shot {request.scene_id}/{request.shot_id} quality evaluator must return a mapping"
-                    )
-                quality_reports.append(
-                    _validated_quality_report(
-                        raw_report,
-                        request=request,
-                        receipt=receipt,
-                    )
-                )
             receipts.append(receipt)
     except Exception:
         _remove_stale_manifest(manifest)
         raise
 
     elapsed = perf_counter() - started
-    chain_sha256 = _chain_digest(receipts)
-    total_output_bytes = sum(receipt.output_bytes for receipt in receipts)
     completed = GPUConnectedBenchmarkReceipt(
         benchmark_id=benchmark_id,
         profile_id=profile.profile_id,
         origin=profile.origin,
         shot_receipts=tuple(receipts),
-        chain_sha256=chain_sha256,
-        total_output_bytes=total_output_bytes,
+        chain_sha256=_chain_digest(receipts),
+        total_output_bytes=sum(receipt.output_bytes for receipt in receipts),
         elapsed_seconds=elapsed,
         manifest_path=str(manifest),
-        quality_reports=tuple(quality_reports),
     )
-
     payload = completed.to_dict()
     payload["foundation_profile"] = profile.snapshot()
+
     temporary = manifest.with_suffix(manifest.suffix + ".tmp")
     try:
         temporary.write_text(
@@ -459,7 +358,7 @@ def run_connected_gpu_benchmark(
         except OSError:
             pass
         raise GPUConnectedBenchmarkError(
-            f"cannot persist connected GPU benchmark manifest: {manifest}"
+            f"cannot persist connected GPU benchmark evidence: {manifest}"
         ) from exc
 
     return completed
