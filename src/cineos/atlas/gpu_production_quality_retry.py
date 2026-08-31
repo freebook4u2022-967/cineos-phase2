@@ -50,7 +50,8 @@ def run_production_quality_retry_connected_gpu_benchmark(
     default CINEOS CUDA + Diffusers executor, and QC must use an artifact-measured
     evaluator whose reports are cryptographically bound to rendered outputs.
     Injected executors, synthetic quality lambdas, CPU fallbacks, legacy receipts,
-    stale metric reports, or altered runtime provenance fail closed.
+    stale metric reports, altered runtime provenance, or missing production QC
+    evidence fail closed.
     """
 
     if shot_executor is not execute_foundation_gpu_shot:
@@ -72,11 +73,23 @@ def run_production_quality_retry_connected_gpu_benchmark(
         shot_executor=shot_executor,
         shot_executor_kwargs=shot_executor_kwargs,
     )
+    manifest = Path(receipt.manifest_path)
     if not receipt.production_gpu_evidence:
-        _remove_stale_manifest(Path(receipt.manifest_path))
+        _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError(
             "production GPU evidence required, but the quality-retry benchmark did not "
             "run entirely through the unmodified default CUDA runtime"
+        )
+    if not receipt.production_quality_evidence:
+        _remove_stale_manifest(manifest)
+        raise ProductionGPUQualityRetryError(
+            "production quality evidence required, but one or more accepted shots lack "
+            "artifact-bound measured QC evidence"
+        )
+    if receipt.evidence_tier != "production-gpu-quality-gated":
+        _remove_stale_manifest(manifest)
+        raise ProductionGPUQualityRetryError(
+            "production benchmark did not reach the production-gpu-quality-gated evidence tier"
         )
     return receipt
 
