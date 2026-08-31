@@ -243,6 +243,17 @@ def _persist_quality_evidence(
         ) from exc
 
 
+def _remove_nonproduction_manifest(receipt: GPUConnectedBenchmarkReceipt) -> None:
+    """Prevent a rejected non-production run from leaving success-like evidence."""
+    manifest = Path(receipt.manifest_path)
+    try:
+        manifest.unlink(missing_ok=True)
+    except OSError as exc:
+        raise GPUQualityBenchmarkError(
+            f"non-production GPU benchmark was rejected but its manifest could not be removed: {manifest}"
+        ) from exc
+
+
 def run_quality_gated_connected_gpu_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
@@ -254,6 +265,7 @@ def run_quality_gated_connected_gpu_benchmark(
     shot_executor_kwargs: dict[str, Any] | None = None,
     max_quality_attempts: int = 1,
     retry_seed_stride: int = 7919,
+    require_production_gpu: bool = False,
 ) -> GPUConnectedBenchmarkReceipt:
     """Render 5-10 connected shots with measured accept/reject/rerender evidence.
 
@@ -262,11 +274,19 @@ def run_quality_gated_connected_gpu_benchmark(
     directives are injected into the CINEOS prompt, the seed is advanced, the
     request hash is refreshed, and only the accepted revision enters the connected
     benchmark receipt. Every attempt remains recorded in the quality evidence.
+
+    ``require_production_gpu`` is deliberately opt-in for backwards compatibility.
+    Production milestone/benchmark callers should set it to ``True``. In that
+    mode an injected executor, missing runtime provenance, or any non-default CUDA
+    path is rejected after rendering and its benchmark manifest is removed, so a
+    deterministic regression run cannot be mistaken for real GPU film evidence.
     """
     if not callable(quality_evaluator):
         raise TypeError("quality_evaluator must be callable")
     if max_quality_attempts < 1:
         raise ValueError("max_quality_attempts must be at least 1")
+    if not isinstance(require_production_gpu, bool):
+        raise TypeError("require_production_gpu must be a bool")
 
     gated = QualityGatedShotExecutor(
         evaluator=quality_evaluator,
@@ -283,6 +303,12 @@ def run_quality_gated_connected_gpu_benchmark(
         shot_executor_kwargs=shot_executor_kwargs,
     )
     receipt = _with_quality_reports(base_receipt, gated.reports)
+    if require_production_gpu and not receipt.production_gpu_evidence:
+        _remove_nonproduction_manifest(receipt)
+        raise GPUQualityBenchmarkError(
+            "production GPU evidence required, but the connected benchmark did not "
+            "run entirely through the unmodified default CUDA runtime"
+        )
     _persist_quality_evidence(receipt, gated.reports)
     return receipt
 
