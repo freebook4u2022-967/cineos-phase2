@@ -84,7 +84,8 @@ class FFmpegRGBSampler:
                 f"rendered video artifact does not exist: {artifact}"
             )
         filter_graph = (
-            f"fps={self.sample_fps}," f"scale={self.width}:{self.height}:flags=area"
+            f"fps={self.sample_fps},"
+            f"scale={self.width}:{self.height}:flags=area"
         )
         command = [
             self.ffmpeg_binary,
@@ -163,7 +164,7 @@ def _temporal_consistency(sample: RGBVideoSample) -> float:
     if len(sample.frames) < 2:
         return 0.0
     discontinuities: list[float] = []
-    for previous, current in zip(sample.frames, sample.frames[1:], strict=True):
+    for previous, current in zip(sample.frames, sample.frames[1:]):
         mean_delta = sum(
             abs(left - right) for left, right in zip(previous, current, strict=True)
         ) / (len(current) * 255.0)
