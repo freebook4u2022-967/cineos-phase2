@@ -36,11 +36,19 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
     records = _records(tmp_path)
     output = tmp_path / "final.mp4"
 
-    def fake_assemble(shots, destination, *, durations=None, crossfade=0.0):
+    def fake_assemble(
+        shots,
+        destination,
+        *,
+        durations=None,
+        crossfade=0.0,
+        audio_path=None,
+    ):
         assert [Path(item).name for item in shots] == [
             f"shot-{i}.mp4" for i in range(5)
         ]
         assert durations == [1.0] * 5
+        assert audio_path is None
         Path(destination).write_bytes(b"assembled-film")
         return Path(destination)
 
@@ -97,14 +105,23 @@ def test_rejects_duplicate_or_wrong_connected_shot_count(tmp_path, monkeypatch):
         assemble_production_film(records, tmp_path / "final.mp4")
 
 
-def test_binds_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch):
+def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch):
     records = _records(tmp_path)
     output = tmp_path / "final.mp4"
     audio = tmp_path / "mix.wav"
     audio.write_bytes(b"approved-mix")
+    captured = {}
 
-    def fake_assemble(_shots, destination, *, durations=None, crossfade=0.0):
-        Path(destination).write_bytes(b"assembled-film")
+    def fake_assemble(
+        _shots,
+        destination,
+        *,
+        durations=None,
+        crossfade=0.0,
+        audio_path=None,
+    ):
+        captured["audio_path"] = Path(audio_path) if audio_path is not None else None
+        Path(destination).write_bytes(b"assembled-film-with-audio")
         return Path(destination)
 
     monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
@@ -114,6 +131,7 @@ def test_binds_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch):
         audio_path=audio,
         audio_sha256=_sha(audio),
     )
+    assert captured["audio_path"] == audio.resolve()
     assert manifest["audio"]["sha256"] == _sha(audio)
 
     audio.write_bytes(b"swapped-mix")
