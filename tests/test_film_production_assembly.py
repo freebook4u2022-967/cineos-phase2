@@ -65,7 +65,9 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
         return Path(destination)
 
     monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
-    monkeypatch.setattr("cineos.film.production_assembly.probe_media", lambda _path: _probe())
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media", lambda _path: _probe()
+    )
     manifest = assemble_production_film(records, output, durations=[1.0] * 5)
 
     assert manifest["shot_count"] == 5
@@ -174,7 +176,9 @@ def test_rejects_silent_output_when_approved_audio_was_required(tmp_path, monkey
         return Path(destination)
 
     monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
-    monkeypatch.setattr("cineos.film.production_assembly.probe_media", lambda _path: _probe(audio=0))
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media", lambda _path: _probe(audio=0)
+    )
 
     with pytest.raises(AssemblyError, match="missing the approved audio stream"):
         assemble_production_film(
@@ -198,7 +202,9 @@ def test_rejects_truncated_final_timeline(tmp_path, monkeypatch):
         lambda _path: _probe(duration=3.0),
     )
 
-    with pytest.raises(AssemblyError, match="duration deviates from the approved visual timeline"):
+    with pytest.raises(
+        AssemblyError, match="duration deviates from the approved visual timeline"
+    ):
         assemble_production_film(
             records,
             tmp_path / "final.mp4",
