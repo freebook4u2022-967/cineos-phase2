@@ -8,6 +8,7 @@ from cineos.atlas.gpu_production_quality_retry import (
     run_production_quality_retry_connected_gpu_benchmark,
 )
 from cineos.atlas.native_request import NativeShotRequest
+from cineos.atlas.sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 
 
 def _request(index: int) -> NativeShotRequest:
@@ -30,7 +31,7 @@ def _request(index: int) -> NativeShotRequest:
     return request
 
 
-def _quality_evaluator(*_args, **_kwargs):
+def _synthetic_quality_evaluator(*_args, **_kwargs):
     return {
         "accepted": True,
         "identity_similarity": 0.95,
@@ -38,6 +39,15 @@ def _quality_evaluator(*_args, **_kwargs):
         "artifact_integrity": 0.99,
         "motion_quality": 0.92,
     }
+
+
+def _measured_quality_evaluator():
+    # The extractor is intentionally never invoked in these pre-render gate tests.
+    return ArtifactMeasuredSequenceQualityEvaluator(
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("metric extractor must not run before render")
+        )
+    )
 
 
 def _injected_executor(*_args, **_kwargs):
@@ -56,8 +66,24 @@ def test_production_quality_retry_rejects_injected_executor_before_render(tmp_pa
             [_request(index) for index in range(5)],
             WAN22_TI2V_5B_PROFILE,
             output_dir=tmp_path,
-            quality_evaluator=_quality_evaluator,
+            quality_evaluator=_measured_quality_evaluator(),
             shot_executor=_injected_executor,
+        )
+
+    assert list(Path(tmp_path).iterdir()) == []
+
+
+def test_production_quality_retry_rejects_synthetic_quality_before_render(tmp_path):
+    with pytest.raises(
+        ProductionGPUQualityRetryError,
+        match="artifact-measured sequence quality evidence",
+    ):
+        run_production_quality_retry_connected_gpu_benchmark(
+            "reject-synthetic-production-quality",
+            [_request(index) for index in range(5)],
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            quality_evaluator=_synthetic_quality_evaluator,
         )
 
     assert list(Path(tmp_path).iterdir()) == []
@@ -72,5 +98,5 @@ def test_production_quality_retry_requires_connected_five_to_ten_shot_contract(
             [_request(index) for index in range(4)],
             WAN22_TI2V_5B_PROFILE,
             output_dir=tmp_path,
-            quality_evaluator=_quality_evaluator,
+            quality_evaluator=_measured_quality_evaluator(),
         )
