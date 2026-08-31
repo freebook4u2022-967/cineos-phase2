@@ -63,7 +63,10 @@ def test_accepts_measured_artifact_bound_lipsync_evidence(tmp_path):
     assert evidence.rendered_video_sha256 == _sha(video)
     assert evidence.dialogue_audio_sha256 == _sha(audio)
     assert len(evidence.evidence_sha256) == 64
-    assert evidence_manifest(evidence)["schema"] == "cineos-production-lipsync-evidence/0.1"
+    assert (
+        evidence_manifest(evidence)["schema"]
+        == "cineos-production-lipsync-evidence/0.1"
+    )
 
 
 def test_rejects_stale_or_swapped_artifact_binding(tmp_path):
@@ -140,4 +143,6 @@ def test_custom_policy_is_validated_and_applied(tmp_path):
     assert evidence.accepted is True
 
     with pytest.raises(ValueError, match="p95"):
-        ProductionLipSyncPolicy(maximum_mean_offset_ms=200.0, maximum_p95_offset_ms=100.0)
+        ProductionLipSyncPolicy(
+            maximum_mean_offset_ms=200.0, maximum_p95_offset_ms=100.0
+        )

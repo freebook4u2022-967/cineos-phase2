@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 
 class ProductionLipSyncError(RuntimeError):
@@ -103,10 +104,20 @@ def validate_production_lipsync(
 
     expected_video_hash = _sha256(video)
     expected_audio_hash = _sha256(audio)
-    if _require_hash(report.get("rendered_video_sha256"), "rendered_video_sha256") != expected_video_hash:
-        raise ProductionLipSyncError("lip-sync report is not bound to the exact rendered video artifact")
-    if _require_hash(report.get("dialogue_audio_sha256"), "dialogue_audio_sha256") != expected_audio_hash:
-        raise ProductionLipSyncError("lip-sync report is not bound to the exact approved dialogue audio artifact")
+    if (
+        _require_hash(report.get("rendered_video_sha256"), "rendered_video_sha256")
+        != expected_video_hash
+    ):
+        raise ProductionLipSyncError(
+            "lip-sync report is not bound to the exact rendered video artifact"
+        )
+    if (
+        _require_hash(report.get("dialogue_audio_sha256"), "dialogue_audio_sha256")
+        != expected_audio_hash
+    ):
+        raise ProductionLipSyncError(
+            "lip-sync report is not bound to the exact approved dialogue audio artifact"
+        )
 
     identifiers = {
         "shot_id": shot_id,
@@ -116,14 +127,20 @@ def validate_production_lipsync(
     for name, expected in identifiers.items():
         value = report.get(name)
         if not isinstance(value, str) or value != expected:
-            raise ProductionLipSyncError(f"lip-sync report {name} does not match the production request")
+            raise ProductionLipSyncError(
+                f"lip-sync report {name} does not match the production request"
+            )
 
     scorer_name = report.get("scorer_name")
     scorer_provenance = report.get("scorer_provenance")
     if not isinstance(scorer_name, str) or not scorer_name.strip():
-        raise ProductionLipSyncError("production lip-sync evidence requires a declared scorer_name")
+        raise ProductionLipSyncError(
+            "production lip-sync evidence requires a declared scorer_name"
+        )
     if not isinstance(scorer_provenance, str) or not scorer_provenance.strip():
-        raise ProductionLipSyncError("production lip-sync evidence requires declared scorer_provenance")
+        raise ProductionLipSyncError(
+            "production lip-sync evidence requires declared scorer_provenance"
+        )
 
     try:
         confidence = float(report["sync_confidence"])
@@ -132,14 +149,18 @@ def validate_production_lipsync(
         measured_frames = int(report["measured_frame_count"])
         measured_words = int(report["measured_word_count"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ProductionLipSyncError("lip-sync report is missing valid measured metrics") from exc
+        raise ProductionLipSyncError(
+            "lip-sync report is missing valid measured metrics"
+        ) from exc
 
     if not 0.0 <= confidence <= 1.0:
         raise ProductionLipSyncError("sync_confidence must be between 0 and 1")
     if mean_offset < 0 or p95_offset < 0 or p95_offset < mean_offset:
         raise ProductionLipSyncError("lip-sync offset metrics are invalid")
     if measured_frames <= 0 or measured_words <= 0:
-        raise ProductionLipSyncError("production lip-sync evidence requires measured frames and words")
+        raise ProductionLipSyncError(
+            "production lip-sync evidence requires measured frames and words"
+        )
 
     failures: list[str] = []
     if confidence < policy.minimum_sync_confidence:
