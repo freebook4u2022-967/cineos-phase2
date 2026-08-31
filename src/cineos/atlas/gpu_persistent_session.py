@@ -67,7 +67,7 @@ class PersistentGPUFoundationExecutor:
     def is_open(self) -> bool:
         return self._renderer is not None
 
-    def open(self) -> "PersistentGPUFoundationExecutor":
+    def open(self) -> PersistentGPUFoundationExecutor:
         if self.is_open:
             raise PersistentGPUSessionError("persistent GPU session is already open")
         estimated_vram = (
@@ -117,7 +117,7 @@ class PersistentGPUFoundationExecutor:
         if renderer is not None:
             renderer.shutdown()
 
-    def __enter__(self) -> "PersistentGPUFoundationExecutor":
+    def __enter__(self) -> PersistentGPUFoundationExecutor:
         return self.open()
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
@@ -143,7 +143,9 @@ class PersistentGPUFoundationExecutor:
             requested_root = Path(output_dir).resolve(strict=False)
             session_root = self.output_dir.resolve(strict=False)
         except OSError as exc:
-            raise PersistentGPUSessionError("cannot resolve persistent output directory") from exc
+            raise PersistentGPUSessionError(
+                "cannot resolve persistent output directory"
+            ) from exc
         if requested_root != session_root:
             raise PersistentGPUSessionError(
                 "persistent GPU executor output directory changed within one model session"
