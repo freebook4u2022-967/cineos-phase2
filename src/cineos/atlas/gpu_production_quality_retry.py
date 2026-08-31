@@ -17,6 +17,7 @@ from .gpu_connected_benchmark import (
     _remove_stale_manifest,
 )
 from .gpu_foundation_smoke import execute_foundation_gpu_shot
+from .gpu_persistent_session import PersistentGPUFoundationExecutor
 from .gpu_quality_retry_benchmark import (
     GPUQualityRetryBenchmarkError,
     QualityEvaluator,
@@ -40,34 +41,45 @@ _INJECTED_RUNTIME_KWARGS = frozenset(
         "video_exporter",
     }
 )
+_RESOURCE_RUNTIME_KWARGS = frozenset(
+    {
+        "estimated_model_vram_gb",
+        "prefer_bfloat16",
+    }
+)
 
 
 def _validate_production_executor_kwargs(
     shot_executor_kwargs: dict[str, Any] | None,
-) -> None:
-    """Reject injected runtime boundaries before any production render begins.
+) -> dict[str, Any]:
+    """Validate real-runtime resource options before any production render begins.
 
     ``execute_foundation_gpu_shot`` deliberately exposes dependency-injection hooks
     for deterministic tests. A caller can therefore pass the real function object
     while still supplying a fake torch runtime, reference loader, Diffusers
-    pipeline, or exporter through ``shot_executor_kwargs``. Runtime provenance
-    would eventually downgrade that receipt, but a production milestone runner
-    should fail *before* expensive rendering and before any temporary benchmark
-    artifacts are created.
+    pipeline, or exporter through ``shot_executor_kwargs``. A production milestone
+    runner must reject those substitutions before expensive rendering begins.
 
-    Resource-selection options such as ``estimated_model_vram_gb`` and
-    ``prefer_bfloat16`` remain legal because they tune the real runtime rather than
-    substitute it.
+    Only resource-selection options are accepted here. They are consumed by the
+    persistent model session and never forwarded as per-shot runtime overrides.
     """
 
     if not shot_executor_kwargs:
-        return
-    injected = sorted(_INJECTED_RUNTIME_KWARGS.intersection(shot_executor_kwargs))
+        return {}
+    supplied = dict(shot_executor_kwargs)
+    injected = sorted(_INJECTED_RUNTIME_KWARGS.intersection(supplied))
     if injected:
         raise ProductionGPUQualityRetryError(
             "production GPU benchmark forbids injected runtime boundary kwargs: "
             + ", ".join(injected)
         )
+    unsupported = sorted(set(supplied).difference(_RESOURCE_RUNTIME_KWARGS))
+    if unsupported:
+        raise ProductionGPUQualityRetryError(
+            "production GPU benchmark received unsupported runtime kwargs: "
+            + ", ".join(unsupported)
+        )
+    return supplied
 
 
 def run_production_quality_retry_connected_gpu_benchmark(
@@ -83,35 +95,53 @@ def run_production_quality_retry_connected_gpu_benchmark(
 ) -> GPUConnectedBenchmarkReceipt:
     """Run a 5-10 shot benchmark requiring real GPU and artifact-bound QC evidence.
 
-    The underlying benchmark remains reusable for deterministic regression tests.
-    This production wrapper adds milestone rules: execution must use the actual
-    default CINEOS CUDA + Diffusers executor, and QC must use an artifact-measured
-    evaluator whose reports are cryptographically bound to rendered outputs.
-    Injected executors, synthetic quality lambdas, CPU fallbacks, legacy receipts,
-    stale metric reports, altered runtime provenance, or missing production QC
-    evidence fail closed.
+    The production path keeps one selected pretrained foundation resident for the
+    entire connected sequence, including quality-driven retries. This avoids paying
+    model load and warmup for every attempt while preserving per-shot request hashes,
+    fresh artifacts, runtime provenance, QC evidence, and retry lineage.
+
+    The public ``shot_executor`` argument remains for backwards-compatible validation
+    but production execution rejects replacements. The wrapper itself owns the
+    persistent executor so an injected callable cannot be promoted to production
+    evidence.
     """
 
     if shot_executor is not execute_foundation_gpu_shot:
         raise ProductionGPUQualityRetryError(
             "production GPU benchmark requires the unmodified default shot executor"
         )
-    _validate_production_executor_kwargs(shot_executor_kwargs)
+    runtime_options = _validate_production_executor_kwargs(shot_executor_kwargs)
     if not isinstance(quality_evaluator, ArtifactMeasuredSequenceQualityEvaluator):
         raise ProductionGPUQualityRetryError(
             "production GPU benchmark requires artifact-measured sequence quality evidence"
         )
 
-    receipt = run_quality_retry_connected_gpu_benchmark(
-        benchmark_id,
-        requests,
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    persistent_kwargs: dict[str, Any] = {}
+    if "estimated_model_vram_gb" in runtime_options:
+        persistent_kwargs["estimated_model_vram_gb"] = runtime_options[
+            "estimated_model_vram_gb"
+        ]
+    if "prefer_bfloat16" in runtime_options:
+        persistent_kwargs["prefer_bfloat16"] = runtime_options["prefer_bfloat16"]
+
+    with PersistentGPUFoundationExecutor(
         profile,
-        output_dir=output_dir,
-        quality_evaluator=quality_evaluator,
-        retry_policy=retry_policy,
-        shot_executor=shot_executor,
-        shot_executor_kwargs=shot_executor_kwargs,
-    )
+        output_dir=output_root,
+        **persistent_kwargs,
+    ) as persistent_executor:
+        receipt = run_quality_retry_connected_gpu_benchmark(
+            benchmark_id,
+            requests,
+            profile,
+            output_dir=output_root,
+            quality_evaluator=quality_evaluator,
+            retry_policy=retry_policy,
+            shot_executor=persistent_executor,
+            shot_executor_kwargs=None,
+        )
+
     manifest = Path(receipt.manifest_path)
     if not receipt.production_gpu_evidence:
         _remove_stale_manifest(manifest)
