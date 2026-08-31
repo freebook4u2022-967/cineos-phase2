@@ -1,0 +1,108 @@
+import hashlib
+
+import pytest
+
+from cineos.atlas.artifact_video_observer import (
+    ArtifactVideoMetricObserver,
+    RGBVideoSample,
+    VideoArtifactObservationError,
+)
+from cineos.atlas.sequence_quality import (
+    ArtifactMeasuredSequenceQualityEvaluator,
+)
+
+
+class Shot:
+    shot_id = "shot-01"
+
+
+def _frame(value: int, *, width: int = 2, height: int = 2) -> bytes:
+    return bytes([value, value, value] * width * height)
+
+
+def _sampler(_artifact):
+    return RGBVideoSample(
+        width=2,
+        height=2,
+        frames=(_frame(40), _frame(50), _frame(65)),
+    )
+
+
+def _semantic_scorer(sample, **_kwargs):
+    assert len(sample.frames) == 3
+    return {
+        "identity_similarity": 0.94,
+        "motion_quality": 0.88,
+        "anatomy_quality": 0.86,
+    }
+
+
+def test_video_observer_binds_decoded_measurements_to_exact_artifact(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"actual-rendered-video-container")
+    observer = ArtifactVideoMetricObserver(
+        _semantic_scorer,
+        sampler=_sampler,
+        observer_id="test-video-observer/0.1",
+    )
+
+    measurement = observer(str(artifact), shot=Shot(), attempt_index=0)
+
+    assert measurement["artifact_sha256"] == hashlib.sha256(
+        artifact.read_bytes()
+    ).hexdigest()
+    assert measurement["observer_id"] == "test-video-observer/0.1"
+    assert measurement["sample"] == {"width": 2, "height": 2, "frame_count": 3}
+    assert measurement["metrics"]["identity_similarity"] == pytest.approx(0.94)
+    assert measurement["metrics"]["motion_quality"] == pytest.approx(0.88)
+    assert measurement["metrics"]["artifact_integrity"] == pytest.approx(1.0)
+    assert measurement["metrics"]["temporal_consistency"] == pytest.approx(1.0)
+
+
+def test_video_observer_integrates_with_artifact_measured_quality_gate(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"actual-rendered-video-container")
+    observer = ArtifactVideoMetricObserver(_semantic_scorer, sampler=_sampler)
+    evaluator = ArtifactMeasuredSequenceQualityEvaluator(observer)
+
+    report = evaluator(str(artifact), shot=Shot(), attempt_index=0)
+
+    assert report["production_measurement_evidence"] is True
+    assert report["accepted"] is True
+    assert report["metrics"]["anatomy_quality"] == pytest.approx(0.86)
+
+
+def test_video_observer_rejects_missing_semantic_identity_or_motion(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"actual-rendered-video-container")
+    observer = ArtifactVideoMetricObserver(
+        lambda *_args, **_kwargs: {"identity_similarity": 0.9},
+        sampler=_sampler,
+    )
+
+    with pytest.raises(VideoArtifactObservationError, match="motion_quality"):
+        observer(str(artifact), shot=Shot(), attempt_index=0)
+
+
+def test_video_observer_rejects_empty_artifact_before_sampling(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.touch()
+    observer = ArtifactVideoMetricObserver(_semantic_scorer, sampler=_sampler)
+
+    with pytest.raises(VideoArtifactObservationError, match="missing or empty"):
+        observer(str(artifact), shot=Shot(), attempt_index=0)
+
+
+def test_video_observer_rejects_out_of_range_semantic_metric(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"actual-rendered-video-container")
+    observer = ArtifactVideoMetricObserver(
+        lambda *_args, **_kwargs: {
+            "identity_similarity": 1.2,
+            "motion_quality": 0.9,
+        },
+        sampler=_sampler,
+    )
+
+    with pytest.raises(VideoArtifactObservationError, match="between 0 and 1"):
+        observer(str(artifact), shot=Shot(), attempt_index=0)
