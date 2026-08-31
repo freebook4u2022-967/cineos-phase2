@@ -1,8 +1,8 @@
 """Decode rendered video artifacts into production QC measurements.
 
-The observer in this module measures the exact MP4 that Atlas produced.  It
+The observer in this module measures the exact MP4 that Atlas produced. It
 owns transport-level artifact and temporal checks and deliberately requires an
-injected semantic scorer for character identity and motion quality.  This keeps
+injected semantic scorer for character identity and motion quality. This keeps
 low-level pixel heuristics from being mislabeled as semantic identity evidence.
 """
 
@@ -84,7 +84,8 @@ class FFmpegRGBSampler:
                 f"rendered video artifact does not exist: {artifact}"
             )
         filter_graph = (
-            f"fps={self.sample_fps}," f"scale={self.width}:{self.height}:flags=area"
+            f"fps={self.sample_fps},"
+            f"scale={self.width}:{self.height}:flags=area"
         )
         command = [
             self.ffmpeg_binary,
@@ -109,8 +110,7 @@ class FFmpegRGBSampler:
             completed = subprocess.run(
                 command,
                 check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
             )
         except FileNotFoundError as exc:
             raise VideoArtifactObservationError(
@@ -167,7 +167,7 @@ def _temporal_consistency(sample: RGBVideoSample) -> float:
         mean_delta = sum(
             abs(left - right) for left, right in zip(previous, current, strict=True)
         ) / (len(current) * 255.0)
-        # Normal movement is deliberately not punished.  Only very large average
+        # Normal movement is deliberately not punished. Only very large average
         # RGB jumps are treated as transport/temporal instability here; semantic
         # temporal reasoning belongs in stronger model observers.
         discontinuity = max(0.0, min(1.0, (mean_delta - 0.45) / 0.55))
@@ -187,8 +187,8 @@ class ArtifactVideoMetricObserver:
     """Create artifact-bound production measurements from decoded video evidence.
 
     ``semantic_scorer`` receives the decoded frames and must return at least
-    ``identity_similarity`` and ``motion_quality``.  Optional semantic metrics
-    such as anatomy, object interaction, and lip-sync are preserved.  The
+    ``identity_similarity`` and ``motion_quality``. Optional semantic metrics
+    such as anatomy, object interaction, and lip-sync are preserved. The
     observer itself supplies conservative artifact-integrity and RGB temporal
     evidence, then binds the complete report to the exact rendered artifact.
     """
