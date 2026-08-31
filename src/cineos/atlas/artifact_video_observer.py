@@ -192,6 +192,8 @@ class ArtifactVideoMetricObserver:
     evidence, then binds the complete report to the exact rendered artifact.
     """
 
+    production_measurement_evidence = True
+
     def __init__(
         self,
         semantic_scorer: SemanticVideoScorer,
