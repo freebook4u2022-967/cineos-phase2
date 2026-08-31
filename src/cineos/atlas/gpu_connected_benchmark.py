@@ -48,7 +48,9 @@ def _validated_quality_report(
     normalized = dict(report)
     normalized.setdefault("scene_id", getattr(request, "scene_id", None))
     normalized.setdefault("shot_id", getattr(request, "shot_id", None))
-    normalized.setdefault("effective_request_hash", getattr(request, "content_hash", None))
+    normalized.setdefault(
+        "effective_request_hash", getattr(request, "content_hash", None)
+    )
 
     if normalized.get("production_measurement_evidence") is not True:
         return normalized
