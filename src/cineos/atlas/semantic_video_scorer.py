@@ -129,7 +129,9 @@ class LearnedIdentityMotionScorer:
 
         frame_scores: list[float] = []
         for frame in frames:
-            best = max(_normalized_similarity(_cosine(frame, ref)) for ref in references)
+            best = max(
+                _normalized_similarity(_cosine(frame, ref)) for ref in references
+            )
             frame_scores.append(best)
 
         mean_score = sum(frame_scores) / len(frame_scores)

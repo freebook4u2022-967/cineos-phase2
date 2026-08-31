@@ -15,7 +15,9 @@ class Shot:
 
 def _sample(frame_count: int = 3) -> RGBVideoSample:
     frame = bytes([32, 64, 96] * 4)
-    return RGBVideoSample(width=2, height=2, frames=tuple(frame for _ in range(frame_count)))
+    return RGBVideoSample(
+        width=2, height=2, frames=tuple(frame for _ in range(frame_count))
+    )
 
 
 def test_learned_semantic_scorer_uses_best_approved_reference_and_worst_frame():
@@ -50,7 +52,9 @@ def test_learned_semantic_scorer_uses_best_approved_reference_and_worst_frame():
 
     # Per-frame best approved-reference scores are 1.0, 1.0 and 0.5.
     # The conservative blend is 70% mean + 30% worst frame.
-    assert metrics["identity_similarity"] == pytest.approx(0.7 * (2.5 / 3.0) + 0.3 * 0.5)
+    assert metrics["identity_similarity"] == pytest.approx(
+        0.7 * (2.5 / 3.0) + 0.3 * 0.5
+    )
     assert metrics["motion_quality"] == pytest.approx(0.84)
     assert observed[0][3] == 2
 
