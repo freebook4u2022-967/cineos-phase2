@@ -8,6 +8,7 @@ continuity, QC and orchestration live above this execution boundary.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -55,6 +56,8 @@ class DiffusersVideoResult:
     seed: int
     foundation: FoundationProvenance
     request_hash: str
+    artifact_sha256: str | None = None
+    artifact_size_bytes: int | None = None
 
 
 ReferenceLoader = Callable[[str], Any]
@@ -225,8 +228,11 @@ class DiffusersVideoRenderer(BaseRenderer):
         output = call(**filtered)
         frames = self._extract_frames(output)
         output_path = self.output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
+        if output_path.exists():
+            output_path.unlink()
         exporter = self._resolve_exporter()
         exporter(frames, str(output_path), fps=fps)
+        artifact_size, artifact_sha256 = self._validate_exported_artifact(output_path)
         return DiffusersVideoResult(
             shot_id=request.shot_id,
             scene_id=request.scene_id,
@@ -235,6 +241,8 @@ class DiffusersVideoRenderer(BaseRenderer):
             seed=request.deterministic_seed,
             foundation=self.foundation,
             request_hash=request.content_hash,
+            artifact_sha256=artifact_sha256,
+            artifact_size_bytes=artifact_size,
         )
 
     def shutdown(self) -> None:
@@ -243,6 +251,23 @@ class DiffusersVideoRenderer(BaseRenderer):
             empty_cache = getattr(self._torch.cuda, "empty_cache", None)
             if callable(empty_cache):
                 empty_cache()
+
+    @staticmethod
+    def _validate_exported_artifact(output_path: Path) -> tuple[int, str]:
+        """Bind a successful render result to a fresh, non-empty file on disk."""
+        if not output_path.is_file():
+            raise DiffusersVideoError(
+                "video exporter did not create the requested output artifact"
+            )
+        artifact_size = output_path.stat().st_size
+        if artifact_size <= 0:
+            raise DiffusersVideoError("video exporter created an empty output artifact")
+
+        digest = hashlib.sha256()
+        with output_path.open("rb") as artifact:
+            for chunk in iter(lambda: artifact.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return artifact_size, digest.hexdigest()
 
     def _configure_memory_runtime(self) -> None:
         if self._pipeline is None:
