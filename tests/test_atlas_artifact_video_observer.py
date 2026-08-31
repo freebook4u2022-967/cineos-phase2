@@ -94,7 +94,7 @@ def test_unattested_semantic_scorer_cannot_be_promoted_to_production_qc(tmp_path
     measurement = observer(str(artifact), shot=Shot(), attempt_index=0)
     assert measurement["production_measurement_evidence"] is False
 
-    with pytest.raises(ValueError, match="production measurement evidence"):
+    with pytest.raises(TypeError, match="production_measurement_evidence=True"):
         ArtifactMeasuredSequenceQualityEvaluator(observer)
 
 
