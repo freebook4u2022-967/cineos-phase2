@@ -204,13 +204,18 @@ class ArtifactMeasuredSequenceQualityEvaluator:
     ) -> None:
         if not callable(metric_extractor):
             raise TypeError("metric_extractor must be callable")
-        if getattr(metric_extractor, "production_measurement_evidence", False) is not True:
+        if (
+            getattr(metric_extractor, "production_measurement_evidence", False)
+            is not True
+        ):
             raise TypeError(
                 "production metric extractor must attest production_measurement_evidence=True"
             )
         observer_id = getattr(metric_extractor, "observer_id", None)
         if not isinstance(observer_id, str) or not observer_id.strip():
-            raise TypeError("production metric extractor must expose a non-empty observer_id")
+            raise TypeError(
+                "production metric extractor must expose a non-empty observer_id"
+            )
         self.metric_extractor = metric_extractor
         self.observer_id = observer_id.strip()
         self.policy = policy or SequenceQualityPolicy()
