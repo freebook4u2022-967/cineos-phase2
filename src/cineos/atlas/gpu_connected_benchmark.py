@@ -285,7 +285,9 @@ def run_connected_gpu_benchmark(
     profile: FoundationExecutionProfile,
     *,
     output_dir: str | Path,
-    shot_executor: Callable[..., GPUFoundationExecutionReceipt] = execute_foundation_gpu_shot,
+    shot_executor: Callable[
+        ..., GPUFoundationExecutionReceipt
+    ] = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
     """Render 5-10 connected shots and persist a manifest only on total success."""
@@ -313,7 +315,10 @@ def run_connected_gpu_benchmark(
                 output_dir=output_root,
                 **kwargs,
             )
-            if receipt.profile_id != profile.profile_id or receipt.origin != profile.origin:
+            if (
+                receipt.profile_id != profile.profile_id
+                or receipt.origin != profile.origin
+            ):
                 raise GPUConnectedBenchmarkError(
                     "shot receipt provenance does not match selected benchmark profile"
                 )
