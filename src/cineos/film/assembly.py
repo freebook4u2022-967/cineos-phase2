@@ -23,8 +23,15 @@ def assemble(
     *,
     durations: list[float] | None = None,
     crossfade: float = 0.0,
+    audio_path: str | Path | None = None,
 ) -> Path:
-    """Concatenate ordered shots using a generated, safely passed concat manifest."""
+    """Concatenate ordered shots and optionally mux an approved audio mix.
+
+    The default remains video-only for backwards compatibility. When ``audio_path``
+    is supplied, the exact referenced audio artifact is added as a second FFmpeg
+    input and muxed with the assembled H.264 picture. ``-shortest`` prevents a
+    longer mix from extending the visual timeline unexpectedly.
+    """
     if not shots:
         raise AssemblyError("cannot assemble an empty timeline")
     sources = [Path(item).resolve() for item in shots]
@@ -34,6 +41,12 @@ def assemble(
         raise AssemblyError("duration count does not match shot count")
     if crossfade < 0:
         raise AssemblyError("crossfade must not be negative")
+
+    audio_source: Path | None = None
+    if audio_path is not None:
+        audio_source = Path(audio_path).resolve()
+        file_hash(audio_source)
+
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     manifest = destination.with_suffix(".concat.txt")
@@ -44,8 +57,7 @@ def assemble(
         if durations:
             lines.append(f"duration {durations[index]:.6f}")
     manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    # Concat demuxer is deterministic and preserves hard cuts. Inputs with unlike
-    # codecs are normalized to H.264/yuv420p rather than stream-copied.
+
     command = [
         _ffmpeg(),
         "-nostdin",
@@ -56,15 +68,24 @@ def assemble(
         "0",
         "-i",
         str(manifest),
-        "-an",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        str(destination),
     ]
+    if audio_source is not None:
+        command.extend(["-i", str(audio_source)])
+    else:
+        command.append("-an")
+
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+        ]
+    )
+    if audio_source is not None:
+        command.extend(["-c:a", "aac", "-b:a", "192k", "-shortest"])
+    command.extend(["-movflags", "+faststart", str(destination)])
+
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode or not destination.is_file():
         raise AssemblyError(f"FFmpeg assembly failed: {result.stderr.strip()}")
