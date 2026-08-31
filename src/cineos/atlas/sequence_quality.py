@@ -188,14 +188,13 @@ class CineosSequenceQualityEvaluator:
 
 
 class ArtifactMeasuredSequenceQualityEvaluator:
-    """Production evaluator requiring metrics cryptographically bound to the video.
+    """Production evaluator requiring attested metrics bound to the rendered video.
 
-    A production metric extractor must inspect the actual rendered artifact and
-    return a structured measurement envelope containing its observer identity,
-    the SHA-256 of the exact artifact it measured, and normalized metrics. This
-    prevents a synthetic lambda or stale report from being accepted as evidence
-    for the real-GPU milestone while keeping the observer implementation pluggable
-    for stronger identity, temporal, anatomy, interaction, and lip-sync models.
+    A production metric extractor must explicitly attest that it is a real
+    artifact-measurement observer, expose a stable ``observer_id``, inspect the
+    actual rendered artifact, and return a structured measurement envelope bound
+    to the SHA-256 of that artifact. Merely wrapping a synthetic lambda that knows
+    the artifact hash is not sufficient for production milestone evidence.
     """
 
     production_measurement_evidence = True
@@ -205,7 +204,15 @@ class ArtifactMeasuredSequenceQualityEvaluator:
     ) -> None:
         if not callable(metric_extractor):
             raise TypeError("metric_extractor must be callable")
+        if getattr(metric_extractor, "production_measurement_evidence", False) is not True:
+            raise TypeError(
+                "production metric extractor must attest production_measurement_evidence=True"
+            )
+        observer_id = getattr(metric_extractor, "observer_id", None)
+        if not isinstance(observer_id, str) or not observer_id.strip():
+            raise TypeError("production metric extractor must expose a non-empty observer_id")
         self.metric_extractor = metric_extractor
+        self.observer_id = observer_id.strip()
         self.policy = policy or SequenceQualityPolicy()
 
     def __call__(
@@ -237,6 +244,10 @@ class ArtifactMeasuredSequenceQualityEvaluator:
             raise SequenceQualityError(
                 "production quality measurement requires a non-empty observer_id"
             )
+        if observer_id.strip() != self.observer_id:
+            raise SequenceQualityError(
+                "production quality measurement observer_id does not match attested observer"
+            )
         measured_sha256 = raw.get("artifact_sha256")
         if measured_sha256 != artifact_sha256:
             raise SequenceQualityError(
@@ -252,8 +263,9 @@ class ArtifactMeasuredSequenceQualityEvaluator:
         report["production_measurement_evidence"] = True
         report["measurement"] = {
             "schema": PRODUCTION_MEASUREMENT_SCHEMA,
-            "observer_id": observer_id.strip(),
+            "observer_id": self.observer_id,
             "artifact_sha256": artifact_sha256,
+            "observer_attested": True,
         }
         return report
 
