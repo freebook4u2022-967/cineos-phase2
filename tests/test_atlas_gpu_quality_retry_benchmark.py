@@ -131,6 +131,15 @@ def test_rejected_shot_is_rerendered_with_fresh_hash_seed_and_lineage(tmp_path):
     assert rendered[3].metadata["quality_directives"] == [
         "preserve approved character identity and facial structure"
     ]
+    assert len(receipt.quality_reports) == 5
+    assert receipt.quality_reports[2]["accepted"] is True
+    assert receipt.quality_reports[2]["attempt_index"] == 1
+    assert (
+        receipt.quality_reports[2]["effective_request_hash"]
+        == accepted.result.request_hash
+    )
+    assert payload["quality_gate_applied"] is True
+    assert len(payload["quality_reports"]) == 5
 
 
 def test_retry_exhaustion_fails_closed_without_completed_manifest(tmp_path):
