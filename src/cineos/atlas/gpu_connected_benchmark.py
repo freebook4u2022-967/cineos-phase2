@@ -273,8 +273,15 @@ def _validated_quality_report(
     report: Mapping[str, Any],
     *,
     request: NativeShotRequest,
+    receipt: GPUFoundationExecutionReceipt | None = None,
 ) -> dict[str, Any]:
-    """Normalize one measured quality decision and fail closed on weak evidence."""
+    """Normalize one measured quality decision and fail closed on weak evidence.
+
+    Production measurement claims are additionally bound to the exact rendered
+    receipt hash. This prevents a stale or substituted QC measurement from being
+    attached to a different shot artifact while still claiming production-grade
+    evidence.
+    """
     accepted = report.get("accepted")
     if not isinstance(accepted, bool):
         raise GPUConnectedBenchmarkError(
@@ -291,6 +298,23 @@ def _validated_quality_report(
         raise GPUConnectedBenchmarkError(
             f"shot {request.scene_id}/{request.shot_id} quality score must be between 0 and 1"
         )
+
+    if report.get("production_measurement_evidence") is True:
+        measurement = report.get("measurement")
+        if not isinstance(measurement, Mapping):
+            raise GPUConnectedBenchmarkError(
+                f"shot {request.scene_id}/{request.shot_id} production quality report is missing measurement evidence"
+            )
+        measured_hash = measurement.get("artifact_sha256")
+        rendered_hash = getattr(receipt, "output_sha256", None)
+        if (
+            not isinstance(measured_hash, str)
+            or not isinstance(rendered_hash, str)
+            or measured_hash != rendered_hash
+        ):
+            raise GPUConnectedBenchmarkError(
+                f"shot {request.scene_id}/{request.shot_id} production quality measurement does not match rendered artifact hash"
+            )
 
     normalized = dict(report)
     normalized["scene_id"] = request.scene_id
@@ -394,7 +418,11 @@ def run_connected_gpu_benchmark(
                         f"shot {request.scene_id}/{request.shot_id} quality evaluator must return a mapping"
                     )
                 quality_reports.append(
-                    _validated_quality_report(raw_report, request=request)
+                    _validated_quality_report(
+                        raw_report,
+                        request=request,
+                        receipt=receipt,
+                    )
                 )
             receipts.append(receipt)
     except Exception:
