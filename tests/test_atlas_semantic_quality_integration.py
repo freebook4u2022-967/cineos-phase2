@@ -1,6 +1,9 @@
 import hashlib
 
-from cineos.atlas.artifact_video_observer import ArtifactVideoMetricObserver, RGBVideoSample
+from cineos.atlas.artifact_video_observer import (
+    ArtifactVideoMetricObserver,
+    RGBVideoSample,
+)
 from cineos.atlas.semantic_video_scorer import LearnedIdentityMotionScorer
 from cineos.atlas.sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 
@@ -39,6 +42,7 @@ def test_learned_semantic_scores_flow_into_artifact_bound_quality_report(tmp_pat
     assert report["production_measurement_evidence"] is True
     assert report["metrics"]["identity_similarity"] == 1.0
     assert report["metrics"]["motion_quality"] == 0.95
-    assert report["measurement"]["artifact_sha256"] == hashlib.sha256(
-        artifact.read_bytes()
-    ).hexdigest()
+    assert (
+        report["measurement"]["artifact_sha256"]
+        == hashlib.sha256(artifact.read_bytes()).hexdigest()
+    )
