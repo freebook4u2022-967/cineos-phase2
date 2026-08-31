@@ -7,6 +7,7 @@ from cineos.atlas.diffusers_video import DiffusersVideoResult
 from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
 from cineos.atlas.gpu_connected_benchmark import (
     GPUConnectedBenchmarkError,
+    GPUConnectedBenchmarkReceipt,
     run_connected_gpu_benchmark,
 )
 from cineos.atlas.gpu_foundation_smoke import GPUFoundationExecutionReceipt
@@ -76,6 +77,39 @@ def _receipt(
     )
 
 
+def _quality_report(receipt: GPUFoundationExecutionReceipt) -> dict:
+    return {
+        "accepted": True,
+        "production_measurement_evidence": True,
+        "scene_id": receipt.result.scene_id,
+        "shot_id": receipt.result.shot_id,
+        "effective_request_hash": receipt.result.request_hash,
+        "output_sha256": receipt.output_sha256,
+        "measurement": {
+            "schema": "cineos-sequence-quality-measurement/0.1",
+            "observer_id": "artifact-observer-v1",
+            "artifact_sha256": receipt.output_sha256,
+        },
+    }
+
+
+def _benchmark_receipt(
+    shot_receipts: tuple[GPUFoundationExecutionReceipt, ...],
+    quality_reports: tuple[dict, ...],
+) -> GPUConnectedBenchmarkReceipt:
+    return GPUConnectedBenchmarkReceipt(
+        benchmark_id="quality-binding",
+        profile_id=WAN22_TI2V_5B_PROFILE.profile_id,
+        origin=WAN22_TI2V_5B_PROFILE.origin,
+        shot_receipts=shot_receipts,
+        chain_sha256="0" * 64,
+        total_output_bytes=sum(receipt.output_bytes for receipt in shot_receipts),
+        elapsed_seconds=1.0,
+        manifest_path="quality-binding.gpu-benchmark.json",
+        quality_reports=quality_reports,
+    )
+
+
 def test_connected_gpu_benchmark_writes_manifest_only_after_five_fresh_shots(tmp_path):
     requests = [_request(index) for index in range(5)]
 
@@ -106,6 +140,42 @@ def test_connected_gpu_benchmark_writes_manifest_only_after_five_fresh_shots(tmp
     assert [shot["request_hash"] for shot in payload["shots"]] == [
         request.content_hash for request in requests
     ]
+
+
+def test_production_quality_evidence_binds_each_report_to_exact_accepted_artifact(tmp_path):
+    request = _request(0)
+    shot_receipt = _receipt(request, tmp_path)
+    report = _quality_report(shot_receipt)
+    benchmark = _benchmark_receipt((shot_receipt,), (report,))
+
+    assert benchmark.production_quality_evidence is True
+
+
+def test_production_quality_evidence_rejects_swapped_artifact_digest(tmp_path):
+    first = _receipt(_request(0), tmp_path)
+    second = _receipt(_request(1), tmp_path)
+    report = _quality_report(first)
+    report["measurement"]["artifact_sha256"] = second.output_sha256
+    benchmark = _benchmark_receipt((first,), (report,))
+
+    assert benchmark.production_quality_evidence is False
+
+
+def test_production_quality_evidence_rejects_mismatched_shot_identity(tmp_path):
+    shot_receipt = _receipt(_request(0), tmp_path)
+    report = _quality_report(shot_receipt)
+    report["shot_id"] = "different-shot"
+    benchmark = _benchmark_receipt((shot_receipt,), (report,))
+
+    assert benchmark.production_quality_evidence is False
+
+
+def test_production_quality_evidence_rejects_report_receipt_count_mismatch(tmp_path):
+    first = _receipt(_request(0), tmp_path)
+    second = _receipt(_request(1), tmp_path)
+    benchmark = _benchmark_receipt((first, second), (_quality_report(first),))
+
+    assert benchmark.production_quality_evidence is False
 
 
 def test_connected_gpu_benchmark_accepts_legacy_previous_shot_id_alias(tmp_path):
