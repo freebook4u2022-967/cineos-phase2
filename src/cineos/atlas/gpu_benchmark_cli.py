@@ -110,7 +110,9 @@ def _parser() -> argparse.ArgumentParser:
         description="Run a real 5-10 shot CINEOS connected GPU benchmark."
     )
     parser.add_argument("--requests", required=True, help="Native shot JSON manifest")
-    parser.add_argument("--output-dir", required=True, help="Benchmark artifact directory")
+    parser.add_argument(
+        "--output-dir", required=True, help="Benchmark artifact directory"
+    )
     parser.add_argument(
         "--benchmark-id",
         default="cineos-connected-production",
