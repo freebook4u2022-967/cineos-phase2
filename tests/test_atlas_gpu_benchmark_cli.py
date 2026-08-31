@@ -64,10 +64,64 @@ def test_load_native_requests_rejects_non_array_manifest(tmp_path):
         load_native_requests(source)
 
 
+def _install_fake_persistent_executor(monkeypatch):
+    lifecycle = []
+
+    class FakePersistentExecutor:
+        def __init__(self, profile, *, output_dir):
+            self.profile = profile
+            self.output_dir = output_dir
+            lifecycle.append(("init", profile, output_dir, self))
+
+        def __enter__(self):
+            lifecycle.append(("enter", self))
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            lifecycle.append(("exit", exc_type, self))
+
+    monkeypatch.setattr(
+        "cineos.atlas.gpu_benchmark_cli.PersistentGPUFoundationExecutor",
+        FakePersistentExecutor,
+    )
+    return lifecycle
+
+
+def test_production_runner_uses_one_persistent_gpu_executor(monkeypatch, tmp_path):
+    fake_receipt = SimpleNamespace(production_gpu_evidence=True)
+    lifecycle = _install_fake_persistent_executor(monkeypatch)
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return fake_receipt
+
+    monkeypatch.setattr(
+        "cineos.atlas.gpu_benchmark_cli.run_connected_gpu_benchmark",
+        fake_run,
+    )
+
+    requests = [_request(index) for index in range(5)]
+    receipt = run_production_benchmark(
+        "production-evidence",
+        requests,
+        output_dir=tmp_path / "renders",
+    )
+
+    assert receipt is fake_receipt
+    assert [event[0] for event in lifecycle] == ["init", "enter", "exit"]
+    executor = lifecycle[0][3]
+    assert captured["kwargs"]["shot_executor"] is executor
+    assert captured["kwargs"]["output_dir"] == tmp_path / "renders"
+    assert (tmp_path / "renders").is_dir()
+
+
 def test_production_runner_fails_closed_without_default_gpu_evidence(
     monkeypatch, tmp_path
 ):
     fake_receipt = SimpleNamespace(production_gpu_evidence=False)
+    _install_fake_persistent_executor(monkeypatch)
 
     monkeypatch.setattr(
         "cineos.atlas.gpu_benchmark_cli.run_connected_gpu_benchmark",
@@ -86,6 +140,7 @@ def test_production_runner_fails_closed_without_default_gpu_evidence(
 
 def test_production_runner_returns_verified_default_gpu_receipt(monkeypatch, tmp_path):
     fake_receipt = SimpleNamespace(production_gpu_evidence=True)
+    _install_fake_persistent_executor(monkeypatch)
 
     monkeypatch.setattr(
         "cineos.atlas.gpu_benchmark_cli.run_connected_gpu_benchmark",
