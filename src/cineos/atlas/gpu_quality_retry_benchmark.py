@@ -130,6 +130,7 @@ def run_quality_retry_connected_gpu_benchmark(
 
     receipts: list[GPUFoundationExecutionReceipt] = []
     shot_evidence: list[dict[str, Any]] = []
+    accepted_quality_reports: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
     seen_hashes: set[str] = set()
     kwargs = dict(shot_executor_kwargs or {})
@@ -141,6 +142,7 @@ def run_quality_retry_connected_gpu_benchmark(
             effective = original
             attempts: list[dict[str, Any]] = []
             accepted_receipt: GPUFoundationExecutionReceipt | None = None
+            accepted_report: dict[str, Any] | None = None
 
             for attempt_index in range(policy.max_attempts):
                 receipt = _render_attempt(
@@ -161,6 +163,7 @@ def run_quality_retry_connected_gpu_benchmark(
 
                 if report.get("accepted") is True:
                     accepted_receipt = receipt
+                    accepted_report = report
                     break
 
                 if attempt_index + 1 >= policy.max_attempts:
@@ -178,7 +181,7 @@ def run_quality_retry_connected_gpu_benchmark(
                     policy=policy,
                 )
 
-            if accepted_receipt is None:
+            if accepted_receipt is None or accepted_report is None:
                 raise GPUQualityRetryBenchmarkError(
                     f"no accepted receipt for {original.scene_id}/{original.shot_id}"
                 )
@@ -189,6 +192,7 @@ def run_quality_retry_connected_gpu_benchmark(
                 seen_hashes=seen_hashes,
             )
             receipts.append(accepted_receipt)
+            accepted_quality_reports.append(accepted_report)
             shot_evidence.append(
                 {
                     "scene_id": original.scene_id,
@@ -213,6 +217,7 @@ def run_quality_retry_connected_gpu_benchmark(
         total_output_bytes=sum(receipt.output_bytes for receipt in receipts),
         elapsed_seconds=elapsed,
         manifest_path=str(manifest),
+        quality_reports=tuple(accepted_quality_reports),
     )
     payload = completed.to_dict()
     payload["foundation_profile"] = profile.snapshot()
