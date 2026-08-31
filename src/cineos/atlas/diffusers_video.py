@@ -75,6 +75,11 @@ class DiffusersVideoRenderer(BaseRenderer):
     ``memory_strategy`` is consumed by CINEOS rather than forwarded to
     ``from_pretrained``. This makes large foundations usable on constrained GPUs
     without hiding the fact that CPU offload is active.
+
+    ``require_artifact_evidence`` is intentionally opt-in for backwards
+    compatibility with orchestration layers that own artifact validation and
+    error translation. Strict direct execution removes stale output before export
+    and refuses to return without a fresh, non-empty SHA-256-bound artifact.
     """
 
     _MEMORY_STRATEGIES = frozenset(
@@ -103,12 +108,14 @@ class DiffusersVideoRenderer(BaseRenderer):
         reference_loader: ReferenceLoader | None = None,
         pipeline_factory: PipelineFactory | None = None,
         video_exporter: VideoExporter | None = None,
+        require_artifact_evidence: bool = False,
     ) -> None:
         self.foundation = foundation
         self.output_dir = Path(output_dir)
         self.reference_loader = reference_loader
         self._pipeline_factory = pipeline_factory
         self._video_exporter = video_exporter
+        self._require_artifact_evidence = require_artifact_evidence
         self._pipeline: Any | None = None
         self._torch: Any | None = None
         self._device = "cuda"
@@ -228,11 +235,16 @@ class DiffusersVideoRenderer(BaseRenderer):
         output = call(**filtered)
         frames = self._extract_frames(output)
         output_path = self.output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
-        if output_path.exists():
+        if self._require_artifact_evidence and output_path.exists():
             output_path.unlink()
         exporter = self._resolve_exporter()
         exporter(frames, str(output_path), fps=fps)
-        artifact_size, artifact_sha256 = self._validate_exported_artifact(output_path)
+
+        artifact_size: int | None = None
+        artifact_sha256: str | None = None
+        if self._require_artifact_evidence:
+            artifact_size, artifact_sha256 = self._validate_exported_artifact(output_path)
+
         return DiffusersVideoResult(
             shot_id=request.shot_id,
             scene_id=request.scene_id,
