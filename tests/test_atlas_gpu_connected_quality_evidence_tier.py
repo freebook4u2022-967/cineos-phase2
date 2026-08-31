@@ -78,7 +78,9 @@ def test_one_unbound_report_fails_closed_for_entire_connected_benchmark():
         },
     }
     unbound = {"accepted": True, "score": 0.95}
-    receipt = _benchmark(quality_reports=[measured, measured, unbound, measured, measured])
+    receipt = _benchmark(
+        quality_reports=[measured, measured, unbound, measured, measured]
+    )
 
     assert receipt.production_quality_evidence is False
     assert receipt.evidence_tier == "production-gpu-execution"
