@@ -229,7 +229,9 @@ class ArtifactMeasuredSequenceQualityEvaluator:
         if not isinstance(raw, Mapping):
             raise SequenceQualityError("quality metric extractor must return a mapping")
         if raw.get("schema") != PRODUCTION_MEASUREMENT_SCHEMA:
-            raise SequenceQualityError("unsupported production quality measurement schema")
+            raise SequenceQualityError(
+                "unsupported production quality measurement schema"
+            )
         observer_id = raw.get("observer_id")
         if not isinstance(observer_id, str) or not observer_id.strip():
             raise SequenceQualityError(

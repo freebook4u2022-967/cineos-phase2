@@ -142,9 +142,10 @@ def test_artifact_measured_evaluator_binds_report_to_exact_rendered_bytes(tmp_pa
     assert report["accepted"] is True
     assert report["production_measurement_evidence"] is True
     assert report["measurement"]["observer_id"] == "test-artifact-observer/0.1"
-    assert report["measurement"]["artifact_sha256"] == hashlib.sha256(
-        artifact.read_bytes()
-    ).hexdigest()
+    assert (
+        report["measurement"]["artifact_sha256"]
+        == hashlib.sha256(artifact.read_bytes()).hexdigest()
+    )
 
 
 def test_artifact_measured_evaluator_rejects_stale_or_foreign_digest(tmp_path):
