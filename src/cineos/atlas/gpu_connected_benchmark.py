@@ -29,6 +29,61 @@ class GPUConnectedBenchmarkError(RuntimeError):
     """Raised when connected-shot benchmark evidence is incomplete or ambiguous."""
 
 
+def _validated_quality_report(
+    report: Mapping[str, Any],
+    *,
+    request: Any,
+    receipt: Any | None = None,
+) -> dict[str, Any]:
+    """Normalize one quality report and fail closed on substituted render evidence.
+
+    Generic regression reports remain backward compatible. When an evaluator marks
+    a report as production measurement evidence, however, its measurement digest
+    must match the exact rendered receipt. This prevents stale or substituted QC
+    measurements from being attached to a different accepted artifact.
+    """
+    if not isinstance(report, Mapping):
+        raise GPUConnectedBenchmarkError("quality report must be a mapping")
+
+    normalized = dict(report)
+    normalized.setdefault("scene_id", getattr(request, "scene_id", None))
+    normalized.setdefault("shot_id", getattr(request, "shot_id", None))
+    normalized.setdefault("effective_request_hash", getattr(request, "content_hash", None))
+
+    if normalized.get("production_measurement_evidence") is not True:
+        return normalized
+
+    measurement = normalized.get("measurement")
+    if not isinstance(measurement, Mapping):
+        raise GPUConnectedBenchmarkError(
+            "production quality report requires artifact-bound measurement evidence"
+        )
+    if measurement.get("schema") != "cineos-sequence-quality-measurement/0.1":
+        raise GPUConnectedBenchmarkError(
+            "production quality report has unsupported measurement evidence schema"
+        )
+    observer_id = measurement.get("observer_id")
+    if not isinstance(observer_id, str) or not observer_id.strip():
+        raise GPUConnectedBenchmarkError(
+            "production quality report requires a measurement observer id"
+        )
+
+    artifact_sha256 = measurement.get("artifact_sha256")
+    receipt_sha256 = getattr(receipt, "output_sha256", None)
+    if (
+        not isinstance(artifact_sha256, str)
+        or len(artifact_sha256) != 64
+        or not isinstance(receipt_sha256, str)
+        or artifact_sha256 != receipt_sha256
+    ):
+        raise GPUConnectedBenchmarkError(
+            "production quality measurement does not match rendered artifact hash"
+        )
+
+    normalized["measurement"] = dict(measurement)
+    return normalized
+
+
 def _production_gpu_evidence(
     receipts: Sequence[GPUFoundationExecutionReceipt],
 ) -> bool:
