@@ -1,6 +1,10 @@
+import hashlib
+
 import pytest
 
 from cineos.atlas.sequence_quality import (
+    PRODUCTION_MEASUREMENT_SCHEMA,
+    ArtifactMeasuredSequenceQualityEvaluator,
     CineosSequenceQualityEvaluator,
     SequenceQualityError,
     SequenceQualityPolicy,
@@ -17,6 +21,19 @@ def _evaluate(metrics, *, policy=None):
         policy=policy,
     )
     return evaluator("candidate.mp4", shot=Shot(), attempt_index=0)
+
+
+def _measured_evaluator(artifact, metrics, *, measured_sha256=None):
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    evaluator = ArtifactMeasuredSequenceQualityEvaluator(
+        lambda *_args, **_kwargs: {
+            "schema": PRODUCTION_MEASUREMENT_SCHEMA,
+            "observer_id": "test-artifact-observer/0.1",
+            "artifact_sha256": measured_sha256 or digest,
+            "metrics": metrics,
+        }
+    )
+    return evaluator
 
 
 def test_accepts_shot_when_core_metrics_and_overall_score_pass():
@@ -105,6 +122,54 @@ def test_metric_outside_normalized_range_fails_closed():
                 "motion_quality": 0.9,
             }
         )
+
+
+def test_artifact_measured_evaluator_binds_report_to_exact_rendered_bytes(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"real-rendered-video-bytes")
+    evaluator = _measured_evaluator(
+        artifact,
+        {
+            "identity_similarity": 0.95,
+            "temporal_consistency": 0.93,
+            "artifact_integrity": 0.99,
+            "motion_quality": 0.91,
+        },
+    )
+
+    report = evaluator(str(artifact), shot=Shot(), attempt_index=0)
+
+    assert report["accepted"] is True
+    assert report["production_measurement_evidence"] is True
+    assert report["measurement"]["observer_id"] == "test-artifact-observer/0.1"
+    assert report["measurement"]["artifact_sha256"] == hashlib.sha256(
+        artifact.read_bytes()
+    ).hexdigest()
+
+
+def test_artifact_measured_evaluator_rejects_stale_or_foreign_digest(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"current-render")
+    evaluator = _measured_evaluator(
+        artifact,
+        {
+            "identity_similarity": 0.95,
+            "temporal_consistency": 0.93,
+            "artifact_integrity": 0.99,
+            "motion_quality": 0.91,
+        },
+        measured_sha256="0" * 64,
+    )
+
+    with pytest.raises(SequenceQualityError, match="SHA-256"):
+        evaluator(str(artifact), shot=Shot(), attempt_index=0)
+
+
+def test_artifact_measured_evaluator_requires_real_artifact(tmp_path):
+    evaluator = ArtifactMeasuredSequenceQualityEvaluator(lambda *_args, **_kwargs: {})
+
+    with pytest.raises(SequenceQualityError, match="does not exist"):
+        evaluator(str(tmp_path / "missing.mp4"), shot=Shot(), attempt_index=0)
 
 
 def test_policy_rejects_invalid_threshold():
