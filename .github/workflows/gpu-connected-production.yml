@@ -6,7 +6,6 @@ on:
       requests_path:
         description: Path to a committed 5-10 shot native request JSON manifest
         required: true
-        default: benchmarks/projects/connected-production.json
       benchmark_id:
         description: Stable benchmark evidence identifier
         required: true
