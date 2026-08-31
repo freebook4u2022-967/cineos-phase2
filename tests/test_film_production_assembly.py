@@ -32,14 +32,14 @@ def _records(tmp_path: Path, count: int = 5):
     return records
 
 
-def _probe(*, duration=5.0, audio=0):
+def _probe(*, duration=5.0, audio=0, video_codec="h264", audio_codec="aac"):
     return {
         "duration_seconds": duration,
         "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
         "video_stream_count": 1,
         "audio_stream_count": audio,
-        "video_codecs": ["h264"],
-        "audio_codecs": ["aac"] if audio else [],
+        "video_codecs": [video_codec],
+        "audio_codecs": [audio_codec] if audio else [],
         "video_dimensions": [{"width": 1280, "height": 720}],
     }
 
@@ -73,7 +73,7 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
     assert manifest["shot_count"] == 5
     assert manifest["final_mp4_sha256"] == _sha(output)
     assert manifest["final_media"]["video_stream_count"] == 1
-    assert manifest["schema"] == "cineos-production-film-evidence/0.2"
+    assert manifest["schema"] == "cineos-production-film-evidence/0.3"
     assert len(manifest["manifest_sha256"]) == 64
     assert (tmp_path / "final.production.json").is_file()
 
@@ -180,7 +180,7 @@ def test_rejects_silent_output_when_approved_audio_was_required(tmp_path, monkey
         "cineos.film.production_assembly.probe_media", lambda _path: _probe(audio=0)
     )
 
-    with pytest.raises(AssemblyError, match="missing the approved audio stream"):
+    with pytest.raises(AssemblyError, match="exactly one approved audio stream"):
         assemble_production_film(
             records,
             tmp_path / "final.mp4",
@@ -224,3 +224,56 @@ def test_rejects_nonpositive_shot_duration_before_assembly(tmp_path, monkeypatch
             tmp_path / "final.mp4",
             durations=[1.0, 1.0, 0.0, 1.0, 1.0],
         )
+
+
+def test_rejects_unapproved_or_wrong_final_media_profile(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"assembled-film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+
+    bad_profiles = [
+        ({**_probe(), "format_name": "matroska,webm"}, "not an MP4 container"),
+        ({**_probe(), "video_stream_count": 2, "video_codecs": ["h264", "h264"]}, "exactly one video stream"),
+        (_probe(video_codec="hevc"), "exactly one H.264 video stream"),
+        ({**_probe(), "video_dimensions": [{"width": 1279, "height": 720}]}, "invalid H.264/yuv420p video dimensions"),
+    ]
+    for profile, message in bad_profiles:
+        monkeypatch.setattr(
+            "cineos.film.production_assembly.probe_media", lambda _path, p=profile: p
+        )
+        with pytest.raises(AssemblyError, match=message):
+            assemble_production_film(records, tmp_path / "final.mp4")
+
+
+def test_rejects_unapproved_audio_or_unexpected_audio_stream(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    audio = tmp_path / "mix.wav"
+    audio.write_bytes(b"approved-mix")
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"assembled-film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media",
+        lambda _path: _probe(audio=1, audio_codec="opus"),
+    )
+    with pytest.raises(AssemblyError, match="approved audio stream must be AAC"):
+        assemble_production_film(
+            records,
+            tmp_path / "final-with-audio.mp4",
+            audio_path=audio,
+            audio_sha256=_sha(audio),
+        )
+
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media",
+        lambda _path: _probe(audio=1),
+    )
+    with pytest.raises(AssemblyError, match="no approved audio artifact was supplied"):
+        assemble_production_film(records, tmp_path / "final-unexpected-audio.mp4")
