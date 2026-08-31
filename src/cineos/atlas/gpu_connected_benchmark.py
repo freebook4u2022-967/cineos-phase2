@@ -156,7 +156,9 @@ def _production_quality_evidence(
             return False
         if report.get("shot_id") != getattr(result, "shot_id", None):
             return False
-        if report.get("effective_request_hash") != getattr(result, "request_hash", None):
+        if report.get("effective_request_hash") != getattr(
+            result, "request_hash", None
+        ):
             return False
     return True
 
@@ -365,7 +367,9 @@ def _evaluate_quality(
     if report["accepted"] is not True:
         failed = report.get("failed_metrics")
         if isinstance(failed, Sequence) and not isinstance(failed, (str, bytes)):
-            reasons = ", ".join(str(item) for item in failed) or "unknown_quality_failure"
+            reasons = (
+                ", ".join(str(item) for item in failed) or "unknown_quality_failure"
+            )
         else:
             reasons = "unknown_quality_failure"
         raise GPUConnectedBenchmarkError(f"failed connected quality gate: {reasons}")
