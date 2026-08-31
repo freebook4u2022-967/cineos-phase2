@@ -83,16 +83,17 @@ def assemble_production_film(
         bound.append(item)
 
     audio: dict[str, Any] | None = None
+    audio_source: Path | None = None
     if audio_path is not None:
         if not audio_sha256 or len(audio_sha256.strip()) != 64:
             raise AssemblyError("production audio requires an explicit SHA-256")
-        source = Path(audio_path).resolve()
-        actual_audio_hash = file_hash(source)
+        audio_source = Path(audio_path).resolve()
+        actual_audio_hash = file_hash(audio_source)
         if actual_audio_hash != audio_sha256.strip().lower():
             raise AssemblyError(
                 "production audio artifact hash does not match supplied evidence"
             )
-        audio = {"path": str(source), "sha256": actual_audio_hash}
+        audio = {"path": str(audio_source), "sha256": actual_audio_hash}
     elif audio_sha256 is not None:
         raise AssemblyError("audio SHA-256 was supplied without an audio artifact")
 
@@ -101,6 +102,7 @@ def assemble_production_film(
         [path for _, path, _ in bound],
         destination,
         durations=list(durations) if durations is not None else None,
+        audio_path=audio_source,
     )
     final_hash = file_hash(movie)
 
