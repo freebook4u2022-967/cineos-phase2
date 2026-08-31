@@ -32,6 +32,18 @@ def _records(tmp_path: Path, count: int = 5):
     return records
 
 
+def _probe(*, duration=5.0, audio=0):
+    return {
+        "duration_seconds": duration,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "video_stream_count": 1,
+        "audio_stream_count": audio,
+        "video_codecs": ["h264"],
+        "audio_codecs": ["aac"] if audio else [],
+        "video_dimensions": [{"width": 1280, "height": 720}],
+    }
+
+
 def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
     records = _records(tmp_path)
     output = tmp_path / "final.mp4"
@@ -53,10 +65,13 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
         return Path(destination)
 
     monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+    monkeypatch.setattr("cineos.film.production_assembly.probe_media", lambda _path: _probe())
     manifest = assemble_production_film(records, output, durations=[1.0] * 5)
 
     assert manifest["shot_count"] == 5
     assert manifest["final_mp4_sha256"] == _sha(output)
+    assert manifest["final_media"]["video_stream_count"] == 1
+    assert manifest["schema"] == "cineos-production-film-evidence/0.2"
     assert len(manifest["manifest_sha256"]) == 64
     assert (tmp_path / "final.production.json").is_file()
 
@@ -125,6 +140,10 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
         return Path(destination)
 
     monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media",
+        lambda _path: _probe(audio=1),
+    )
     manifest = assemble_production_film(
         records,
         output,
@@ -133,6 +152,7 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
     )
     assert captured["audio_path"] == audio.resolve()
     assert manifest["audio"]["sha256"] == _sha(audio)
+    assert manifest["final_media"]["audio_stream_count"] == 1
 
     audio.write_bytes(b"swapped-mix")
     with pytest.raises(AssemblyError, match="audio artifact hash does not match"):
@@ -141,4 +161,60 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
             tmp_path / "final-2.mp4",
             audio_path=audio,
             audio_sha256=manifest["audio"]["sha256"],
+        )
+
+
+def test_rejects_silent_output_when_approved_audio_was_required(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    audio = tmp_path / "mix.wav"
+    audio.write_bytes(b"approved-mix")
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"silent-film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+    monkeypatch.setattr("cineos.film.production_assembly.probe_media", lambda _path: _probe(audio=0))
+
+    with pytest.raises(AssemblyError, match="missing the approved audio stream"):
+        assemble_production_film(
+            records,
+            tmp_path / "final.mp4",
+            audio_path=audio,
+            audio_sha256=_sha(audio),
+        )
+
+
+def test_rejects_truncated_final_timeline(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"truncated-film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media",
+        lambda _path: _probe(duration=3.0),
+    )
+
+    with pytest.raises(AssemblyError, match="duration deviates from the approved visual timeline"):
+        assemble_production_film(
+            records,
+            tmp_path / "final.mp4",
+            durations=[1.0] * 5,
+        )
+
+
+def test_rejects_nonpositive_shot_duration_before_assembly(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.assemble",
+        lambda *_args, **_kwargs: pytest.fail("assembly must not run"),
+    )
+    with pytest.raises(AssemblyError, match="durations must all be positive"):
+        assemble_production_film(
+            records,
+            tmp_path / "final.mp4",
+            durations=[1.0, 1.0, 0.0, 1.0, 1.0],
         )
