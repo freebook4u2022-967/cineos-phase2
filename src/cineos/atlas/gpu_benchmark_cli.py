@@ -72,7 +72,8 @@ def load_native_requests(path: str | Path) -> tuple[NativeShotRequest, ...]:
         shots = payload
     if not isinstance(shots, Sequence) or isinstance(shots, (str, bytes)):
         raise GPUProductionBenchmarkCLIError(
-            "connected-shot request manifest must be a JSON array or contain a shots array"
+            "connected-shot request manifest must be a JSON array or contain "
+            "a shots array"
         )
 
     requests: list[NativeShotRequest] = []
