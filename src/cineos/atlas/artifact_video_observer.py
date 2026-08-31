@@ -48,6 +48,8 @@ class VideoSampler(Protocol):
 
 
 class SemanticVideoScorer(Protocol):
+    semantic_measurement_evidence: bool
+
     def __call__(
         self,
         sample: RGBVideoSample,
@@ -183,16 +185,20 @@ def _sha256_file(path: Path) -> str:
 
 
 class ArtifactVideoMetricObserver:
-    """Create artifact-bound production measurements from decoded video evidence.
+    """Create artifact-bound measurements from decoded video evidence.
 
     ``semantic_scorer`` receives the decoded frames and must return at least
     ``identity_similarity`` and ``motion_quality``. Optional semantic metrics
     such as anatomy, object interaction, and lip-sync are preserved. The
     observer itself supplies conservative artifact-integrity and RGB temporal
     evidence, then binds the complete report to the exact rendered artifact.
-    """
 
-    production_measurement_evidence = True
+    A callable scorer is sufficient for research measurements, but production
+    evidence is exposed only when the scorer explicitly attests that its semantic
+    outputs are measured evidence. This prevents a lambda, fixture, or synthetic
+    score map from being promoted to production identity/motion QC merely because
+    the outer MP4 observer decoded a real artifact.
+    """
 
     def __init__(
         self,
@@ -210,6 +216,9 @@ class ArtifactVideoMetricObserver:
         self.semantic_scorer = semantic_scorer
         self.sampler = sampler or FFmpegRGBSampler()
         self.observer_id = observer_id.strip()
+        self.production_measurement_evidence = (
+            getattr(semantic_scorer, "semantic_measurement_evidence", False) is True
+        )
 
     def __call__(
         self,
@@ -264,6 +273,7 @@ class ArtifactVideoMetricObserver:
             "schema": PRODUCTION_MEASUREMENT_SCHEMA,
             "observer_id": self.observer_id,
             "artifact_sha256": _sha256_file(artifact),
+            "production_measurement_evidence": self.production_measurement_evidence,
             "metrics": metrics,
             "sample": {
                 "width": sample.width,
