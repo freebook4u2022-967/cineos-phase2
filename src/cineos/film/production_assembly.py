@@ -10,9 +10,10 @@ from typing import Any
 
 from .assembly import assemble
 from .exceptions import AssemblyError
+from .media_probe import MediaProbeError, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.1"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.2"
 
 
 def _canonical_hash(value: Mapping[str, Any]) -> str:
@@ -51,6 +52,35 @@ def _require_bound_shot(
     return shot_id, output_path, evidence_hash
 
 
+def _validate_final_media(
+    movie: Path,
+    *,
+    audio_required: bool,
+    expected_duration: float | None,
+) -> dict[str, Any]:
+    try:
+        media = probe_media(movie)
+    except MediaProbeError as exc:
+        raise AssemblyError(f"production final media validation failed: {exc}") from exc
+
+    if int(media.get("video_stream_count") or 0) < 1:
+        raise AssemblyError("production final MP4 is missing a video stream")
+    if audio_required and int(media.get("audio_stream_count") or 0) < 1:
+        raise AssemblyError("production final MP4 is missing the approved audio stream")
+
+    duration = float(media.get("duration_seconds") or 0.0)
+    if duration <= 0:
+        raise AssemblyError("production final MP4 has no positive duration")
+    if expected_duration is not None:
+        tolerance = max(0.5, expected_duration * 0.02)
+        if abs(duration - expected_duration) > tolerance:
+            raise AssemblyError(
+                "production final MP4 duration deviates from the approved visual timeline "
+                f"({duration:.3f}s vs {expected_duration:.3f}s; tolerance {tolerance:.3f}s)"
+            )
+    return media
+
+
 def assemble_production_film(
     shot_evidence: Sequence[Mapping[str, Any]],
     output: str | Path,
@@ -60,18 +90,18 @@ def assemble_production_film(
     audio_sha256: str | None = None,
     manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Assemble only the exact artifacts accepted by production GPU/QC evidence.
+    """Assemble and validate only exact artifacts approved by GPU/QC evidence.
 
-    This boundary intentionally does not infer trust from file names or renderer
-    labels. Every shot must carry explicit production-GPU provenance, an accept
-    decision, and the SHA-256 of both its rendered artifact and evidence record.
-    The resulting manifest binds the ordered inputs and final artifact so later
-    packaging cannot silently swap a post-QC shot or audio mix.
+    Every shot and optional audio mix is hash-bound before FFmpeg runs. The final
+    MP4 is then inspected with FFprobe so a truncated, video-less, or unexpectedly
+    silent artifact cannot be promoted merely because a file and SHA-256 exist.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
     if durations is not None and len(durations) != len(shot_evidence):
         raise AssemblyError("duration count does not match production shot count")
+    if durations is not None and any(float(value) <= 0 for value in durations):
+        raise AssemblyError("production shot durations must all be positive")
 
     bound: list[tuple[str, Path, str]] = []
     seen_ids: set[str] = set()
@@ -104,6 +134,14 @@ def assemble_production_film(
         durations=list(durations) if durations is not None else None,
         audio_path=audio_source,
     )
+    expected_duration = (
+        sum(float(value) for value in durations) if durations is not None else None
+    )
+    final_media = _validate_final_media(
+        movie,
+        audio_required=audio_source is not None,
+        expected_duration=expected_duration,
+    )
     final_hash = file_hash(movie)
 
     manifest: dict[str, Any] = {
@@ -122,6 +160,7 @@ def assemble_production_film(
         "audio": audio,
         "final_mp4": str(movie.resolve()),
         "final_mp4_sha256": final_hash,
+        "final_media": final_media,
     }
     manifest["manifest_sha256"] = _canonical_hash(manifest)
 
