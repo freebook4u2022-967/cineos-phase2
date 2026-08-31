@@ -57,6 +57,37 @@ def _production_gpu_evidence(
     return True
 
 
+def _production_quality_evidence(reports: Sequence[Mapping[str, Any]]) -> bool:
+    """Return true only when every shot carries artifact-bound measured QC.
+
+    A generic/injected quality evaluator is valuable for regression testing but
+    must never upgrade a benchmark to production quality evidence. The production
+    evaluator marks reports with ``production_measurement_evidence=True`` after
+    verifying observer identity and the SHA-256 of the exact rendered artifact.
+    Requiring that marker on every report prevents synthetic lambdas or stale
+    metrics from being reported as milestone-grade CINEOS QC.
+    """
+    if not reports:
+        return False
+    for report in reports:
+        if not isinstance(report, Mapping):
+            return False
+        if report.get("production_measurement_evidence") is not True:
+            return False
+        measurement = report.get("measurement")
+        if not isinstance(measurement, Mapping):
+            return False
+        if measurement.get("schema") != "cineos-sequence-quality-measurement/0.1":
+            return False
+        observer_id = measurement.get("observer_id")
+        artifact_sha256 = measurement.get("artifact_sha256")
+        if not isinstance(observer_id, str) or not observer_id.strip():
+            return False
+        if not isinstance(artifact_sha256, str) or len(artifact_sha256) != 64:
+            return False
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class GPUConnectedBenchmarkReceipt:
     """Auditable evidence for one successful connected 5-10 shot GPU run."""
@@ -76,8 +107,12 @@ class GPUConnectedBenchmarkReceipt:
         return _production_gpu_evidence(self.shot_receipts)
 
     @property
+    def production_quality_evidence(self) -> bool:
+        return _production_quality_evidence(self.quality_reports)
+
+    @property
     def evidence_tier(self) -> str:
-        if self.production_gpu_evidence and self.quality_reports:
+        if self.production_gpu_evidence and self.production_quality_evidence:
             return "production-gpu-quality-gated"
         if self.production_gpu_evidence:
             return "production-gpu-execution"
@@ -97,6 +132,7 @@ class GPUConnectedBenchmarkReceipt:
             "quality_gate_applied": bool(self.quality_reports),
             "quality_reports": list(self.quality_reports),
             "production_gpu_evidence": self.production_gpu_evidence,
+            "production_quality_evidence": self.production_quality_evidence,
             "evidence_tier": self.evidence_tier,
             "shots": [receipt.to_dict() for receipt in self.shot_receipts],
         }
@@ -301,7 +337,10 @@ def run_connected_gpu_benchmark(
     injected/test executor can never silently become production evidence.
 
     When ``quality_evaluator`` is supplied, every rendered artifact must return an
-    accepted, normalized report before the benchmark can complete.
+    accepted, normalized report before the benchmark can complete. Production
+    quality evidence is reported only when every accepted report is artifact-bound
+    by the production measurement evaluator; generic/injected QC remains useful
+    but cannot promote the benchmark evidence tier.
     """
     if not benchmark_id.strip():
         raise GPUConnectedBenchmarkError("benchmark_id must not be empty")
