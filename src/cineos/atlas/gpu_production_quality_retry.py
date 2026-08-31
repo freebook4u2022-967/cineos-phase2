@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from .foundation_profiles import FoundationExecutionProfile
-from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt, _remove_stale_manifest
+from .gpu_connected_benchmark import (
+    GPUConnectedBenchmarkReceipt,
+    _remove_stale_manifest,
+)
 from .gpu_foundation_smoke import execute_foundation_gpu_shot
 from .gpu_quality_retry_benchmark import (
     GPUQualityRetryBenchmarkError,

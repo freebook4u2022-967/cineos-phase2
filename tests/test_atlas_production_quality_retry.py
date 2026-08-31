@@ -63,7 +63,9 @@ def test_production_quality_retry_rejects_injected_executor_before_render(tmp_pa
     assert list(Path(tmp_path).iterdir()) == []
 
 
-def test_production_quality_retry_requires_connected_five_to_ten_shot_contract(tmp_path):
+def test_production_quality_retry_requires_connected_five_to_ten_shot_contract(
+    tmp_path,
+):
     with pytest.raises(Exception, match="between 5 and 10 shots"):
         run_production_quality_retry_connected_gpu_benchmark(
             "too-short-production-retry",
