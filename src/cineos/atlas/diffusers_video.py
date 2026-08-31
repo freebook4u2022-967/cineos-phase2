@@ -243,7 +243,9 @@ class DiffusersVideoRenderer(BaseRenderer):
         artifact_size: int | None = None
         artifact_sha256: str | None = None
         if self._require_artifact_evidence:
-            artifact_size, artifact_sha256 = self._validate_exported_artifact(output_path)
+            artifact_size, artifact_sha256 = self._validate_exported_artifact(
+                output_path
+            )
 
         return DiffusersVideoResult(
             shot_id=request.shot_id,
