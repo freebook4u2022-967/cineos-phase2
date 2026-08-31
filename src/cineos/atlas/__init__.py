@@ -63,6 +63,10 @@ from .runtime import (
     RuntimeTask,
     TaskHandler,
 )
+from .semantic_video_scorer import (
+    LearnedIdentityMotionScorer,
+    SemanticVideoScorerError,
+)
 from .session import RendererSession
 
 __all__ = [
@@ -81,6 +85,7 @@ __all__ = [
     "GPUFoundationExecutionReceipt",
     "GPUPreflightError",
     "GPUQualityBenchmarkError",
+    "LearnedIdentityMotionScorer",
     "NATIVE_SHOT_SCHEMA",
     "NativeRenderReceipt",
     "NativeRequestError",
@@ -102,6 +107,7 @@ __all__ = [
     "RuntimeState",
     "RuntimeStateError",
     "RuntimeTask",
+    "SemanticVideoScorerError",
     "TaskHandler",
     "build_quality_retry_request",
     "compile_native_shot_request",
