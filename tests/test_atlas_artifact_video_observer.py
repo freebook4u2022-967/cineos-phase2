@@ -16,6 +16,18 @@ class Shot:
     shot_id = "shot-01"
 
 
+class AttestedSemanticScorer:
+    semantic_measurement_evidence = True
+
+    def __call__(self, sample, **_kwargs):
+        assert len(sample.frames) == 3
+        return {
+            "identity_similarity": 0.94,
+            "motion_quality": 0.88,
+            "anatomy_quality": 0.86,
+        }
+
+
 def _frame(value: int, *, width: int = 2, height: int = 2) -> bytes:
     return bytes([value, value, value] * width * height)
 
@@ -41,7 +53,7 @@ def test_video_observer_binds_decoded_measurements_to_exact_artifact(tmp_path):
     artifact = tmp_path / "candidate.mp4"
     artifact.write_bytes(b"actual-rendered-video-container")
     observer = ArtifactVideoMetricObserver(
-        _semantic_scorer,
+        AttestedSemanticScorer(),
         sampler=_sampler,
         observer_id="test-video-observer/0.1",
     )
@@ -53,6 +65,7 @@ def test_video_observer_binds_decoded_measurements_to_exact_artifact(tmp_path):
         == hashlib.sha256(artifact.read_bytes()).hexdigest()
     )
     assert measurement["observer_id"] == "test-video-observer/0.1"
+    assert measurement["production_measurement_evidence"] is True
     assert measurement["sample"] == {"width": 2, "height": 2, "frame_count": 3}
     assert measurement["metrics"]["identity_similarity"] == pytest.approx(0.94)
     assert measurement["metrics"]["motion_quality"] == pytest.approx(0.88)
@@ -63,7 +76,7 @@ def test_video_observer_binds_decoded_measurements_to_exact_artifact(tmp_path):
 def test_video_observer_integrates_with_artifact_measured_quality_gate(tmp_path):
     artifact = tmp_path / "candidate.mp4"
     artifact.write_bytes(b"actual-rendered-video-container")
-    observer = ArtifactVideoMetricObserver(_semantic_scorer, sampler=_sampler)
+    observer = ArtifactVideoMetricObserver(AttestedSemanticScorer(), sampler=_sampler)
     evaluator = ArtifactMeasuredSequenceQualityEvaluator(observer)
 
     report = evaluator(str(artifact), shot=Shot(), attempt_index=0)
@@ -71,6 +84,18 @@ def test_video_observer_integrates_with_artifact_measured_quality_gate(tmp_path)
     assert report["production_measurement_evidence"] is True
     assert report["accepted"] is True
     assert report["metrics"]["anatomy_quality"] == pytest.approx(0.86)
+
+
+def test_unattested_semantic_scorer_cannot_be_promoted_to_production_qc(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"actual-rendered-video-container")
+    observer = ArtifactVideoMetricObserver(_semantic_scorer, sampler=_sampler)
+
+    measurement = observer(str(artifact), shot=Shot(), attempt_index=0)
+    assert measurement["production_measurement_evidence"] is False
+
+    with pytest.raises(ValueError, match="production measurement evidence"):
+        ArtifactMeasuredSequenceQualityEvaluator(observer)
 
 
 def test_video_observer_rejects_missing_semantic_identity_or_motion(tmp_path):
@@ -88,7 +113,7 @@ def test_video_observer_rejects_missing_semantic_identity_or_motion(tmp_path):
 def test_video_observer_rejects_empty_artifact_before_sampling(tmp_path):
     artifact = tmp_path / "candidate.mp4"
     artifact.touch()
-    observer = ArtifactVideoMetricObserver(_semantic_scorer, sampler=_sampler)
+    observer = ArtifactVideoMetricObserver(AttestedSemanticScorer(), sampler=_sampler)
 
     with pytest.raises(VideoArtifactObservationError, match="missing or empty"):
         observer(str(artifact), shot=Shot(), attempt_index=0)
