@@ -62,7 +62,9 @@ def _plan() -> GPUExecutionPlan:
     )
 
 
-def _receipt(request: NativeShotRequest, output_dir: Path) -> GPUFoundationExecutionReceipt:
+def _receipt(
+    request: NativeShotRequest, output_dir: Path
+) -> GPUFoundationExecutionReceipt:
     artifact = output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
     payload = f"challenge-video-{request.shot_id}".encode()
     artifact.write_bytes(payload)
@@ -103,7 +105,9 @@ def test_challenge_plan_rejects_missing_difficult_case_before_gpu_execution(tmp_
 
     def executor(*args, **kwargs):
         calls.append((args, kwargs))
-        raise AssertionError("GPU executor must not run for incomplete challenge coverage")
+        raise AssertionError(
+            "GPU executor must not run for incomplete challenge coverage"
+        )
 
     with pytest.raises(SeedanceStyleChallengeError, match="physics"):
         run_seedance_style_gpu_benchmark(
@@ -122,7 +126,9 @@ def test_challenge_plan_rejects_unknown_self_declared_case():
     requests[0].metadata["benchmark_challenges"].append("easy_closeup")
     requests[0].refresh_hash()
 
-    with pytest.raises(SeedanceStyleChallengeError, match="unsupported benchmark challenge"):
+    with pytest.raises(
+        SeedanceStyleChallengeError, match="unsupported benchmark challenge"
+    ):
         validate_challenge_coverage(requests)
 
 
