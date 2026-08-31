@@ -42,11 +42,16 @@ def run_production_quality_retry_connected_gpu_benchmark(
     """Run a 5-10 shot quality-retry benchmark and require real production GPU evidence.
 
     The underlying benchmark remains reusable for deterministic regression tests.
-    This production wrapper adds the milestone rule: every accepted shot receipt
-    must carry runtime provenance from the unmodified default CUDA + Diffusers
-    execution path. Injected executors, CPU fallbacks, legacy receipts, or altered
-    runtime provenance fail closed and their completed manifest is removed.
+    This production wrapper adds the milestone rule: execution must use the actual
+    default CINEOS CUDA + Diffusers executor, and every accepted shot receipt must
+    carry matching production runtime provenance. Injected executors, CPU fallbacks,
+    legacy receipts, or altered runtime provenance fail closed.
     """
+
+    if shot_executor is not execute_foundation_gpu_shot:
+        raise ProductionGPUQualityRetryError(
+            "production GPU benchmark requires the unmodified default shot executor"
+        )
 
     receipt = run_quality_retry_connected_gpu_benchmark(
         benchmark_id,
