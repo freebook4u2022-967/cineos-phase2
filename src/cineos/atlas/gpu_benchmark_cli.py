@@ -19,6 +19,7 @@ from .gpu_connected_benchmark import (
     GPUConnectedBenchmarkReceipt,
     run_connected_gpu_benchmark,
 )
+from .gpu_persistent_session import PersistentGPUFoundationExecutor
 from .native_request import NATIVE_SHOT_SCHEMA, NativeShotRequest
 
 
@@ -90,14 +91,27 @@ def run_production_benchmark(
     *,
     output_dir: str | Path,
 ) -> GPUConnectedBenchmarkReceipt:
-    """Run the pinned foundation through the real default GPU execution path."""
+    """Run the pinned foundation through one persistent real GPU model session.
 
-    receipt = run_connected_gpu_benchmark(
-        benchmark_id,
-        requests,
+    Production connected-shot inference must not pay the model load/warmup cost for
+    every individual shot. Keeping the selected external foundation resident across
+    the 5-10 shot sequence materially reduces benchmark latency while preserving the
+    same per-shot artifact, request-hash, runtime-provenance, and continuity gates.
+    """
+
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    with PersistentGPUFoundationExecutor(
         WAN22_TI2V_5B_PROFILE,
-        output_dir=output_dir,
-    )
+        output_dir=output_root,
+    ) as executor:
+        receipt = run_connected_gpu_benchmark(
+            benchmark_id,
+            requests,
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=output_root,
+            shot_executor=executor,
+        )
     if not receipt.production_gpu_evidence:
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark completed without default production CUDA evidence"
