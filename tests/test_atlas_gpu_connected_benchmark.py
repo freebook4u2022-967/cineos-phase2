@@ -142,7 +142,9 @@ def test_connected_gpu_benchmark_writes_manifest_only_after_five_fresh_shots(tmp
     ]
 
 
-def test_production_quality_evidence_binds_each_report_to_exact_accepted_artifact(tmp_path):
+def test_production_quality_evidence_binds_each_report_to_exact_accepted_artifact(
+    tmp_path,
+):
     request = _request(0)
     shot_receipt = _receipt(request, tmp_path)
     report = _quality_report(shot_receipt)
