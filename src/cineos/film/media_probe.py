@@ -16,7 +16,9 @@ class MediaProbeError(RuntimeError):
 def _ffprobe() -> str:
     executable = shutil.which("ffprobe")
     if not executable:
-        raise MediaProbeError("FFprobe is unavailable; install ffmpeg/ffprobe for production validation")
+        raise MediaProbeError(
+            "FFprobe is unavailable; install ffmpeg/ffprobe for production validation"
+        )
     return executable
 
 
