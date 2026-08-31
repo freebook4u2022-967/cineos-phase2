@@ -25,10 +25,11 @@ from .gpu_quality_retry_benchmark import (
 )
 from .native_request import NativeShotRequest
 from .quality_retry import QualityRetryPolicy
+from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 
 
 class ProductionGPUQualityRetryError(GPUQualityRetryBenchmarkError):
-    """Raised when a quality-retry run is not backed by the default CUDA runtime."""
+    """Raised when a quality-retry run lacks production GPU or measurement evidence."""
 
 
 def run_production_quality_retry_connected_gpu_benchmark(
@@ -42,18 +43,23 @@ def run_production_quality_retry_connected_gpu_benchmark(
     shot_executor: ShotExecutor = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
-    """Run a 5-10 shot quality-retry benchmark and require real production GPU evidence.
+    """Run a 5-10 shot benchmark requiring real GPU and artifact-bound QC evidence.
 
     The underlying benchmark remains reusable for deterministic regression tests.
-    This production wrapper adds the milestone rule: execution must use the actual
-    default CINEOS CUDA + Diffusers executor, and every accepted shot receipt must
-    carry matching production runtime provenance. Injected executors, CPU fallbacks,
-    legacy receipts, or altered runtime provenance fail closed.
+    This production wrapper adds milestone rules: execution must use the actual
+    default CINEOS CUDA + Diffusers executor, and QC must use an artifact-measured
+    evaluator whose reports are cryptographically bound to rendered outputs.
+    Injected executors, synthetic quality lambdas, CPU fallbacks, legacy receipts,
+    stale metric reports, or altered runtime provenance fail closed.
     """
 
     if shot_executor is not execute_foundation_gpu_shot:
         raise ProductionGPUQualityRetryError(
             "production GPU benchmark requires the unmodified default shot executor"
+        )
+    if not isinstance(quality_evaluator, ArtifactMeasuredSequenceQualityEvaluator):
+        raise ProductionGPUQualityRetryError(
+            "production GPU benchmark requires artifact-measured sequence quality evidence"
         )
 
     receipt = run_quality_retry_connected_gpu_benchmark(
