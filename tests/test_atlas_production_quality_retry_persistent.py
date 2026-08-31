@@ -10,8 +10,16 @@ from cineos.atlas.gpu_production_quality_retry import (
 from cineos.atlas.sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 
 
+class AttestedNoopObserver:
+    production_measurement_evidence = True
+    observer_id = "test-persistent-observer/0.1"
+
+    def __call__(self, *_args, **_kwargs):
+        return {}
+
+
 def _quality_evaluator():
-    return ArtifactMeasuredSequenceQualityEvaluator(lambda *_args, **_kwargs: {})
+    return ArtifactMeasuredSequenceQualityEvaluator(AttestedNoopObserver())
 
 
 def _production_receipt(tmp_path):
