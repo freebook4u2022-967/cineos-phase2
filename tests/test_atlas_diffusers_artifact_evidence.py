@@ -49,6 +49,7 @@ def _renderer(tmp_path, exporter):
         output_dir=tmp_path,
         pipeline_factory=lambda *_args, **_kwargs: Pipeline(),
         video_exporter=exporter,
+        require_artifact_evidence=True,
     )
     renderer.initialize()
     renderer.load_model(device="cpu")
