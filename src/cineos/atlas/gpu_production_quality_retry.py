@@ -32,6 +32,44 @@ class ProductionGPUQualityRetryError(GPUQualityRetryBenchmarkError):
     """Raised when a quality-retry run lacks production GPU or measurement evidence."""
 
 
+_INJECTED_RUNTIME_KWARGS = frozenset(
+    {
+        "torch_module",
+        "reference_loader",
+        "pipeline_factory",
+        "video_exporter",
+    }
+)
+
+
+def _validate_production_executor_kwargs(
+    shot_executor_kwargs: dict[str, Any] | None,
+) -> None:
+    """Reject injected runtime boundaries before any production render begins.
+
+    ``execute_foundation_gpu_shot`` deliberately exposes dependency-injection hooks
+    for deterministic tests. A caller can therefore pass the real function object
+    while still supplying a fake torch runtime, reference loader, Diffusers
+    pipeline, or exporter through ``shot_executor_kwargs``. Runtime provenance
+    would eventually downgrade that receipt, but a production milestone runner
+    should fail *before* expensive rendering and before any temporary benchmark
+    artifacts are created.
+
+    Resource-selection options such as ``estimated_model_vram_gb`` and
+    ``prefer_bfloat16`` remain legal because they tune the real runtime rather than
+    substitute it.
+    """
+
+    if not shot_executor_kwargs:
+        return
+    injected = sorted(_INJECTED_RUNTIME_KWARGS.intersection(shot_executor_kwargs))
+    if injected:
+        raise ProductionGPUQualityRetryError(
+            "production GPU benchmark forbids injected runtime boundary kwargs: "
+            + ", ".join(injected)
+        )
+
+
 def run_production_quality_retry_connected_gpu_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
@@ -58,6 +96,7 @@ def run_production_quality_retry_connected_gpu_benchmark(
         raise ProductionGPUQualityRetryError(
             "production GPU benchmark requires the unmodified default shot executor"
         )
+    _validate_production_executor_kwargs(shot_executor_kwargs)
     if not isinstance(quality_evaluator, ArtifactMeasuredSequenceQualityEvaluator):
         raise ProductionGPUQualityRetryError(
             "production GPU benchmark requires artifact-measured sequence quality evidence"
