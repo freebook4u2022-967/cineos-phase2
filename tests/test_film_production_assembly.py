@@ -24,7 +24,9 @@ def _records(tmp_path: Path, count: int = 5):
                 "production_gpu_evidence": True,
                 "output_path": str(path),
                 "output_sha256": _sha(path),
-                "evidence_sha256": hashlib.sha256(f"evidence-{index}".encode()).hexdigest(),
+                "evidence_sha256": hashlib.sha256(
+                    f"evidence-{index}".encode()
+                ).hexdigest(),
             }
         )
     return records
@@ -35,7 +37,9 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
     output = tmp_path / "final.mp4"
 
     def fake_assemble(shots, destination, *, durations=None, crossfade=0.0):
-        assert [Path(item).name for item in shots] == [f"shot-{i}.mp4" for i in range(5)]
+        assert [Path(item).name for item in shots] == [
+            f"shot-{i}.mp4" for i in range(5)
+        ]
         assert durations == [1.0] * 5
         Path(destination).write_bytes(b"assembled-film")
         return Path(destination)
