@@ -84,8 +84,7 @@ class FFmpegRGBSampler:
                 f"rendered video artifact does not exist: {artifact}"
             )
         filter_graph = (
-            f"fps={self.sample_fps},"
-            f"scale={self.width}:{self.height}:flags=area"
+            f"fps={self.sample_fps}," f"scale={self.width}:{self.height}:flags=area"
         )
         command = [
             self.ffmpeg_binary,
