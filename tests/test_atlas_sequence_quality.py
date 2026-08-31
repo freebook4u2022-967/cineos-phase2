@@ -19,7 +19,9 @@ class AttestedTestObserver:
     production_measurement_evidence = True
     observer_id = "test-artifact-observer/0.1"
 
-    def __init__(self, artifact, metrics, *, measured_sha256=None, reported_observer_id=None):
+    def __init__(
+        self, artifact, metrics, *, measured_sha256=None, reported_observer_id=None
+    ):
         self.artifact = artifact
         self.metrics = metrics
         self.measured_sha256 = measured_sha256
