@@ -15,6 +15,26 @@ class Shot:
     shot_id = "shot-01"
 
 
+class AttestedTestObserver:
+    production_measurement_evidence = True
+    observer_id = "test-artifact-observer/0.1"
+
+    def __init__(self, artifact, metrics, *, measured_sha256=None, reported_observer_id=None):
+        self.artifact = artifact
+        self.metrics = metrics
+        self.measured_sha256 = measured_sha256
+        self.reported_observer_id = reported_observer_id
+
+    def __call__(self, *_args, **_kwargs):
+        digest = hashlib.sha256(self.artifact.read_bytes()).hexdigest()
+        return {
+            "schema": PRODUCTION_MEASUREMENT_SCHEMA,
+            "observer_id": self.reported_observer_id or self.observer_id,
+            "artifact_sha256": self.measured_sha256 or digest,
+            "metrics": self.metrics,
+        }
+
+
 def _evaluate(metrics, *, policy=None):
     evaluator = CineosSequenceQualityEvaluator(
         lambda *_args, **_kwargs: metrics,
@@ -23,17 +43,17 @@ def _evaluate(metrics, *, policy=None):
     return evaluator("candidate.mp4", shot=Shot(), attempt_index=0)
 
 
-def _measured_evaluator(artifact, metrics, *, measured_sha256=None):
-    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-    evaluator = ArtifactMeasuredSequenceQualityEvaluator(
-        lambda *_args, **_kwargs: {
-            "schema": PRODUCTION_MEASUREMENT_SCHEMA,
-            "observer_id": "test-artifact-observer/0.1",
-            "artifact_sha256": measured_sha256 or digest,
-            "metrics": metrics,
-        }
+def _measured_evaluator(
+    artifact, metrics, *, measured_sha256=None, reported_observer_id=None
+):
+    return ArtifactMeasuredSequenceQualityEvaluator(
+        AttestedTestObserver(
+            artifact,
+            metrics,
+            measured_sha256=measured_sha256,
+            reported_observer_id=reported_observer_id,
+        )
     )
-    return evaluator
 
 
 def test_accepts_shot_when_core_metrics_and_overall_score_pass():
@@ -142,6 +162,7 @@ def test_artifact_measured_evaluator_binds_report_to_exact_rendered_bytes(tmp_pa
     assert report["accepted"] is True
     assert report["production_measurement_evidence"] is True
     assert report["measurement"]["observer_id"] == "test-artifact-observer/0.1"
+    assert report["measurement"]["observer_attested"] is True
     assert (
         report["measurement"]["artifact_sha256"]
         == hashlib.sha256(artifact.read_bytes()).hexdigest()
@@ -166,8 +187,40 @@ def test_artifact_measured_evaluator_rejects_stale_or_foreign_digest(tmp_path):
         evaluator(str(artifact), shot=Shot(), attempt_index=0)
 
 
+def test_artifact_measured_evaluator_rejects_unattested_callable():
+    with pytest.raises(TypeError, match="attest production_measurement_evidence"):
+        ArtifactMeasuredSequenceQualityEvaluator(lambda *_args, **_kwargs: {})
+
+
+def test_artifact_measured_evaluator_rejects_observer_identity_spoof(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"current-render")
+    evaluator = _measured_evaluator(
+        artifact,
+        {
+            "identity_similarity": 0.95,
+            "temporal_consistency": 0.93,
+            "artifact_integrity": 0.99,
+            "motion_quality": 0.91,
+        },
+        reported_observer_id="spoofed-observer/9.9",
+    )
+
+    with pytest.raises(SequenceQualityError, match="attested observer"):
+        evaluator(str(artifact), shot=Shot(), attempt_index=0)
+
+
 def test_artifact_measured_evaluator_requires_real_artifact(tmp_path):
-    evaluator = ArtifactMeasuredSequenceQualityEvaluator(lambda *_args, **_kwargs: {})
+    observer = AttestedTestObserver(
+        tmp_path / "missing.mp4",
+        {
+            "identity_similarity": 0.95,
+            "temporal_consistency": 0.93,
+            "artifact_integrity": 0.99,
+            "motion_quality": 0.91,
+        },
+    )
+    evaluator = ArtifactMeasuredSequenceQualityEvaluator(observer)
 
     with pytest.raises(SequenceQualityError, match="does not exist"):
         evaluator(str(tmp_path / "missing.mp4"), shot=Shot(), attempt_index=0)
