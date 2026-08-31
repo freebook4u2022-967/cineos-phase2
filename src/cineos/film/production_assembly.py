@@ -72,10 +72,16 @@ def _validate_final_media(
         raise AssemblyError("production final artifact is not an MP4 container")
 
     if int(media.get("video_stream_count") or 0) != 1:
-        raise AssemblyError("production final MP4 must contain exactly one video stream")
-    video_codecs = [str(item).strip().lower() for item in media.get("video_codecs") or []]
+        raise AssemblyError(
+            "production final MP4 must contain exactly one video stream"
+        )
+    video_codecs = [
+        str(item).strip().lower() for item in media.get("video_codecs") or []
+    ]
     if video_codecs != ["h264"]:
-        raise AssemblyError("production final MP4 must contain exactly one H.264 video stream")
+        raise AssemblyError(
+            "production final MP4 must contain exactly one H.264 video stream"
+        )
 
     dimensions = media.get("video_dimensions") or []
     if len(dimensions) != 1 or not isinstance(dimensions[0], Mapping):
@@ -91,14 +97,18 @@ def _validate_final_media(
         )
 
     audio_count = int(media.get("audio_stream_count") or 0)
-    audio_codecs = [str(item).strip().lower() for item in media.get("audio_codecs") or []]
+    audio_codecs = [
+        str(item).strip().lower() for item in media.get("audio_codecs") or []
+    ]
     if audio_required:
         if audio_count != 1:
             raise AssemblyError(
                 "production final MP4 must contain exactly one approved audio stream"
             )
         if audio_codecs != ["aac"]:
-            raise AssemblyError("production final MP4 approved audio stream must be AAC")
+            raise AssemblyError(
+                "production final MP4 approved audio stream must be AAC"
+            )
     elif audio_count:
         raise AssemblyError(
             "production final MP4 contains audio even though no approved audio artifact was supplied"
