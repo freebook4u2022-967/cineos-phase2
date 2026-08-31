@@ -113,3 +113,74 @@ def test_production_wrapper_returns_only_fully_quality_gated_receipt(
 
     assert result is fake
     assert manifest.exists()
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ["torch_module", "reference_loader", "pipeline_factory", "video_exporter"],
+)
+def test_production_wrapper_rejects_injected_runtime_kwargs_before_execution(
+    monkeypatch, tmp_path, boundary
+):
+    called = False
+
+    def unexpected_execution(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("benchmark must fail before rendering")
+
+    monkeypatch.setattr(
+        production_retry,
+        "run_quality_retry_connected_gpu_benchmark",
+        unexpected_execution,
+    )
+
+    with pytest.raises(
+        ProductionGPUQualityRetryError,
+        match="forbids injected runtime boundary kwargs",
+    ):
+        run_production_quality_retry_connected_gpu_benchmark(
+            "production-injected",
+            (),
+            SimpleNamespace(),
+            output_dir=tmp_path,
+            quality_evaluator=_evaluator(),
+            shot_executor_kwargs={boundary: object()},
+        )
+
+    assert called is False
+
+
+def test_production_wrapper_allows_real_runtime_tuning_kwargs(monkeypatch, tmp_path):
+    manifest = tmp_path / "benchmark.gpu-benchmark.json"
+    manifest.write_text("verified evidence\n", encoding="utf-8")
+    fake = _receipt(manifest, gpu=True, quality=True)
+    captured = {}
+
+    def fake_benchmark(*_args, **kwargs):
+        captured.update(kwargs)
+        return fake
+
+    monkeypatch.setattr(
+        production_retry,
+        "run_quality_retry_connected_gpu_benchmark",
+        fake_benchmark,
+    )
+
+    result = run_production_quality_retry_connected_gpu_benchmark(
+        "production-tuned",
+        (),
+        SimpleNamespace(),
+        output_dir=tmp_path,
+        quality_evaluator=_evaluator(),
+        shot_executor_kwargs={
+            "estimated_model_vram_gb": 18.0,
+            "prefer_bfloat16": False,
+        },
+    )
+
+    assert result is fake
+    assert captured["shot_executor_kwargs"] == {
+        "estimated_model_vram_gb": 18.0,
+        "prefer_bfloat16": False,
+    }
