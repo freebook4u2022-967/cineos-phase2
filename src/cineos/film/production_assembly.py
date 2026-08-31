@@ -13,7 +13,7 @@ from .exceptions import AssemblyError
 from .media_probe import MediaProbeError, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.2"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.3"
 
 
 def _canonical_hash(value: Mapping[str, Any]) -> str:
@@ -63,10 +63,46 @@ def _validate_final_media(
     except MediaProbeError as exc:
         raise AssemblyError(f"production final media validation failed: {exc}") from exc
 
-    if int(media.get("video_stream_count") or 0) < 1:
-        raise AssemblyError("production final MP4 is missing a video stream")
-    if audio_required and int(media.get("audio_stream_count") or 0) < 1:
-        raise AssemblyError("production final MP4 is missing the approved audio stream")
+    format_names = {
+        item.strip().lower()
+        for item in str(media.get("format_name") or "").split(",")
+        if item.strip()
+    }
+    if "mp4" not in format_names:
+        raise AssemblyError("production final artifact is not an MP4 container")
+
+    if int(media.get("video_stream_count") or 0) != 1:
+        raise AssemblyError("production final MP4 must contain exactly one video stream")
+    video_codecs = [str(item).strip().lower() for item in media.get("video_codecs") or []]
+    if video_codecs != ["h264"]:
+        raise AssemblyError("production final MP4 must contain exactly one H.264 video stream")
+
+    dimensions = media.get("video_dimensions") or []
+    if len(dimensions) != 1 or not isinstance(dimensions[0], Mapping):
+        raise AssemblyError("production final MP4 is missing valid video dimensions")
+    try:
+        width = int(dimensions[0].get("width") or 0)
+        height = int(dimensions[0].get("height") or 0)
+    except (TypeError, ValueError):
+        width = height = 0
+    if width <= 0 or height <= 0 or width % 2 or height % 2:
+        raise AssemblyError(
+            "production final MP4 has invalid H.264/yuv420p video dimensions"
+        )
+
+    audio_count = int(media.get("audio_stream_count") or 0)
+    audio_codecs = [str(item).strip().lower() for item in media.get("audio_codecs") or []]
+    if audio_required:
+        if audio_count != 1:
+            raise AssemblyError(
+                "production final MP4 must contain exactly one approved audio stream"
+            )
+        if audio_codecs != ["aac"]:
+            raise AssemblyError("production final MP4 approved audio stream must be AAC")
+    elif audio_count:
+        raise AssemblyError(
+            "production final MP4 contains audio even though no approved audio artifact was supplied"
+        )
 
     duration = float(media.get("duration_seconds") or 0.0)
     if duration <= 0:
@@ -93,8 +129,9 @@ def assemble_production_film(
     """Assemble and validate only exact artifacts approved by GPU/QC evidence.
 
     Every shot and optional audio mix is hash-bound before FFmpeg runs. The final
-    MP4 is then inspected with FFprobe so a truncated, video-less, or unexpectedly
-    silent artifact cannot be promoted merely because a file and SHA-256 exist.
+    MP4 is then inspected with FFprobe so a truncated, malformed, codec-drifted,
+    video-less, or unexpectedly silent artifact cannot be promoted merely because
+    a file and SHA-256 exist.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
