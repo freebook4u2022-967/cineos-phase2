@@ -19,9 +19,7 @@ def _receipt(manifest_path, *, gpu=True, quality=True, tier=None):
         tier = (
             "production-gpu-quality-gated"
             if gpu and quality
-            else "production-gpu-execution"
-            if gpu
-            else "non-production-or-injected"
+            else "production-gpu-execution" if gpu else "non-production-or-injected"
         )
     return SimpleNamespace(
         manifest_path=str(manifest_path),
@@ -31,7 +29,9 @@ def _receipt(manifest_path, *, gpu=True, quality=True, tier=None):
     )
 
 
-def test_production_wrapper_fails_closed_without_artifact_bound_quality(monkeypatch, tmp_path):
+def test_production_wrapper_fails_closed_without_artifact_bound_quality(
+    monkeypatch, tmp_path
+):
     manifest = tmp_path / "benchmark.gpu-benchmark.json"
     manifest.write_text("stale evidence\n", encoding="utf-8")
     fake = _receipt(manifest, gpu=True, quality=False)
@@ -57,7 +57,9 @@ def test_production_wrapper_fails_closed_without_artifact_bound_quality(monkeypa
     assert not manifest.exists()
 
 
-def test_production_wrapper_requires_exact_quality_gated_evidence_tier(monkeypatch, tmp_path):
+def test_production_wrapper_requires_exact_quality_gated_evidence_tier(
+    monkeypatch, tmp_path
+):
     manifest = tmp_path / "benchmark.gpu-benchmark.json"
     manifest.write_text("ambiguous evidence\n", encoding="utf-8")
     fake = _receipt(
@@ -88,7 +90,9 @@ def test_production_wrapper_requires_exact_quality_gated_evidence_tier(monkeypat
     assert not manifest.exists()
 
 
-def test_production_wrapper_returns_only_fully_quality_gated_receipt(monkeypatch, tmp_path):
+def test_production_wrapper_returns_only_fully_quality_gated_receipt(
+    monkeypatch, tmp_path
+):
     manifest = tmp_path / "benchmark.gpu-benchmark.json"
     manifest.write_text("verified evidence\n", encoding="utf-8")
     fake = _receipt(manifest, gpu=True, quality=True)
