@@ -71,6 +71,7 @@ class FoundationExecutionProfile:
         *,
         output_dir: str | Path,
         reference_loader: Any | None = None,
+        multi_reference_adapter: Any | None = None,
         pipeline_factory: Any | None = None,
         video_exporter: Any | None = None,
     ) -> DiffusersVideoRenderer:
@@ -83,6 +84,7 @@ class FoundationExecutionProfile:
             fps=self.fps,
             supported_features=frozenset({"text_to_video", "image_to_video"}),
             reference_loader=reference_loader,
+            multi_reference_adapter=multi_reference_adapter,
             pipeline_factory=pipeline_factory,
             video_exporter=video_exporter,
         )
@@ -120,6 +122,7 @@ def build_wan22_ti2v_5b_renderer(
     *,
     output_dir: str | Path,
     reference_loader: Any | None = None,
+    multi_reference_adapter: Any | None = None,
     pipeline_factory: Any | None = None,
     video_exporter: Any | None = None,
 ) -> DiffusersVideoRenderer:
@@ -127,6 +130,7 @@ def build_wan22_ti2v_5b_renderer(
     return WAN22_TI2V_5B_PROFILE.renderer(
         output_dir=output_dir,
         reference_loader=reference_loader,
+        multi_reference_adapter=multi_reference_adapter,
         pipeline_factory=pipeline_factory,
         video_exporter=video_exporter,
     )
