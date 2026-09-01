@@ -29,7 +29,6 @@ from .gpu_foundation_smoke import (
 )
 from .native_request import NativeShotRequest
 
-
 PRODUCTION_REFERENCE_MANIFEST_SCHEMA = "cineos-production-reference-manifest/0.1"
 
 
@@ -56,9 +55,13 @@ class ProductionReferenceManifestLoader:
                 f"cannot read production reference manifest: {self.manifest_path}"
             ) from exc
         if not isinstance(payload, dict):
-            raise ProductionReferenceError("production reference manifest must be an object")
+            raise ProductionReferenceError(
+                "production reference manifest must be an object"
+            )
         if payload.get("schema") != PRODUCTION_REFERENCE_MANIFEST_SCHEMA:
-            raise ProductionReferenceError("unsupported production reference manifest schema")
+            raise ProductionReferenceError(
+                "unsupported production reference manifest schema"
+            )
         raw_references = payload.get("references")
         if not isinstance(raw_references, list) or not raw_references:
             raise ProductionReferenceError(
@@ -68,10 +71,14 @@ class ProductionReferenceManifestLoader:
         records: dict[str, tuple[Path, str, str]] = {}
         for raw in raw_references:
             if not isinstance(raw, dict):
-                raise ProductionReferenceError("production reference record must be an object")
+                raise ProductionReferenceError(
+                    "production reference record must be an object"
+                )
             reference_id = str(raw.get("reference_id", "")).strip()
             if not reference_id:
-                raise ProductionReferenceError("production reference_id cannot be empty")
+                raise ProductionReferenceError(
+                    "production reference_id cannot be empty"
+                )
             if reference_id in records:
                 raise ProductionReferenceError(
                     f"duplicate production reference_id: {reference_id!r}"
@@ -172,7 +179,9 @@ def _promote_native_reference_provenance(
         raise ProductionReferenceError("unsupported GPU runtime provenance schema")
     device = provenance.get("cuda_device")
     if not isinstance(device, str) or not device.startswith("cuda"):
-        raise ProductionReferenceError("native production reference execution requires CUDA")
+        raise ProductionReferenceError(
+            "native production reference execution requires CUDA"
+        )
     boundaries = provenance.get("injected_boundaries")
     expected = {
         "torch_module": False,
