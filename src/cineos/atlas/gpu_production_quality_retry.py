@@ -15,6 +15,7 @@ from .foundation_profiles import FoundationExecutionProfile
 from .gpu_connected_benchmark import (
     GPUConnectedBenchmarkReceipt,
     _remove_stale_manifest,
+    _validate_requests,
 )
 from .gpu_foundation_smoke import execute_foundation_gpu_shot
 from .gpu_persistent_session import PersistentGPUFoundationExecutor
@@ -115,6 +116,12 @@ def run_production_quality_retry_connected_gpu_benchmark(
         raise ProductionGPUQualityRetryError(
             "production GPU benchmark requires artifact-measured sequence quality evidence"
         )
+
+    # Validate the connected-shot contract before allocating CUDA memory or loading
+    # a multi-billion-parameter foundation. Besides producing the intended error for
+    # malformed 5-10-shot suites, this prevents invalid/stale request hashes from
+    # consuming scarce production GPU time.
+    _validate_requests(requests)
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)

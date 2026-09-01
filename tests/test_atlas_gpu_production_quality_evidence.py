@@ -3,10 +3,12 @@ from types import SimpleNamespace
 import pytest
 
 import cineos.atlas.gpu_production_quality_retry as production_retry
+from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
 from cineos.atlas.gpu_production_quality_retry import (
     ProductionGPUQualityRetryError,
     run_production_quality_retry_connected_gpu_benchmark,
 )
+from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 
 
@@ -22,6 +24,52 @@ class _UnusedAttestedObserver:
 
 def _evaluator():
     return ArtifactMeasuredSequenceQualityEvaluator(_UnusedAttestedObserver())
+
+
+def _requests():
+    requests = []
+    for index in range(5):
+        request = NativeShotRequest(
+            shot_id=f"shot-{index}",
+            scene_id="scene-production-wrapper",
+            camera={"movement": "tracking"},
+            characters=[{"character_id": "lead"}],
+            environment={"location": "street"},
+            wardrobe=[],
+            props=[],
+            continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
+            performance={"action": "walk"},
+            approved_reference_ids=["lead-approved-reference"],
+            deterministic_seed=6100 + index,
+            renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
+            metadata={"prompt": f"lead continues through shot {index}"},
+        )
+        request.refresh_hash()
+        requests.append(request)
+    return requests
+
+
+def _patch_persistent(monkeypatch, capture=None):
+    class FakePersistentExecutor:
+        def __init__(self, *args, **kwargs):
+            if capture is not None:
+                capture["args"] = args
+                capture["kwargs"] = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def __call__(self, *_args, **_kwargs):
+            raise AssertionError("fake persistent executor must not render")
+
+    monkeypatch.setattr(
+        production_retry,
+        "PersistentGPUFoundationExecutor",
+        FakePersistentExecutor,
+    )
 
 
 def _receipt(manifest_path, *, gpu=True, quality=True, tier=None):
@@ -45,6 +93,7 @@ def test_production_wrapper_fails_closed_without_artifact_bound_quality(
     manifest = tmp_path / "benchmark.gpu-benchmark.json"
     manifest.write_text("stale evidence\n", encoding="utf-8")
     fake = _receipt(manifest, gpu=True, quality=False)
+    _patch_persistent(monkeypatch)
 
     monkeypatch.setattr(
         production_retry,
@@ -58,8 +107,8 @@ def test_production_wrapper_fails_closed_without_artifact_bound_quality(
     ):
         run_production_quality_retry_connected_gpu_benchmark(
             "production-qc",
-            (),
-            SimpleNamespace(),
+            _requests(),
+            WAN22_TI2V_5B_PROFILE,
             output_dir=tmp_path,
             quality_evaluator=_evaluator(),
         )
@@ -78,6 +127,7 @@ def test_production_wrapper_requires_exact_quality_gated_evidence_tier(
         quality=True,
         tier="unexpected-production-tier",
     )
+    _patch_persistent(monkeypatch)
 
     monkeypatch.setattr(
         production_retry,
@@ -91,8 +141,8 @@ def test_production_wrapper_requires_exact_quality_gated_evidence_tier(
     ):
         run_production_quality_retry_connected_gpu_benchmark(
             "production-tier",
-            (),
-            SimpleNamespace(),
+            _requests(),
+            WAN22_TI2V_5B_PROFILE,
             output_dir=tmp_path,
             quality_evaluator=_evaluator(),
         )
@@ -106,6 +156,7 @@ def test_production_wrapper_returns_only_fully_quality_gated_receipt(
     manifest = tmp_path / "benchmark.gpu-benchmark.json"
     manifest.write_text("verified evidence\n", encoding="utf-8")
     fake = _receipt(manifest, gpu=True, quality=True)
+    _patch_persistent(monkeypatch)
 
     monkeypatch.setattr(
         production_retry,
@@ -115,8 +166,8 @@ def test_production_wrapper_returns_only_fully_quality_gated_receipt(
 
     result = run_production_quality_retry_connected_gpu_benchmark(
         "production-pass",
-        (),
-        SimpleNamespace(),
+        _requests(),
+        WAN22_TI2V_5B_PROFILE,
         output_dir=tmp_path,
         quality_evaluator=_evaluator(),
     )
@@ -151,8 +202,8 @@ def test_production_wrapper_rejects_injected_runtime_kwargs_before_execution(
     ):
         run_production_quality_retry_connected_gpu_benchmark(
             "production-injected",
-            (),
-            SimpleNamespace(),
+            _requests(),
+            WAN22_TI2V_5B_PROFILE,
             output_dir=tmp_path,
             quality_evaluator=_evaluator(),
             shot_executor_kwargs={boundary: object()},
@@ -165,10 +216,12 @@ def test_production_wrapper_allows_real_runtime_tuning_kwargs(monkeypatch, tmp_p
     manifest = tmp_path / "benchmark.gpu-benchmark.json"
     manifest.write_text("verified evidence\n", encoding="utf-8")
     fake = _receipt(manifest, gpu=True, quality=True)
-    captured = {}
+    inner = {}
+    session = {}
+    _patch_persistent(monkeypatch, session)
 
     def fake_benchmark(*_args, **kwargs):
-        captured.update(kwargs)
+        inner.update(kwargs)
         return fake
 
     monkeypatch.setattr(
@@ -179,8 +232,8 @@ def test_production_wrapper_allows_real_runtime_tuning_kwargs(monkeypatch, tmp_p
 
     result = run_production_quality_retry_connected_gpu_benchmark(
         "production-tuned",
-        (),
-        SimpleNamespace(),
+        _requests(),
+        WAN22_TI2V_5B_PROFILE,
         output_dir=tmp_path,
         quality_evaluator=_evaluator(),
         shot_executor_kwargs={
@@ -190,7 +243,6 @@ def test_production_wrapper_allows_real_runtime_tuning_kwargs(monkeypatch, tmp_p
     )
 
     assert result is fake
-    assert captured["shot_executor_kwargs"] == {
-        "estimated_model_vram_gb": 18.0,
-        "prefer_bfloat16": False,
-    }
+    assert session["kwargs"]["estimated_model_vram_gb"] == 18.0
+    assert session["kwargs"]["prefer_bfloat16"] is False
+    assert inner["shot_executor_kwargs"] is None
