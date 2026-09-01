@@ -9,6 +9,11 @@ from .capabilities import (
     RendererCapabilities,
     Resolution,
 )
+from .connected_continuity_evidence import (
+    ConnectedContinuityEvidenceError,
+    production_visual_continuity_evidence,
+    validate_connected_visual_continuity,
+)
 from .diffusers_video import (
     DiffusersVideoError,
     DiffusersVideoRenderer,
@@ -79,6 +84,7 @@ __all__ = [
     "BaseRenderer",
     "AtlasRuntime",
     "CapabilityError",
+    "ConnectedContinuityEvidenceError",
     "DiffusersVideoError",
     "DiffusersVideoRenderer",
     "DiffusersVideoResult",
@@ -125,8 +131,10 @@ __all__ = [
     "ingest_native_request",
     "inspect_cuda_environment",
     "plan_gpu_execution",
+    "production_visual_continuity_evidence",
     "run_connected_gpu_benchmark",
     "run_quality_gated_connected_gpu_benchmark",
     "select_gpu_execution",
+    "validate_connected_visual_continuity",
     "validate_native_request",
 ]
