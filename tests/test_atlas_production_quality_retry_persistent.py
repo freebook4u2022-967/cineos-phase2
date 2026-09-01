@@ -43,9 +43,7 @@ def _connected_requests():
             environment={"location": "street"},
             wardrobe=[],
             props=[],
-            continuity={
-                "previous_shot": None if index == 0 else f"shot-{index - 1}"
-            },
+            continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
             performance={"action": "walk"},
             approved_reference_ids=["lead-approved-reference"],
             deterministic_seed=7100 + index,
