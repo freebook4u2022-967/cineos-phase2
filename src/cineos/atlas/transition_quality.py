@@ -102,7 +102,9 @@ def validate_transition_quality_evidence(
     declared = continuity.get("previous_shot")
     legacy = continuity.get("previous_shot_id")
     if declared is not None and legacy is not None and declared != legacy:
-        raise TransitionQualityError("current request has conflicting predecessor links")
+        raise TransitionQualityError(
+            "current request has conflicting predecessor links"
+        )
     linked_shot = declared if declared is not None else legacy
     if linked_shot != previous_shot:
         raise TransitionQualityError(
