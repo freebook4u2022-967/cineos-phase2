@@ -50,6 +50,40 @@ jobs:
               )
           PY
 
+      - name: Prefetch and verify immutable foundation snapshot
+        env:
+          HF_HOME: ${{ runner.temp }}/cineos-hf-cache
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          from huggingface_hub import snapshot_download
+
+          from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
+
+          provenance = WAN22_TI2V_5B_PROFILE.provenance
+          revision = provenance.revision
+          if revision is None:
+              raise SystemExit("production foundation profile is not revision-pinned")
+
+          snapshot_path = Path(
+              snapshot_download(
+                  repo_id=provenance.model_id,
+                  revision=revision,
+              )
+          ).resolve()
+          resolved_revision = snapshot_path.name
+          if resolved_revision != revision:
+              raise SystemExit(
+                  "foundation snapshot resolved to unexpected revision: "
+                  f"expected={revision} resolved={resolved_revision}"
+              )
+
+          print(f"foundation_model_id={provenance.model_id}")
+          print(f"foundation_revision={revision}")
+          print(f"foundation_snapshot={snapshot_path}")
+          PY
+
       - name: Run real connected GPU benchmark
         env:
           HF_HOME: ${{ runner.temp }}/cineos-hf-cache
