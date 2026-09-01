@@ -10,8 +10,18 @@ from cineos.atlas.gpu_production_quality_retry import (
 from cineos.atlas.sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 
 
+class _UnusedAttestedObserver:
+    """Valid production-observer shape for wrapper-only preflight tests."""
+
+    production_measurement_evidence = True
+    observer_id = "test-unused-production-observer/0.1"
+
+    def __call__(self, *_args, **_kwargs):
+        raise AssertionError("observer must not run in wrapper preflight tests")
+
+
 def _evaluator():
-    return ArtifactMeasuredSequenceQualityEvaluator(lambda *_args, **_kwargs: {})
+    return ArtifactMeasuredSequenceQualityEvaluator(_UnusedAttestedObserver())
 
 
 def _receipt(manifest_path, *, gpu=True, quality=True, tier=None):

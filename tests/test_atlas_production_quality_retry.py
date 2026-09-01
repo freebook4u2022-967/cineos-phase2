@@ -41,13 +41,18 @@ def _synthetic_quality_evaluator(*_args, **_kwargs):
     }
 
 
+class _UnusedAttestedObserver:
+    """Valid observer identity for gates that must reject before measurement."""
+
+    production_measurement_evidence = True
+    observer_id = "test-unused-production-observer/0.1"
+
+    def __call__(self, *_args, **_kwargs):
+        raise AssertionError("metric extractor must not run before render")
+
+
 def _measured_quality_evaluator():
-    # The extractor is intentionally never invoked in these pre-render gate tests.
-    return ArtifactMeasuredSequenceQualityEvaluator(
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("metric extractor must not run before render")
-        )
-    )
+    return ArtifactMeasuredSequenceQualityEvaluator(_UnusedAttestedObserver())
 
 
 def _injected_executor(*_args, **_kwargs):

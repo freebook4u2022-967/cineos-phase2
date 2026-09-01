@@ -493,6 +493,9 @@ class DiffusersVideoRenderer(BaseRenderer):
             return prompt.strip()
 
         parts: list[str] = []
+        action = request.metadata.get("action")
+        if isinstance(action, str) and action.strip():
+            parts.append("action: " + action.strip())
         if request.characters:
             parts.append("characters: " + ", ".join(map(str, request.characters)))
         if request.environment:
