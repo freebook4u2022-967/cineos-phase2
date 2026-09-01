@@ -15,7 +15,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .diffusers_video import DiffusersVideoError, DiffusersVideoRenderer
+from .diffusers_video import (
+    DiffusersVideoError,
+    DiffusersVideoRenderer,
+    DiffusersVideoResult,
+)
 from .native_request import NativeShotRequest
 
 
@@ -33,6 +37,18 @@ class MultiReferenceConditioningResult:
     consumed_reference_ids: tuple[str, ...]
     adapter_id: str
     adapter_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProductionDiffusersVideoResult(DiffusersVideoResult):
+    """Production render plus the exact CINEOS conditioning path used.
+
+    ``conditioning_provenance`` is intentionally separate from foundation
+    provenance. It records CINEOS-owned orchestration/conditioning without
+    implying that the external pretrained foundation itself is native CINEOS.
+    """
+
+    conditioning_provenance: dict[str, Any] | None = None
 
 
 MultiReferenceAdapter = Callable[
@@ -69,15 +85,34 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
         super().__init__(*args, **kwargs)
         self.multi_reference_adapter = multi_reference_adapter
         self._prepared_multi_reference_image: Any | None = None
+        self._conditioning_provenance: dict[str, Any] | None = None
 
-    def render(self, request: Any):
+    def render(self, request: Any) -> ProductionDiffusersVideoResult:
         self._prepared_multi_reference_image = None
+        self._conditioning_provenance = None
         if isinstance(request, NativeShotRequest) and request.approved_reference_ids:
             self._verify_reference_conditioning_path(request)
         try:
-            return super().render(request)
+            result = super().render(request)
+            return ProductionDiffusersVideoResult(
+                shot_id=result.shot_id,
+                scene_id=result.scene_id,
+                output_path=result.output_path,
+                frame_count=result.frame_count,
+                seed=result.seed,
+                foundation=result.foundation,
+                request_hash=result.request_hash,
+                artifact_sha256=result.artifact_sha256,
+                artifact_size_bytes=result.artifact_size_bytes,
+                conditioning_provenance=(
+                    dict(self._conditioning_provenance)
+                    if self._conditioning_provenance is not None
+                    else None
+                ),
+            )
         finally:
             self._prepared_multi_reference_image = None
+            self._conditioning_provenance = None
 
     def _verify_reference_conditioning_path(self, request: NativeShotRequest) -> None:
         self._validate_character_reference_lineage(request)
@@ -104,6 +139,11 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             self._prepared_multi_reference_image = self._prepare_multi_reference_image(
                 request
             )
+        else:
+            self._conditioning_provenance = {
+                "mode": "single_reference",
+                "consumed_reference_ids": list(request.approved_reference_ids),
+            }
 
     @staticmethod
     def _validate_character_reference_lineage(request: NativeShotRequest) -> None:
@@ -173,6 +213,12 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                 "multi_reference_adapter must declare non-empty adapter_id and "
                 "adapter_version provenance"
             )
+        self._conditioning_provenance = {
+            "mode": "multi_reference_adapter",
+            "consumed_reference_ids": list(result.consumed_reference_ids),
+            "adapter_id": result.adapter_id.strip(),
+            "adapter_version": result.adapter_version.strip(),
+        }
         return result.image
 
     def _load_primary_reference(self, request: NativeShotRequest) -> Any | None:
@@ -249,4 +295,5 @@ __all__ = [
     "MultiReferenceAdapter",
     "MultiReferenceConditioningResult",
     "ProductionDiffusersVideoRenderer",
+    "ProductionDiffusersVideoResult",
 ]
