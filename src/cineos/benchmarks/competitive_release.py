@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+import re
 
 from .exceptions import BenchmarkError
 from .real_evidence import validate_real_inference_evidence
@@ -18,11 +19,23 @@ from .report import BenchmarkReport
 from .seedance_competitive import seedance_competitive_suite
 
 
+_FULL_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _validated_commit_sha(value: object, *, field_name: str) -> str:
+    if not isinstance(value, str) or not _FULL_GIT_SHA_RE.fullmatch(value):
+        raise BenchmarkError(
+            f"{field_name} must be a full lowercase 40-hex Git commit SHA"
+        )
+    return value
+
+
 def validate_seedance_competitive_release(
     report: BenchmarkReport,
     *,
     case_output_dirs: Mapping[str, str | Path],
     foundation: Mapping[str, object],
+    expected_commit_sha: str | None = None,
 ) -> None:
     """Validate that a report is admissible as competitive production evidence.
 
@@ -30,6 +43,10 @@ def validate_seedance_competitive_release(
     suite content hash and renderer profile, requires one result per case, rejects
     warnings and duplicate/missing cases, verifies declared real-GPU metadata, and
     delegates each case to content-addressed real-inference validation.
+
+    When ``expected_commit_sha`` is supplied by a release workflow, the evidence must
+    name that exact checkout. This prevents a valid artifact bundle from being
+    relabelled as evidence for another CINEOS revision.
     """
 
     suite = seedance_competitive_suite()
@@ -59,9 +76,18 @@ def validate_seedance_competitive_release(
         )
     if metadata.get("real_inference") is not True:
         raise BenchmarkError("competitive report is not attested as real inference")
-    commit_sha = metadata.get("commit_sha")
-    if not isinstance(commit_sha, str) or len(commit_sha.strip()) < 7:
-        raise BenchmarkError("competitive report must bind evidence to a commit_sha")
+
+    commit_sha = _validated_commit_sha(
+        metadata.get("commit_sha"), field_name="competitive report commit_sha"
+    )
+    if expected_commit_sha is not None:
+        expected = _validated_commit_sha(
+            expected_commit_sha, field_name="expected_commit_sha"
+        )
+        if commit_sha != expected:
+            raise BenchmarkError(
+                "competitive report commit_sha does not match release checkout"
+            )
 
     expected = {case.case_id: case for case in suite.cases if case.mandatory}
     seen: dict[str, object] = {}
