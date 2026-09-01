@@ -1,3 +1,4 @@
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -28,6 +29,28 @@ def _request(index: int) -> NativeShotRequest:
     )
     request.refresh_hash()
     return request
+
+
+def _reference_manifest(tmp_path):
+    image = tmp_path / "lead.png"
+    image.write_bytes(b"approved-lead-image")
+    manifest = tmp_path / "references.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "cineos-approved-reference-manifest/0.1",
+                "references": [
+                    {
+                        "reference_id": "lead-approved-reference",
+                        "path": image.name,
+                        "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest
 
 
 def test_load_native_requests_recomputes_and_preserves_valid_hashes(tmp_path):
@@ -68,9 +91,10 @@ def _install_fake_persistent_executor(monkeypatch):
     lifecycle = []
 
     class FakePersistentExecutor:
-        def __init__(self, profile, *, output_dir):
+        def __init__(self, profile, *, output_dir, reference_loader=None):
             self.profile = profile
             self.output_dir = output_dir
+            self.reference_loader = reference_loader
             lifecycle.append(("init", profile, output_dir, self))
 
         def __enter__(self):
@@ -85,6 +109,41 @@ def _install_fake_persistent_executor(monkeypatch):
         FakePersistentExecutor,
     )
     return lifecycle
+
+
+def test_production_runner_requires_reference_manifest_before_gpu_session(
+    monkeypatch, tmp_path
+):
+    lifecycle = _install_fake_persistent_executor(monkeypatch)
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="reference-manifest"):
+        run_production_benchmark(
+            "production-evidence",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path / "renders",
+        )
+
+    assert lifecycle == []
+
+
+def test_production_runner_rejects_manifest_missing_requested_identity(
+    monkeypatch, tmp_path
+):
+    lifecycle = _install_fake_persistent_executor(monkeypatch)
+    manifest = _reference_manifest(tmp_path)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["references"][0]["reference_id"] = "somebody-else"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="lead-approved-reference"):
+        run_production_benchmark(
+            "production-evidence",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path / "renders",
+            reference_manifest=manifest,
+        )
+
+    assert lifecycle == []
 
 
 def test_production_runner_uses_one_persistent_gpu_executor(monkeypatch, tmp_path):
@@ -107,11 +166,13 @@ def test_production_runner_uses_one_persistent_gpu_executor(monkeypatch, tmp_pat
         "production-evidence",
         requests,
         output_dir=tmp_path / "renders",
+        reference_manifest=_reference_manifest(tmp_path),
     )
 
     assert receipt is fake_receipt
     assert [event[0] for event in lifecycle] == ["init", "enter", "exit"]
     executor = lifecycle[0][3]
+    assert executor.reference_loader.reference_ids == ("lead-approved-reference",)
     assert captured["kwargs"]["shot_executor"] is executor
     assert captured["kwargs"]["output_dir"] == tmp_path / "renders"
     assert (tmp_path / "renders").is_dir()
@@ -135,6 +196,7 @@ def test_production_runner_fails_closed_without_default_gpu_evidence(
             "production-evidence",
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
+            reference_manifest=_reference_manifest(tmp_path),
         )
 
 
@@ -151,6 +213,7 @@ def test_production_runner_returns_verified_default_gpu_receipt(monkeypatch, tmp
         "production-evidence",
         [_request(index) for index in range(5)],
         output_dir=tmp_path,
+        reference_manifest=_reference_manifest(tmp_path),
     )
 
     assert receipt is fake_receipt
