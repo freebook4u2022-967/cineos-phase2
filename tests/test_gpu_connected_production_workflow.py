@@ -7,7 +7,9 @@ def test_gpu_workflow_prefetches_and_verifies_pinned_foundation_revision():
     )
 
     assert "Prefetch and verify immutable foundation snapshot" in workflow
-    assert "from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE" in workflow
+    assert (
+        "from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE" in workflow
+    )
     assert "snapshot_download(" in workflow
     assert "repo_id=provenance.model_id" in workflow
     assert "revision=revision" in workflow
