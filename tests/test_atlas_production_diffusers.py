@@ -304,7 +304,9 @@ def test_text_only_production_shot_remains_supported_without_declared_reference(
     assert Path(result.output_path).read_bytes() == b"video"
 
 
-def test_director_prompt_retains_structured_identity_and_continuity_constraints(tmp_path):
+def test_director_prompt_retains_structured_identity_and_continuity_constraints(
+    tmp_path,
+):
     pipeline = KwargsPipeline()
     renderer = _renderer(
         tmp_path,
