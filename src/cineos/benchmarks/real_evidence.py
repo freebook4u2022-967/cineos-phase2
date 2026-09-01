@@ -185,9 +185,13 @@ def _validate_artifact_manifest(case: BenchmarkCase, root: Path) -> None:
             raise BenchmarkError(f"manifested benchmark artifact is missing: {name}")
         actual_size = artifact.stat().st_size
         if actual_size != declared_size:
-            raise BenchmarkError(f"benchmark artifact size does not match manifest: {name}")
+            raise BenchmarkError(
+                f"benchmark artifact size does not match manifest: {name}"
+            )
         if _sha256_file(artifact) != declared_hash:
-            raise BenchmarkError(f"benchmark artifact sha256 does not match manifest: {name}")
+            raise BenchmarkError(
+                f"benchmark artifact sha256 does not match manifest: {name}"
+            )
 
 
 def _resolve_artifact(root: Path, name: str) -> Path:
@@ -198,7 +202,9 @@ def _resolve_artifact(root: Path, name: str) -> Path:
     try:
         artifact.relative_to(root)
     except ValueError as exc:
-        raise BenchmarkError("benchmark output escapes the case output directory") from exc
+        raise BenchmarkError(
+            "benchmark output escapes the case output directory"
+        ) from exc
     return artifact
 
 
