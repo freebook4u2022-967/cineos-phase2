@@ -212,14 +212,20 @@ class ArtifactMeasuredTransitionQualityEvaluator:
         if raw.get("schema") != TRANSITION_QUALITY_SCHEMA:
             raise TransitionQualityError("unsupported transition observer schema")
         if raw.get("observer_id") != self.observer_id:
-            raise TransitionQualityError("transition observer id changed during measurement")
+            raise TransitionQualityError(
+                "transition observer id changed during measurement"
+            )
         if raw.get("previous_output_sha256") != previous_sha:
-            raise TransitionQualityError("transition observer predecessor hash mismatch")
+            raise TransitionQualityError(
+                "transition observer predecessor hash mismatch"
+            )
         if raw.get("current_output_sha256") != current_sha:
             raise TransitionQualityError("transition observer current hash mismatch")
         sample_count = raw.get("measured_sample_count")
         if not isinstance(sample_count, int) or isinstance(sample_count, bool):
-            raise TransitionQualityError("transition observer sample count must be integer")
+            raise TransitionQualityError(
+                "transition observer sample count must be integer"
+            )
         if sample_count <= 0:
             raise TransitionQualityError("transition observer measured no samples")
 
@@ -233,7 +239,9 @@ class ArtifactMeasuredTransitionQualityEvaluator:
             ("motion_boundary_consistency", motion),
         ):
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise TransitionQualityError(f"transition metric {name} must be numeric")
+                raise TransitionQualityError(
+                    f"transition metric {name} must be numeric"
+                )
             if not 0.0 <= float(value) <= 1.0:
                 raise TransitionQualityError(f"transition metric {name} out of range")
 
@@ -246,7 +254,9 @@ class ArtifactMeasuredTransitionQualityEvaluator:
             )
         if float(motion) < self.policy.motion_boundary_floor:
             failures.append("motion_boundary_consistency")
-            directives.append("preserve physically coherent motion across the shot boundary")
+            directives.append(
+                "preserve physically coherent motion across the shot boundary"
+            )
 
         return {
             "schema": TRANSITION_QUALITY_SCHEMA,
