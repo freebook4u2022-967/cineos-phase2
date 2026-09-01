@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .diffusers_video import DiffusersVideoRenderer, FoundationProvenance
-from .production_diffusers import ProductionDiffusersVideoRenderer
+from .production_continuity_diffusers import ProductionContinuityDiffusersVideoRenderer
 
 EXTERNAL_PRETRAINED_FOUNDATION = "external_pretrained_foundation"
 WAN22_TI2V_5B_DIFFUSERS_REVISION = "4c6ca6c2ded5c79550a3ca25555efc561112891a"
@@ -76,7 +76,7 @@ class FoundationExecutionProfile:
         video_exporter: Any | None = None,
     ) -> DiffusersVideoRenderer:
         """Build the strict production renderer for this pinned foundation."""
-        return ProductionDiffusersVideoRenderer(
+        return ProductionContinuityDiffusersVideoRenderer(
             self.provenance,
             output_dir=output_dir,
             resolutions=self.resolutions,
