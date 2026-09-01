@@ -143,6 +143,39 @@ def test_kwargs_pipeline_receives_reference_and_execution_controls(tmp_path):
     assert call["generator"] == 7
 
 
+def test_production_multiple_references_fail_closed_instead_of_using_only_first(
+    tmp_path,
+):
+    pipeline = ImagePipeline()
+    loaded_references = []
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: loaded_references.append(reference_id)
+        or f"image:{reference_id}",
+    )
+
+    with pytest.raises(DiffusersVideoError, match="cannot safely consume multiple"):
+        renderer.render(_request(references=("hero-front", "partner-front")))
+
+    assert loaded_references == []
+    assert pipeline.calls == []
+
+
+def test_kwargs_pipeline_cannot_hide_partial_multi_reference_conditioning(tmp_path):
+    pipeline = KwargsPipeline()
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+    )
+
+    with pytest.raises(DiffusersVideoError, match="cannot safely consume multiple"):
+        renderer.render(_request(references=("hero-front", "partner-front")))
+
+    assert pipeline.calls == []
+
+
 def test_text_only_production_shot_remains_supported_without_declared_reference(
     tmp_path,
 ):
