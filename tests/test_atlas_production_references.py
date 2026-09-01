@@ -57,7 +57,9 @@ def test_first_party_hash_bound_loader_is_standard_production_boundary(tmp_path)
 
 
 def test_arbitrary_reference_callable_remains_injected():
-    runtime = bind_production_reference_runtime(_runtime(), lambda _reference_id: object())
+    runtime = bind_production_reference_runtime(
+        _runtime(), lambda _reference_id: object()
+    )
 
     assert runtime["runtime_mode"] == "injected"
     assert runtime["production_default_runtime"] is False
@@ -103,5 +105,7 @@ def test_manifest_rejects_duplicate_reference_ids(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(ProductionReferenceError, match="duplicate approved reference_id"):
+    with pytest.raises(
+        ProductionReferenceError, match="duplicate approved reference_id"
+    ):
         ProductionReferenceLoader(manifest)
