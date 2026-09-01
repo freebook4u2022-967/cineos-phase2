@@ -72,12 +72,14 @@ def test_attested_evaluator_measures_and_binds_both_artifacts(tmp_path: Path) ->
     assert report["accepted"] is True
     assert report["production_measurement_evidence"] is True
     assert report["measured_sample_count"] == 6
-    assert report["previous_output_sha256"] == hashlib.sha256(
-        previous.read_bytes()
-    ).hexdigest()
-    assert report["current_output_sha256"] == hashlib.sha256(
-        current.read_bytes()
-    ).hexdigest()
+    assert (
+        report["previous_output_sha256"]
+        == hashlib.sha256(previous.read_bytes()).hexdigest()
+    )
+    assert (
+        report["current_output_sha256"]
+        == hashlib.sha256(current.read_bytes()).hexdigest()
+    )
 
 
 def test_attested_evaluator_generates_rerender_directives_for_bad_seam(

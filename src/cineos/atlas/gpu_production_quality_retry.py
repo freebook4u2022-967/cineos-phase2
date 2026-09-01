@@ -209,7 +209,9 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
         raise ProductionGPUQualityRetryError("continuity quality gate is missing")
     if gate.get("transition_gate_applied") is not True:
         _remove_stale_manifest(manifest)
-        raise ProductionGPUQualityRetryError("production transition gate was not applied")
+        raise ProductionGPUQualityRetryError(
+            "production transition gate was not applied"
+        )
     if gate.get("accepted_transition_count") != expected:
         _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError(
@@ -221,7 +223,9 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
         raise ProductionGPUQualityRetryError(
             "production transition evidence list does not cover every shot boundary"
         )
-    if any(item.get("production_measurement_evidence") is not True for item in transitions):
+    if any(
+        item.get("production_measurement_evidence") is not True for item in transitions
+    ):
         _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError(
             "one or more accepted transitions lack production measurement evidence"
