@@ -357,3 +357,52 @@ def test_character_reference_lineage_cannot_escape_shot_approval(tmp_path):
         renderer.render(request)
 
     assert pipeline.calls == []
+
+
+def test_single_reference_result_attests_exact_conditioning_lineage(tmp_path):
+    renderer = _renderer(
+        tmp_path,
+        ImagePipeline(),
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+    )
+
+    result = renderer.render(_request())
+
+    assert result.conditioning_provenance == {
+        "mode": "single_reference",
+        "consumed_reference_ids": ["hero-front"],
+    }
+
+
+def test_multi_reference_result_attests_adapter_provenance(tmp_path):
+    def adapter(request, _references):
+        return MultiReferenceConditioningResult(
+            image="composed",
+            consumed_reference_ids=tuple(request.approved_reference_ids),
+            adapter_id="cineos.reference-compositor",
+            adapter_version="1.3.2",
+        )
+
+    renderer = _renderer(
+        tmp_path,
+        ImagePipeline(),
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+        multi_reference_adapter=adapter,
+    )
+
+    result = renderer.render(_request(references=("hero-front", "partner-front")))
+
+    assert result.conditioning_provenance == {
+        "mode": "multi_reference_adapter",
+        "consumed_reference_ids": ["hero-front", "partner-front"],
+        "adapter_id": "cineos.reference-compositor",
+        "adapter_version": "1.3.2",
+    }
+
+
+def test_text_only_result_does_not_claim_visual_conditioning(tmp_path):
+    renderer = _renderer(tmp_path, TextOnlyPipeline())
+
+    result = renderer.render(_request(references=()))
+
+    assert result.conditioning_provenance is None
