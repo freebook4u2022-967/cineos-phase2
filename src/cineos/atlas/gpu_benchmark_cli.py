@@ -120,7 +120,9 @@ def _production_multi_reference_adapter(
 ) -> ProductionReferenceBoardAdapter | None:
     """Enable the audited board only when a shot genuinely declares >1 reference."""
 
-    maximum = max((len(request.approved_reference_ids) for request in requests), default=0)
+    maximum = max(
+        (len(request.approved_reference_ids) for request in requests), default=0
+    )
     if maximum <= 1:
         return None
     if maximum > ProductionReferenceBoardAdapter.maximum_references:
