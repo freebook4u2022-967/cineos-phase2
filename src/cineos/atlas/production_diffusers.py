@@ -10,6 +10,7 @@ references cannot actually reach the foundation pipeline.
 from __future__ import annotations
 
 import inspect
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -52,6 +53,11 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
     audited ``multi_reference_adapter`` which must consume every approved reference
     and return one composed conditioning image. Without that adapter, production
     requests fail closed rather than silently forwarding only the first reference.
+
+    Production prompt compilation also appends compact CINEOS-owned identity and
+    continuity constraints to any director-authored prompt. This prevents an
+    explicit prompt from accidentally suppressing structured CineDNA invariants or
+    reference-to-character lineage before external-foundation inference.
     """
 
     def __init__(
@@ -74,6 +80,7 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             self._prepared_multi_reference_image = None
 
     def _verify_reference_conditioning_path(self, request: NativeShotRequest) -> None:
+        self._validate_character_reference_lineage(request)
         if self.reference_loader is None:
             raise DiffusersVideoError(
                 "production shot declares approved_reference_ids but no "
@@ -97,6 +104,33 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             self._prepared_multi_reference_image = self._prepare_multi_reference_image(
                 request
             )
+
+    @staticmethod
+    def _validate_character_reference_lineage(request: NativeShotRequest) -> None:
+        """Reject character-level references that escape the approved shot lineage."""
+
+        approved = set(request.approved_reference_ids)
+        for index, character in enumerate(request.characters):
+            if not isinstance(character, dict):
+                raise DiffusersVideoError(
+                    f"production character conditioning {index} must be an object"
+                )
+            raw_ids = character.get("approved_reference_ids", [])
+            if not isinstance(raw_ids, (list, tuple)) or any(
+                not isinstance(reference_id, str) or not reference_id.strip()
+                for reference_id in raw_ids
+            ):
+                raise DiffusersVideoError(
+                    "character approved_reference_ids must be a sequence of non-empty "
+                    "strings"
+                )
+            escaped = [reference_id for reference_id in raw_ids if reference_id not in approved]
+            if escaped:
+                character_id = character.get("character_uuid", f"index:{index}")
+                raise DiffusersVideoError(
+                    "character conditioning references are not approved by the shot: "
+                    f"{character_id!r} -> {', '.join(escaped)}"
+                )
 
     def _prepare_multi_reference_image(self, request: NativeShotRequest) -> Any:
         if self.multi_reference_adapter is None:
@@ -154,6 +188,59 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                 f"shot {request.shot_id!r}"
             )
         return reference
+
+    @staticmethod
+    def _compile_prompt(request: NativeShotRequest) -> str:
+        """Preserve director prompt while injecting structured production constraints.
+
+        The base renderer historically returned ``metadata['prompt']`` verbatim when
+        present. For production that discards structured character identity and
+        continuity information exactly when a high-quality hand-authored prompt is
+        supplied. We retain that prompt, then append deterministic compact JSON with
+        only identity/continuity fields that materially affect connected-shot quality.
+        """
+
+        base_prompt = DiffusersVideoRenderer._compile_prompt(request)
+        character_constraints: list[dict[str, Any]] = []
+        for character in request.characters:
+            if not isinstance(character, dict):
+                continue
+            constraint: dict[str, Any] = {}
+            character_id = character.get("character_uuid")
+            if isinstance(character_id, str) and character_id.strip():
+                constraint["character_uuid"] = character_id.strip()
+            reference_ids = character.get("approved_reference_ids")
+            if isinstance(reference_ids, (list, tuple)) and reference_ids:
+                constraint["approved_reference_ids"] = list(reference_ids)
+            invariants = character.get("identity_invariants")
+            if isinstance(invariants, list) and invariants:
+                constraint["identity_invariants"] = list(invariants)
+            face_constraints = character.get("face_constraints")
+            if isinstance(face_constraints, dict) and face_constraints:
+                constraint["face_constraints"] = dict(face_constraints)
+            body_constraints = character.get("body_constraints")
+            if isinstance(body_constraints, dict) and body_constraints:
+                constraint["body_constraints"] = dict(body_constraints)
+            if constraint:
+                character_constraints.append(constraint)
+
+        structured: dict[str, Any] = {}
+        if request.approved_reference_ids:
+            structured["reference_board_order"] = list(request.approved_reference_ids)
+        if character_constraints:
+            structured["characters"] = character_constraints
+        if request.continuity:
+            structured["continuity"] = request.continuity
+
+        if not structured:
+            return base_prompt
+        suffix = json.dumps(
+            structured,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        return f"{base_prompt}\nCINEOS production constraints (must preserve): {suffix}"
 
 
 __all__ = [
