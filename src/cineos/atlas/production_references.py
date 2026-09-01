@@ -182,9 +182,40 @@ class ProductionReferenceLoader:
             ) from exc
 
 
+def bind_production_reference_runtime(
+    runtime: Mapping[str, Any], reference_loader: Any | None
+) -> dict[str, Any]:
+    """Promote only the exact first-party loader to the standard production runtime.
+
+    Generic callable loaders remain injected boundaries. Approved local asset
+    resolution is a normal CINEOS production responsibility, not borrowed model
+    capability or a test hook. The immutable manifest digest is attached to the
+    runtime receipt so the promotion stays auditable.
+    """
+
+    normalized = dict(runtime)
+    boundaries = normalized.get("injected_boundaries")
+    if not isinstance(reference_loader, ProductionReferenceLoader):
+        return normalized
+    if not isinstance(boundaries, Mapping):
+        raise ProductionReferenceError(
+            "GPU runtime provenance is missing injected-boundary evidence"
+        )
+
+    updated_boundaries = dict(boundaries)
+    updated_boundaries["reference_loader"] = False
+    normalized["injected_boundaries"] = updated_boundaries
+    runtime_mode = "injected" if any(updated_boundaries.values()) else "default"
+    normalized["runtime_mode"] = runtime_mode
+    normalized["production_default_runtime"] = runtime_mode == "default"
+    normalized["reference_assets"] = reference_loader.runtime_provenance()
+    return normalized
+
+
 __all__ = [
     "ProductionReferenceError",
     "ProductionReferenceLoader",
     "REFERENCE_MANIFEST_SCHEMA",
     "REFERENCE_RUNTIME_SCHEMA",
+    "bind_production_reference_runtime",
 ]
