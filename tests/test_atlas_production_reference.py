@@ -141,7 +141,9 @@ def test_native_reference_provenance_rejects_other_injected_boundary() -> None:
         },
     }
 
-    with pytest.raises(ProductionReferenceError, match="only native reference resolution"):
+    with pytest.raises(
+        ProductionReferenceError, match="only native reference resolution"
+    ):
         _promote_native_reference_provenance(
             provenance,
             manifest_sha256="a" * 64,
