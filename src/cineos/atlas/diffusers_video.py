@@ -210,6 +210,10 @@ class DiffusersVideoRenderer(BaseRenderer):
 
         call = self._pipeline.__call__
         parameters = inspect.signature(call).parameters
+        accepts_kwargs = any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
         camera = request.camera
         width, height = tuple(camera.get("resolution", (832, 480)))
         fps = float(camera.get("fps", 24.0))
@@ -222,16 +226,20 @@ class DiffusersVideoRenderer(BaseRenderer):
             "height": height,
             "num_frames": num_frames,
         }
-        if "generator" in parameters:
+        if "generator" in parameters or accepts_kwargs:
             kwargs["generator"] = self._generator(request.deterministic_seed)
 
-        if "image" in parameters:
+        if "image" in parameters or accepts_kwargs:
             image = self._load_primary_reference(request)
             if image is not None:
                 kwargs["image"] = image
 
         kwargs.update(self._compile_inference_controls(request, parameters))
-        filtered = {key: value for key, value in kwargs.items() if key in parameters}
+        filtered = (
+            kwargs
+            if accepts_kwargs
+            else {key: value for key, value in kwargs.items() if key in parameters}
+        )
         output = call(**filtered)
         frames = self._extract_frames(output)
         output_path = self.output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
@@ -415,9 +423,13 @@ class DiffusersVideoRenderer(BaseRenderer):
         if direct_negative is not None:
             controls["negative_prompt"] = direct_negative
 
+        accepts_kwargs = any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
         result: dict[str, Any] = {}
         for key in cls._INFERENCE_CONTROL_KEYS:
-            if key not in controls or key not in parameters:
+            if key not in controls or (key not in parameters and not accepts_kwargs):
                 continue
             value = controls[key]
             cls._validate_inference_control(key, value)
@@ -434,76 +446,67 @@ class DiffusersVideoRenderer(BaseRenderer):
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise DiffusersVideoError(f"{key} must be a positive integer")
             return
-        if key in {"guidance_scale", "strength"}:
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise DiffusersVideoError(f"{key} must be numeric")
-            numeric = float(value)
-            if key == "guidance_scale" and numeric < 0:
-                raise DiffusersVideoError("guidance_scale must be non-negative")
-            if key == "strength" and not 0 <= numeric <= 1:
-                raise DiffusersVideoError("strength must be between 0 and 1")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise DiffusersVideoError(f"{key} must be numeric")
+        if key == "guidance_scale" and float(value) < 0:
+            raise DiffusersVideoError("guidance_scale must be non-negative")
+        if key == "strength" and not 0.0 <= float(value) <= 1.0:
+            raise DiffusersVideoError("strength must be between 0 and 1")
+
+    @staticmethod
+    def _extract_frames(output: Any) -> list[Any]:
+        frames = getattr(output, "frames", None)
+        if frames is None:
+            if isinstance(output, dict):
+                frames = output.get("frames")
+        if frames is None:
+            raise DiffusersVideoError("pipeline result does not contain frames")
+        if isinstance(frames, tuple):
+            frames = list(frames)
+        if not isinstance(frames, list):
+            raise DiffusersVideoError("pipeline frames must be a list")
+        if frames and isinstance(frames[0], list):
+            frames = frames[0]
+        if not frames:
+            raise DiffusersVideoError("pipeline returned no frames")
+        return list(frames)
 
     def _resolve_exporter(self) -> VideoExporter:
         if self._video_exporter is not None:
             return self._video_exporter
         try:
-            utils = import_module("diffusers.utils")
+            module = import_module("diffusers.utils")
         except ImportError as exc:
             raise DiffusersVideoError(
-                "video export requires the optional 'video' dependencies"
+                "video export requires diffusers.utils.export_to_video"
             ) from exc
-        self._video_exporter = utils.export_to_video
-        return self._video_exporter
-
-    @staticmethod
-    def _extract_frames(output: Any) -> list[Any]:
-        frames = getattr(output, "frames", None)
-        if frames is None and isinstance(output, dict):
-            frames = output.get("frames")
-        if frames is None:
-            raise DiffusersVideoError("pipeline output does not expose video frames")
-        if isinstance(frames, tuple):
-            frames = list(frames)
-        if frames and isinstance(frames[0], list):
-            frames = frames[0]
-        result = list(frames)
-        if not result:
-            raise DiffusersVideoError("pipeline returned zero video frames")
-        return result
+        exporter = getattr(module, "export_to_video", None)
+        if not callable(exporter):
+            raise DiffusersVideoError("diffusers.utils.export_to_video is unavailable")
+        self._video_exporter = exporter
+        return exporter
 
     @staticmethod
     def _compile_prompt(request: NativeShotRequest) -> str:
-        """Convert structured CINEOS conditioning into deterministic model text."""
-        fragments: list[str] = []
-        explicit = request.metadata.get("prompt") or request.metadata.get("action")
-        if explicit:
-            fragments.append(str(explicit))
+        prompt = request.metadata.get("prompt")
+        if isinstance(prompt, str) and prompt.strip():
+            return prompt.strip()
 
-        for character in request.characters:
-            identity = character.get("identity_invariants", [])
-            if identity:
-                fragments.append("character identity: " + ", ".join(map(str, identity)))
-
+        parts: list[str] = []
+        if request.characters:
+            parts.append("characters: " + ", ".join(map(str, request.characters)))
         if request.environment:
-            description = request.environment.get(
-                "description"
-            ) or request.environment.get("name")
-            if description:
-                fragments.append(f"environment: {description}")
+            parts.append("environment: " + str(request.environment))
+        if request.performance:
+            parts.append("performance: " + str(request.performance))
+        if request.continuity:
+            parts.append("continuity: " + str(request.continuity))
+        return "; ".join(parts) or f"cinematic shot {request.shot_id}"
 
-        camera = request.camera
-        for key in ("shot_size", "angle", "movement", "lens"):
-            value = camera.get(key)
-            if value:
-                fragments.append(f"camera {key.replace('_', ' ')}: {value}")
 
-        facial = request.performance.get("facial_targets")
-        if facial:
-            fragments.append(f"facial performance: {facial}")
-        gestures = request.performance.get("gesture_tracks")
-        if gestures:
-            fragments.append(f"gestures: {gestures}")
-
-        if not fragments:
-            fragments.append(f"cinematic shot {request.shot_id}")
-        return ". ".join(fragments)
+__all__ = [
+    "DiffusersVideoError",
+    "DiffusersVideoRenderer",
+    "DiffusersVideoResult",
+    "FoundationProvenance",
+]
