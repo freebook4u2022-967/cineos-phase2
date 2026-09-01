@@ -93,7 +93,7 @@ def test_sequence_reuses_one_loaded_pipeline_across_five_shots(tmp_path):
 
     assert len(factory_calls) == 1
     assert len(pipeline.calls) == 5
-    assert pipeline.references == ["loaded:hero-approved-front"] * 5
+    assert pipeline.references == ["loaded:hero-approved-front"] + ["frame-24"] * 4
     assert receipt["shot_count"] == 5
     assert receipt["runtime"]["persistent_model_session"] is True
     assert receipt["conditioning"] == {
@@ -155,7 +155,7 @@ def test_sequence_qc_rejects_preserves_and_rerenders_in_same_session(tmp_path):
     )
 
     assert len(pipeline.calls) == 6
-    assert pipeline.references == ["loaded:hero-approved-front"] * 6
+    assert pipeline.references == ["loaded:hero-approved-front"] * 2 + ["frame-24"] * 4
     assert receipt["quality_control"]["enabled"] is True
     assert receipt["quality_control"]["rejected_candidate_count"] == 1
     first = receipt["shots"][0]
