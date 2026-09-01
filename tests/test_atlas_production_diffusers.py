@@ -210,9 +210,7 @@ def test_audited_multi_reference_adapter_consumes_all_references_before_inferenc
 
     renderer.render(_request(references=("hero-front", "partner-front")))
 
-    assert adapter_calls == [
-        ("shot-001", ("image:hero-front", "image:partner-front"))
-    ]
+    assert adapter_calls == [("shot-001", ("image:hero-front", "image:partner-front"))]
     assert pipeline.calls == ["composed:hero+partner"]
 
 
@@ -240,7 +238,9 @@ def test_multi_reference_adapter_must_attest_every_reference_in_request_order(tm
     assert pipeline.calls == []
 
 
-def test_multi_reference_adapter_rejects_unresolved_reference_before_inference(tmp_path):
+def test_multi_reference_adapter_rejects_unresolved_reference_before_inference(
+    tmp_path,
+):
     pipeline = ImagePipeline()
     adapter_called = False
 
@@ -257,9 +257,9 @@ def test_multi_reference_adapter_rejects_unresolved_reference_before_inference(t
     renderer = _renderer(
         tmp_path,
         pipeline,
-        reference_loader=lambda reference_id: None
-        if reference_id == "partner-front"
-        else f"image:{reference_id}",
+        reference_loader=lambda reference_id: (
+            None if reference_id == "partner-front" else f"image:{reference_id}"
+        ),
         multi_reference_adapter=adapter,
     )
 
