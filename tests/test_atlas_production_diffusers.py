@@ -5,7 +5,10 @@ import pytest
 from cineos.atlas.diffusers_video import DiffusersVideoError, FoundationProvenance
 from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
 from cineos.atlas.native_request import NativeShotRequest
-from cineos.atlas.production_diffusers import ProductionDiffusersVideoRenderer
+from cineos.atlas.production_diffusers import (
+    MultiReferenceConditioningResult,
+    ProductionDiffusersVideoRenderer,
+)
 
 
 class FakeOutput:
@@ -64,11 +67,18 @@ def _request(*, references=("hero-front",)):
     return request
 
 
-def _renderer(tmp_path, pipeline, *, reference_loader=None):
+def _renderer(
+    tmp_path,
+    pipeline,
+    *,
+    reference_loader=None,
+    multi_reference_adapter=None,
+):
     renderer = ProductionDiffusersVideoRenderer(
         FoundationProvenance(model_id="external/foundation"),
         output_dir=tmp_path,
         reference_loader=reference_loader,
+        multi_reference_adapter=multi_reference_adapter,
         pipeline_factory=lambda *_args, **_kwargs: pipeline,
         video_exporter=lambda _frames, path, *, fps: Path(path).write_bytes(b"video"),
     )
@@ -155,7 +165,7 @@ def test_production_multiple_references_fail_closed_instead_of_using_only_first(
         or f"image:{reference_id}",
     )
 
-    with pytest.raises(DiffusersVideoError, match="cannot safely consume multiple"):
+    with pytest.raises(DiffusersVideoError, match="multi_reference_adapter"):
         renderer.render(_request(references=("hero-front", "partner-front")))
 
     assert loaded_references == []
@@ -170,7 +180,115 @@ def test_kwargs_pipeline_cannot_hide_partial_multi_reference_conditioning(tmp_pa
         reference_loader=lambda reference_id: f"image:{reference_id}",
     )
 
-    with pytest.raises(DiffusersVideoError, match="cannot safely consume multiple"):
+    with pytest.raises(DiffusersVideoError, match="multi_reference_adapter"):
+        renderer.render(_request(references=("hero-front", "partner-front")))
+
+    assert pipeline.calls == []
+
+
+def test_audited_multi_reference_adapter_consumes_all_references_before_inference(
+    tmp_path,
+):
+    pipeline = ImagePipeline()
+    adapter_calls = []
+
+    def adapter(request, references):
+        adapter_calls.append((request.shot_id, references))
+        return MultiReferenceConditioningResult(
+            image="composed:hero+partner",
+            consumed_reference_ids=tuple(request.approved_reference_ids),
+            adapter_id="cineos.reference-compositor",
+            adapter_version="1.0",
+        )
+
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+        multi_reference_adapter=adapter,
+    )
+
+    renderer.render(_request(references=("hero-front", "partner-front")))
+
+    assert adapter_calls == [
+        ("shot-001", ("image:hero-front", "image:partner-front"))
+    ]
+    assert pipeline.calls == ["composed:hero+partner"]
+
+
+def test_multi_reference_adapter_must_attest_every_reference_in_request_order(tmp_path):
+    pipeline = ImagePipeline()
+
+    def adapter(_request, _references):
+        return MultiReferenceConditioningResult(
+            image="partial-composition",
+            consumed_reference_ids=("hero-front",),
+            adapter_id="cineos.reference-compositor",
+            adapter_version="1.0",
+        )
+
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+        multi_reference_adapter=adapter,
+    )
+
+    with pytest.raises(DiffusersVideoError, match="every approved reference"):
+        renderer.render(_request(references=("hero-front", "partner-front")))
+
+    assert pipeline.calls == []
+
+
+def test_multi_reference_adapter_rejects_unresolved_reference_before_inference(tmp_path):
+    pipeline = ImagePipeline()
+    adapter_called = False
+
+    def adapter(request, references):
+        nonlocal adapter_called
+        adapter_called = True
+        return MultiReferenceConditioningResult(
+            image="composed",
+            consumed_reference_ids=tuple(request.approved_reference_ids),
+            adapter_id="cineos.reference-compositor",
+            adapter_version="1.0",
+        )
+
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: None
+        if reference_id == "partner-front"
+        else f"image:{reference_id}",
+        multi_reference_adapter=adapter,
+    )
+
+    with pytest.raises(DiffusersVideoError, match="partner-front"):
+        renderer.render(_request(references=("hero-front", "partner-front")))
+
+    assert adapter_called is False
+    assert pipeline.calls == []
+
+
+def test_multi_reference_adapter_requires_nonempty_provenance(tmp_path):
+    pipeline = ImagePipeline()
+
+    def adapter(request, _references):
+        return MultiReferenceConditioningResult(
+            image="composed",
+            consumed_reference_ids=tuple(request.approved_reference_ids),
+            adapter_id="",
+            adapter_version="1.0",
+        )
+
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+        multi_reference_adapter=adapter,
+    )
+
+    with pytest.raises(DiffusersVideoError, match="adapter_id"):
         renderer.render(_request(references=("hero-front", "partner-front")))
 
     assert pipeline.calls == []
