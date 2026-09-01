@@ -9,15 +9,14 @@ blocker rather than being converted into a synthetic pass.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
-import re
 
 from .exceptions import BenchmarkError
 from .real_evidence import validate_real_inference_evidence
 from .report import BenchmarkReport
 from .seedance_competitive import seedance_competitive_suite
-
 
 _FULL_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
