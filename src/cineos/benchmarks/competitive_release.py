@@ -2,9 +2,10 @@
 
 This module deliberately validates *production evidence*, not architecture readiness.
 A competitive claim requires the exact versioned suite, every mandatory case exactly
-once, real GPU execution metadata, explicit external-foundation provenance, and
-content-addressed artifact validation for every case. Missing GPU evidence remains a
-blocker rather than being converted into a synthetic pass.
+once, real GPU execution metadata, explicit external-foundation provenance, an
+immutable upstream foundation revision, and content-addressed artifact validation for
+every case. Missing GPU evidence remains a blocker rather than being converted into a
+synthetic pass.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from .report import BenchmarkReport
 from .seedance_competitive import seedance_competitive_suite
 
 _FULL_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_FOUNDATION_REVISION_RE = re.compile(r"^[0-9a-f]{40,64}$")
 
 
 def _validated_commit_sha(value: object, *, field_name: str) -> str:
@@ -29,23 +31,44 @@ def _validated_commit_sha(value: object, *, field_name: str) -> str:
     return value
 
 
+def _validated_foundation_revision(value: object) -> str:
+    """Require an immutable content revision for an external foundation.
+
+    Hugging Face and compatible model registries commonly expose immutable commit
+    identifiers as hexadecimal object IDs. Branches such as ``main`` and mutable tags
+    are intentionally rejected here: a production benchmark must remain reproducible
+    even if the upstream repository later changes.
+    """
+
+    if not isinstance(value, str) or not _FOUNDATION_REVISION_RE.fullmatch(value):
+        raise BenchmarkError(
+            "competitive foundation revision must be an immutable lowercase "
+            "40-64 hex object ID"
+        )
+    return value
+
+
 def validate_seedance_competitive_release(
     report: BenchmarkReport,
     *,
     case_output_dirs: Mapping[str, str | Path],
     foundation: Mapping[str, object],
     expected_commit_sha: str | None = None,
+    expected_foundation_revision: str | None = None,
 ) -> None:
     """Validate that a report is admissible as competitive production evidence.
 
     The gate is intentionally strict. It binds the report to the exact competitive
     suite content hash and renderer profile, requires one result per case, rejects
-    warnings and duplicate/missing cases, verifies declared real-GPU metadata, and
-    delegates each case to content-addressed real-inference validation.
+    warnings and duplicate/missing cases, verifies declared real-GPU metadata, pins
+    the external foundation to an immutable upstream revision, and delegates each
+    case to content-addressed real-inference validation.
 
     When ``expected_commit_sha`` is supplied by a release workflow, the evidence must
     name that exact checkout. This prevents a valid artifact bundle from being
-    relabelled as evidence for another CINEOS revision.
+    relabelled as evidence for another CINEOS revision. Likewise,
+    ``expected_foundation_revision`` can bind release validation to the exact external
+    pretrained weights resolved by the GPU workflow.
     """
 
     suite = seedance_competitive_suite()
@@ -86,6 +109,21 @@ def validate_seedance_competitive_release(
         if commit_sha != expected:
             raise BenchmarkError(
                 "competitive report commit_sha does not match release checkout"
+            )
+
+    if foundation.get("origin") != "external_pretrained_foundation":
+        raise BenchmarkError(
+            "competitive foundation must declare external_pretrained_foundation origin"
+        )
+    model_id = foundation.get("model_id")
+    if not isinstance(model_id, str) or not model_id.strip():
+        raise BenchmarkError("competitive foundation must declare model_id")
+    foundation_revision = _validated_foundation_revision(foundation.get("revision"))
+    if expected_foundation_revision is not None:
+        expected_revision = _validated_foundation_revision(expected_foundation_revision)
+        if foundation_revision != expected_revision:
+            raise BenchmarkError(
+                "competitive foundation revision does not match release foundation"
             )
 
     expected = {case.case_id: case for case in suite.cases if case.mandatory}
