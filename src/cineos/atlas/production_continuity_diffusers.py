@@ -23,7 +23,6 @@ from .diffusers_video import DiffusersVideoError, DiffusersVideoRenderer
 from .native_request import NativeShotRequest
 from .production_diffusers import ProductionDiffusersVideoRenderer
 
-
 VISUAL_CONTINUITY_SCHEMA = "cineos-visual-continuity-conditioning/0.1"
 
 

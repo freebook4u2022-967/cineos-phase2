@@ -6,8 +6,8 @@ from cineos.atlas.diffusers_video import DiffusersVideoError, FoundationProvenan
 from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.production_continuity_diffusers import (
-    ProductionContinuityDiffusersVideoRenderer,
     VISUAL_CONTINUITY_SCHEMA,
+    ProductionContinuityDiffusersVideoRenderer,
 )
 
 
