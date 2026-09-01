@@ -302,3 +302,56 @@ def test_text_only_production_shot_remains_supported_without_declared_reference(
     result = renderer.render(_request(references=()))
 
     assert Path(result.output_path).read_bytes() == b"video"
+
+
+def test_director_prompt_retains_structured_identity_and_continuity_constraints(tmp_path):
+    pipeline = KwargsPipeline()
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+    )
+    request = _request()
+    request.characters = [
+        {
+            "character_uuid": "hero",
+            "approved_reference_ids": ["hero-front"],
+            "identity_invariants": ["same face", "same short black hair"],
+            "face_constraints": {"age": "30s"},
+            "body_constraints": {"build": "lean"},
+        }
+    ]
+    request.continuity = {"previous_shot_id": "shot-000", "wardrobe_lock": True}
+    request.refresh_hash()
+
+    renderer.render(request)
+
+    prompt = pipeline.calls[0]["prompt"]
+    assert prompt.startswith("hero walks toward camera\nCINEOS production constraints")
+    assert '"character_uuid":"hero"' in prompt
+    assert '"approved_reference_ids":["hero-front"]' in prompt
+    assert '"identity_invariants":["same face","same short black hair"]' in prompt
+    assert '"previous_shot_id":"shot-000"' in prompt
+    assert '"reference_board_order":["hero-front"]' in prompt
+
+
+def test_character_reference_lineage_cannot_escape_shot_approval(tmp_path):
+    pipeline = ImagePipeline()
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+    )
+    request = _request()
+    request.characters = [
+        {
+            "character_uuid": "hero",
+            "approved_reference_ids": ["unapproved-side-view"],
+        }
+    ]
+    request.refresh_hash()
+
+    with pytest.raises(DiffusersVideoError, match="not approved by the shot"):
+        renderer.render(request)
+
+    assert pipeline.calls == []
