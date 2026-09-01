@@ -25,6 +25,7 @@ from .gpu_foundation_smoke import (
 )
 from .gpu_preflight import inspect_cuda_environment, select_gpu_execution
 from .native_request import NativeShotRequest
+from .production_references import bind_production_reference_runtime
 
 
 class PersistentGPUSessionError(GPUFoundationExecutionError):
@@ -67,7 +68,7 @@ class PersistentGPUFoundationExecutor:
     def is_open(self) -> bool:
         return self._renderer is not None
 
-    def open(self) -> PersistentGPUFoundationExecutor:
+    def open(self) -> "PersistentGPUFoundationExecutor":
         if self.is_open:
             raise PersistentGPUSessionError("persistent GPU session is already open")
         estimated_vram = (
@@ -102,7 +103,7 @@ class PersistentGPUFoundationExecutor:
             pipeline_factory=self.pipeline_factory,
             video_exporter=self.video_exporter,
         )
-        runtime = dict(runtime)
+        runtime = bind_production_reference_runtime(runtime, self.reference_loader)
         runtime["persistent_model_session"] = True
         self._renderer = renderer
         self._plan = plan
@@ -117,7 +118,7 @@ class PersistentGPUFoundationExecutor:
         if renderer is not None:
             renderer.shutdown()
 
-    def __enter__(self) -> PersistentGPUFoundationExecutor:
+    def __enter__(self) -> "PersistentGPUFoundationExecutor":
         return self.open()
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
