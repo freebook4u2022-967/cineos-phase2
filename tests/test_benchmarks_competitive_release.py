@@ -6,6 +6,9 @@ from cineos.benchmarks.report import BenchmarkReport, CaseResult
 from cineos.benchmarks.seedance_competitive import seedance_competitive_suite
 
 
+COMMIT_SHA = "abcdef1234567890abcdef1234567890abcdef12"
+
+
 def _report(*, metadata=None, results=None, suite_hash=None):
     suite = seedance_competitive_suite()
     if results is None:
@@ -30,7 +33,7 @@ def _report(*, metadata=None, results=None, suite_hash=None):
         metadata={
             "production_gpu_evidence": True,
             "real_inference": True,
-            "commit_sha": "abcdef1234567890",
+            "commit_sha": COMMIT_SHA,
             **(metadata or {}),
         },
     )
@@ -74,6 +77,7 @@ def test_release_gate_validates_every_mandatory_case(monkeypatch):
             "origin": "external_pretrained_foundation",
             "model_id": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
         },
+        expected_commit_sha=COMMIT_SHA,
     )
 
     suite = seedance_competitive_suite()
@@ -153,4 +157,57 @@ def test_release_gate_rejects_missing_case_output_directory(monkeypatch):
                 "origin": "external_pretrained_foundation",
                 "model_id": "model",
             },
+        )
+
+
+def test_release_gate_rejects_abbreviated_or_malformed_commit_sha(monkeypatch):
+    report = _report(metadata={"commit_sha": "abcdef1234567890"})
+    monkeypatch.setattr(
+        "cineos.benchmarks.competitive_release.validate_real_inference_evidence",
+        lambda *args, **kwargs: None,
+    )
+    with pytest.raises(BenchmarkError, match="40-hex"):
+        validate_seedance_competitive_release(
+            report,
+            case_output_dirs=_output_dirs(report),
+            foundation={
+                "origin": "external_pretrained_foundation",
+                "model_id": "model",
+            },
+        )
+
+
+def test_release_gate_rejects_evidence_from_different_checkout(monkeypatch):
+    report = _report()
+    monkeypatch.setattr(
+        "cineos.benchmarks.competitive_release.validate_real_inference_evidence",
+        lambda *args, **kwargs: None,
+    )
+    with pytest.raises(BenchmarkError, match="release checkout"):
+        validate_seedance_competitive_release(
+            report,
+            case_output_dirs=_output_dirs(report),
+            foundation={
+                "origin": "external_pretrained_foundation",
+                "model_id": "model",
+            },
+            expected_commit_sha="1" * 40,
+        )
+
+
+def test_release_gate_rejects_malformed_expected_checkout_sha(monkeypatch):
+    report = _report()
+    monkeypatch.setattr(
+        "cineos.benchmarks.competitive_release.validate_real_inference_evidence",
+        lambda *args, **kwargs: None,
+    )
+    with pytest.raises(BenchmarkError, match="expected_commit_sha"):
+        validate_seedance_competitive_release(
+            report,
+            case_output_dirs=_output_dirs(report),
+            foundation={
+                "origin": "external_pretrained_foundation",
+                "model_id": "model",
+            },
+            expected_commit_sha="not-a-git-sha",
         )
