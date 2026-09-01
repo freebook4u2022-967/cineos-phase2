@@ -152,12 +152,14 @@ def run_production_quality_retry_connected_gpu_benchmark(
     if not receipt.production_quality_evidence:
         _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError(
-            "production quality evidence required for every accepted shot"
+            "production quality evidence required, but one or more accepted shots lack "
+            "artifact-bound measured QC evidence"
         )
     if receipt.evidence_tier != "production-gpu-quality-gated":
         _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError(
-            "production benchmark did not reach the required quality-gated tier"
+            "production benchmark did not reach the production-gpu-quality-gated "
+            "evidence tier"
         )
     return receipt
 
