@@ -1,9 +1,11 @@
 """Production CLI for the connected CINEOS GPU benchmark.
 
-This entrypoint intentionally uses the default, non-injected CUDA + Diffusers
-runtime. A successful command therefore means the existing connected benchmark
-produced real production GPU execution evidence. External pretrained foundation
-weights remain explicitly identified by the pinned execution profile.
+This entrypoint intentionally uses the default CUDA + Diffusers runtime plus the
+first-party, hash-bound CINEOS production reference loader. A successful command
+therefore means the connected benchmark produced real production GPU execution
+evidence without treating approved local identity assets as a test injection.
+External pretrained foundation weights remain explicitly identified by the pinned
+execution profile.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from .gpu_connected_benchmark import (
 )
 from .gpu_persistent_session import PersistentGPUFoundationExecutor
 from .native_request import NATIVE_SHOT_SCHEMA, NativeShotRequest
+from .production_references import ProductionReferenceError, ProductionReferenceLoader
 
 
 class GPUProductionBenchmarkCLIError(RuntimeError):
@@ -86,25 +89,54 @@ def load_native_requests(path: str | Path) -> tuple[NativeShotRequest, ...]:
     return tuple(requests)
 
 
+def _production_reference_loader(
+    requests: Sequence[NativeShotRequest], reference_manifest: str | Path | None
+) -> ProductionReferenceLoader:
+    requested_ids = [
+        reference_id
+        for request in requests
+        for reference_id in request.approved_reference_ids
+    ]
+    if not requested_ids:
+        raise GPUProductionBenchmarkCLIError(
+            "production connected benchmark requires approved identity references"
+        )
+    if reference_manifest is None:
+        raise GPUProductionBenchmarkCLIError(
+            "production connected benchmark requires --reference-manifest so approved "
+            "identity assets are hash-bound before GPU execution"
+        )
+    try:
+        loader = ProductionReferenceLoader(reference_manifest)
+        loader.validate_reference_ids(requested_ids)
+    except ProductionReferenceError as exc:
+        raise GPUProductionBenchmarkCLIError(str(exc)) from exc
+    return loader
+
+
 def run_production_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
     *,
     output_dir: str | Path,
+    reference_manifest: str | Path | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
     """Run the pinned foundation through one persistent real GPU model session.
 
-    Production connected-shot inference must not pay the model load/warmup cost for
-    every individual shot. Keeping the selected external foundation resident across
-    the 5-10 shot sequence materially reduces benchmark latency while preserving the
-    same per-shot artifact, request-hash, runtime-provenance, and continuity gates.
+    Production connected-shot inference keeps the selected external foundation
+    resident across the 5-10 shot sequence. Approved references are resolved only
+    through the CINEOS first-party hash-bound manifest loader, so normal production
+    identity conditioning remains eligible for real GPU evidence while arbitrary
+    injected loaders still fail closed to the lower evidence tier.
     """
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
+    reference_loader = _production_reference_loader(requests, reference_manifest)
     with PersistentGPUFoundationExecutor(
         WAN22_TI2V_5B_PROFILE,
         output_dir=output_root,
+        reference_loader=reference_loader,
     ) as executor:
         receipt = run_connected_gpu_benchmark(
             benchmark_id,
@@ -126,6 +158,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--requests", required=True, help="Native shot JSON manifest")
     parser.add_argument(
+        "--reference-manifest",
+        required=True,
+        help="Hash-pinned approved reference JSON manifest",
+    )
+    parser.add_argument(
         "--output-dir", required=True, help="Benchmark artifact directory"
     )
     parser.add_argument(
@@ -143,6 +180,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.benchmark_id,
         requests,
         output_dir=args.output_dir,
+        reference_manifest=args.reference_manifest,
     )
     print(json.dumps(receipt.to_dict(), indent=2, sort_keys=True))
     return 0
