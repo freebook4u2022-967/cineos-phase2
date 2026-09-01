@@ -5,7 +5,6 @@ from cineos.benchmarks.exceptions import BenchmarkError
 from cineos.benchmarks.report import BenchmarkReport, CaseResult
 from cineos.benchmarks.seedance_competitive import seedance_competitive_suite
 
-
 COMMIT_SHA = "abcdef1234567890abcdef1234567890abcdef12"
 
 
