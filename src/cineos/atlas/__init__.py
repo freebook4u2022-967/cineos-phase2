@@ -49,6 +49,12 @@ from .native_request import (
     NativeShotRequest,
     compile_native_shot_request,
 )
+from .production_reference import (
+    PRODUCTION_REFERENCE_MANIFEST_SCHEMA,
+    ProductionReferenceError,
+    ProductionReferenceManifestLoader,
+    execute_production_reference_gpu_shot,
+)
 from .quality_retry import (
     QualityRetryError,
     QualityRetryPolicy,
@@ -91,6 +97,9 @@ __all__ = [
     "NativeRequestError",
     "NativeShotRequest",
     "NegotiatedCapabilities",
+    "PRODUCTION_REFERENCE_MANIFEST_SCHEMA",
+    "ProductionReferenceError",
+    "ProductionReferenceManifestLoader",
     "QualityGatedShotExecutor",
     "QualityRetryError",
     "QualityRetryPolicy",
@@ -112,6 +121,7 @@ __all__ = [
     "build_quality_retry_request",
     "compile_native_shot_request",
     "execute_foundation_gpu_shot",
+    "execute_production_reference_gpu_shot",
     "ingest_native_request",
     "inspect_cuda_environment",
     "plan_gpu_execution",
