@@ -55,6 +55,8 @@ def test_builds_fresh_hash_bound_retry_without_mutating_original():
     assert retry.deterministic_seed == 1234 + 104_729
     assert retry.content_hash != original_hash
     assert retry.metadata["quality_retry"]["parent_request_hash"] == original_hash
+    assert retry.metadata["quality_retry"]["root_request_hash"] == original_hash
+    assert retry.metadata["quality_retry"]["original_seed"] == 1234
     assert retry.metadata["quality_retry"]["attempt_index"] == 1
     assert retry.metadata["quality_directives"] == _rejection()["directives"]
 
@@ -69,8 +71,9 @@ def test_retry_hash_is_deterministic_for_same_report_and_attempt():
     assert first.deterministic_seed == second.deterministic_seed
 
 
-def test_second_retry_uses_next_deterministic_seed_and_parent_lineage():
+def test_second_retry_uses_root_seed_and_preserves_parent_lineage():
     request = _request()
+    root_hash = request.content_hash
     first = build_quality_retry_request(request, _rejection(), attempt_index=1)
     report = {
         "accepted": False,
@@ -80,13 +83,46 @@ def test_second_retry_uses_next_deterministic_seed_and_parent_lineage():
 
     second = build_quality_retry_request(first, report, attempt_index=2)
 
-    assert second.deterministic_seed == first.deterministic_seed + (104_729 * 2)
+    assert first.deterministic_seed == 1234 + 104_729
+    assert second.deterministic_seed == 1234 + (104_729 * 2)
+    assert second.metadata["quality_retry"]["original_seed"] == 1234
+    assert second.metadata["quality_retry"]["root_request_hash"] == root_hash
     assert second.metadata["quality_retry"]["parent_request_hash"] == first.content_hash
     assert second.metadata["quality_directives"] == [
         "preserve approved character identity and facial structure",
         "reduce cross-frame and cross-shot temporal drift",
         "stabilize physically plausible subject and camera motion",
     ]
+
+
+def test_chained_retries_follow_linear_seed_schedule():
+    request = _request()
+    policy = QualityRetryPolicy(max_attempts=4, seed_stride=17)
+    seeds = [request.deterministic_seed]
+    effective = request
+
+    for attempt_index in range(1, policy.max_attempts):
+        effective = build_quality_retry_request(
+            effective,
+            _rejection(),
+            attempt_index=attempt_index,
+            policy=policy,
+        )
+        seeds.append(effective.deterministic_seed)
+
+    assert seeds == [1234, 1251, 1268, 1285]
+    assert effective.metadata["quality_retry"]["original_seed"] == 1234
+    assert effective.metadata["quality_retry"]["root_request_hash"] == request.content_hash
+
+
+def test_rejects_corrupt_retry_original_seed_lineage():
+    request = _request()
+    first = build_quality_retry_request(request, _rejection(), attempt_index=1)
+    first.metadata["quality_retry"]["original_seed"] = "1234"
+    first.refresh_hash()
+
+    with pytest.raises(QualityRetryError, match="original_seed must be an integer"):
+        build_quality_retry_request(first, _rejection(), attempt_index=2)
 
 
 def test_rejects_accepted_report_and_missing_directives():
