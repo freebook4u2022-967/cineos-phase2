@@ -30,6 +30,10 @@ from .gpu_foundation_smoke import (
 )
 from .native_request import NativeShotRequest
 from .quality_retry import QualityRetryPolicy, build_quality_retry_request
+from .transition_quality import (
+    TransitionQualityError,
+    validate_transition_quality_evidence,
+)
 
 
 class GPUQualityRetryBenchmarkError(GPUConnectedBenchmarkError):
@@ -37,6 +41,7 @@ class GPUQualityRetryBenchmarkError(GPUConnectedBenchmarkError):
 
 
 QualityEvaluator = Callable[..., dict[str, Any]]
+TransitionEvaluator = Callable[..., dict[str, Any]]
 ShotExecutor = Callable[..., GPUFoundationExecutionReceipt]
 
 
@@ -72,6 +77,32 @@ def _evaluate(
     return report
 
 
+def _evaluate_transition(
+    evaluator: TransitionEvaluator,
+    previous_receipt: GPUFoundationExecutionReceipt,
+    current_receipt: GPUFoundationExecutionReceipt,
+    current_request: NativeShotRequest,
+    *,
+    attempt_index: int,
+) -> dict[str, Any]:
+    raw = evaluator(
+        previous_receipt.result.output_path,
+        current_receipt.result.output_path,
+        previous_shot=previous_receipt.result,
+        current_shot=current_request,
+        attempt_index=attempt_index,
+    )
+    try:
+        return validate_transition_quality_evidence(
+            raw,
+            previous_receipt=previous_receipt,
+            current_receipt=current_receipt,
+            current_request=current_request,
+        )
+    except TransitionQualityError as exc:
+        raise GPUQualityRetryBenchmarkError(str(exc)) from exc
+
+
 def _render_attempt(
     executor: ShotExecutor,
     request: NativeShotRequest,
@@ -104,6 +135,7 @@ def run_quality_retry_connected_gpu_benchmark(
     *,
     output_dir: str | Path,
     quality_evaluator: QualityEvaluator,
+    transition_evaluator: TransitionEvaluator | None = None,
     retry_policy: QualityRetryPolicy | None = None,
     shot_executor: ShotExecutor = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
@@ -112,14 +144,19 @@ def run_quality_retry_connected_gpu_benchmark(
 
     Only the final accepted artifact for each shot enters the connected-film chain.
     Every rejected attempt remains represented in the manifest by its request hash,
-    seed, quality report, and output digest. The benchmark fails closed and writes
-    no completed manifest if any shot exhausts the retry policy.
+    seed, quality report, and output digest. When ``transition_evaluator`` is given,
+    shot two onward must also pass artifact-bound predecessor-to-current seam QC.
+    A failed seam rerenders only the current shot, preserving its accepted
+    predecessor as the continuity anchor. The benchmark fails closed and writes no
+    completed manifest if any shot exhausts the retry policy.
     """
 
     if not benchmark_id.strip():
         raise GPUQualityRetryBenchmarkError("benchmark_id must not be empty")
     if not callable(quality_evaluator):
         raise TypeError("quality_evaluator must be callable")
+    if transition_evaluator is not None and not callable(transition_evaluator):
+        raise TypeError("transition_evaluator must be callable")
 
     _validate_requests(requests)
     policy = retry_policy or QualityRetryPolicy()
@@ -131,6 +168,7 @@ def run_quality_retry_connected_gpu_benchmark(
     receipts: list[GPUFoundationExecutionReceipt] = []
     shot_evidence: list[dict[str, Any]] = []
     accepted_quality_reports: list[dict[str, Any]] = []
+    accepted_transition_reports: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
     seen_hashes: set[str] = set()
     kwargs = dict(shot_executor_kwargs or {})
@@ -141,8 +179,10 @@ def run_quality_retry_connected_gpu_benchmark(
             original_hash = original.content_hash
             effective = original
             attempts: list[dict[str, Any]] = []
+            transition_attempts: list[dict[str, Any]] = []
             accepted_receipt: GPUFoundationExecutionReceipt | None = None
             accepted_report: dict[str, Any] | None = None
+            accepted_transition: dict[str, Any] | None = None
 
             for attempt_index in range(policy.max_attempts):
                 receipt = _render_attempt(
@@ -161,13 +201,46 @@ def run_quality_retry_connected_gpu_benchmark(
                 )
                 attempts.append(report)
 
-                if report.get("accepted") is True:
+                transition_report: dict[str, Any] | None = None
+                if (
+                    report.get("accepted") is True
+                    and transition_evaluator is not None
+                    and receipts
+                ):
+                    transition_report = _evaluate_transition(
+                        transition_evaluator,
+                        receipts[-1],
+                        receipt,
+                        effective,
+                        attempt_index=attempt_index,
+                    )
+                    transition_attempts.append(transition_report)
+
+                shot_accepted = report.get("accepted") is True
+                seam_accepted = (
+                    transition_report is None
+                    or transition_report.get("accepted") is True
+                )
+                if shot_accepted and seam_accepted:
                     accepted_receipt = receipt
                     accepted_report = report
+                    accepted_transition = transition_report
                     break
 
+                rejection_report = report
+                if shot_accepted and transition_report is not None:
+                    rejection_report = {
+                        "accepted": False,
+                        "failed_metrics": transition_report.get(
+                            "failed_metrics", ["cross_shot_transition"]
+                        ),
+                        "directives": transition_report.get("directives", []),
+                    }
+
                 if attempt_index + 1 >= policy.max_attempts:
-                    failed = report.get("failed_metrics") or ["unknown_quality_failure"]
+                    failed = rejection_report.get("failed_metrics") or [
+                        "unknown_quality_failure"
+                    ]
                     raise GPUQualityRetryBenchmarkError(
                         f"quality retry exhausted for "
                         f"{original.scene_id}/{original.shot_id}: "
@@ -176,7 +249,7 @@ def run_quality_retry_connected_gpu_benchmark(
 
                 effective = build_quality_retry_request(
                     effective,
-                    report,
+                    rejection_report,
                     attempt_index=attempt_index + 1,
                     policy=policy,
                 )
@@ -193,6 +266,8 @@ def run_quality_retry_connected_gpu_benchmark(
             )
             receipts.append(accepted_receipt)
             accepted_quality_reports.append(accepted_report)
+            if accepted_transition is not None:
+                accepted_transition_reports.append(accepted_transition)
             shot_evidence.append(
                 {
                     "scene_id": original.scene_id,
@@ -201,6 +276,8 @@ def run_quality_retry_connected_gpu_benchmark(
                     "accepted_request_hash": accepted_receipt.result.request_hash,
                     "attempt_count": len(attempts),
                     "attempts": attempts,
+                    "transition_attempts": transition_attempts,
+                    "accepted_transition": accepted_transition,
                 }
             )
     except Exception:
@@ -222,7 +299,7 @@ def run_quality_retry_connected_gpu_benchmark(
     payload = completed.to_dict()
     payload["foundation_profile"] = profile.snapshot()
     payload["quality_retry_gate"] = {
-        "schema": "cineos-gpu-quality-retry-gate/0.1",
+        "schema": "cineos-gpu-quality-retry-gate/0.2",
         "accepted": True,
         "policy": {
             "max_attempts": policy.max_attempts,
@@ -230,6 +307,9 @@ def run_quality_retry_connected_gpu_benchmark(
         },
         "shot_count": len(shot_evidence),
         "shots": shot_evidence,
+        "transition_gate_applied": transition_evaluator is not None,
+        "accepted_transition_count": len(accepted_transition_reports),
+        "accepted_transitions": accepted_transition_reports,
     }
 
     temporary = manifest.with_suffix(manifest.suffix + ".tmp")
@@ -253,5 +333,8 @@ def run_quality_retry_connected_gpu_benchmark(
 
 __all__ = [
     "GPUQualityRetryBenchmarkError",
+    "QualityEvaluator",
+    "ShotExecutor",
+    "TransitionEvaluator",
     "run_quality_retry_connected_gpu_benchmark",
 ]
