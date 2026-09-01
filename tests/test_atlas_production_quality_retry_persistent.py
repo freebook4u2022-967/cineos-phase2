@@ -7,6 +7,7 @@ from cineos.atlas.gpu_production_quality_retry import (
     ProductionGPUQualityRetryError,
     run_production_quality_retry_connected_gpu_benchmark,
 )
+from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 
 
@@ -29,6 +30,31 @@ def _production_receipt(tmp_path):
         production_quality_evidence=True,
         evidence_tier="production-gpu-quality-gated",
     )
+
+
+def _connected_requests():
+    requests = []
+    for index in range(5):
+        request = NativeShotRequest(
+            shot_id=f"shot-{index}",
+            scene_id="persistent-session-scene",
+            camera={"movement": "tracking"},
+            characters=[{"character_id": "lead"}],
+            environment={"location": "street"},
+            wardrobe=[],
+            props=[],
+            continuity={
+                "previous_shot": None if index == 0 else f"shot-{index - 1}"
+            },
+            performance={"action": "walk"},
+            approved_reference_ids=["lead-approved-reference"],
+            deterministic_seed=7100 + index,
+            renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
+            metadata={"prompt": f"lead continues through shot {index}"},
+        )
+        request.refresh_hash()
+        requests.append(request)
+    return requests
 
 
 def test_production_quality_retry_reuses_one_persistent_model_session(
@@ -69,7 +95,7 @@ def test_production_quality_retry_reuses_one_persistent_model_session(
     profile = object()
     result = run_production_quality_retry_connected_gpu_benchmark(
         "connected-quality",
-        (),
+        _connected_requests(),
         profile,
         output_dir=tmp_path,
         quality_evaluator=_quality_evaluator(),
