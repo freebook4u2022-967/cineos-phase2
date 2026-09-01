@@ -10,9 +10,10 @@ from cineos.atlas.gpu_benchmark_cli import (
     run_production_benchmark,
 )
 from cineos.atlas.native_request import NativeShotRequest
+from cineos.atlas.production_multi_reference import ProductionReferenceBoardAdapter
 
 
-def _request(index: int) -> NativeShotRequest:
+def _request(index: int, reference_ids=None) -> NativeShotRequest:
     request = NativeShotRequest(
         shot_id=f"shot-{index}",
         scene_id="scene-cli",
@@ -23,7 +24,7 @@ def _request(index: int) -> NativeShotRequest:
         props=[],
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
         performance={"action": "walk"},
-        approved_reference_ids=["lead-approved-reference"],
+        approved_reference_ids=list(reference_ids or ["lead-approved-reference"]),
         deterministic_seed=4000 + index,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
     )
@@ -31,21 +32,24 @@ def _request(index: int) -> NativeShotRequest:
     return request
 
 
-def _reference_manifest(tmp_path):
-    image = tmp_path / "lead.png"
-    image.write_bytes(b"approved-lead-image")
+def _reference_manifest(tmp_path, reference_ids=("lead-approved-reference",)):
+    references = []
+    for index, reference_id in enumerate(reference_ids):
+        image = tmp_path / f"reference-{index}.png"
+        image.write_bytes(f"approved-image-{index}".encode())
+        references.append(
+            {
+                "reference_id": reference_id,
+                "path": image.name,
+                "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+            }
+        )
     manifest = tmp_path / "references.json"
     manifest.write_text(
         json.dumps(
             {
                 "schema": "cineos-approved-reference-manifest/0.1",
-                "references": [
-                    {
-                        "reference_id": "lead-approved-reference",
-                        "path": image.name,
-                        "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
-                    }
-                ],
+                "references": references,
             }
         ),
         encoding="utf-8",
@@ -91,10 +95,18 @@ def _install_fake_persistent_executor(monkeypatch):
     lifecycle = []
 
     class FakePersistentExecutor:
-        def __init__(self, profile, *, output_dir, reference_loader=None):
+        def __init__(
+            self,
+            profile,
+            *,
+            output_dir,
+            reference_loader=None,
+            multi_reference_adapter=None,
+        ):
             self.profile = profile
             self.output_dir = output_dir
             self.reference_loader = reference_loader
+            self.multi_reference_adapter = multi_reference_adapter
             lifecycle.append(("init", profile, output_dir, self))
 
         def __enter__(self):
@@ -173,9 +185,52 @@ def test_production_runner_uses_one_persistent_gpu_executor(monkeypatch, tmp_pat
     assert [event[0] for event in lifecycle] == ["init", "enter", "exit"]
     executor = lifecycle[0][3]
     assert executor.reference_loader.reference_ids == ("lead-approved-reference",)
+    assert executor.multi_reference_adapter is None
     assert captured["kwargs"]["shot_executor"] is executor
     assert captured["kwargs"]["output_dir"] == tmp_path / "renders"
     assert (tmp_path / "renders").is_dir()
+
+
+def test_production_runner_enables_audited_multi_reference_adapter(
+    monkeypatch, tmp_path
+):
+    fake_receipt = SimpleNamespace(production_gpu_evidence=True)
+    lifecycle = _install_fake_persistent_executor(monkeypatch)
+    monkeypatch.setattr(
+        "cineos.atlas.gpu_benchmark_cli.run_connected_gpu_benchmark",
+        lambda *args, **kwargs: fake_receipt,
+    )
+    reference_ids = ("lead-approved-reference", "partner-approved-reference")
+    requests = [_request(index, reference_ids) for index in range(5)]
+
+    receipt = run_production_benchmark(
+        "production-multi-reference",
+        requests,
+        output_dir=tmp_path / "renders",
+        reference_manifest=_reference_manifest(tmp_path, reference_ids),
+    )
+
+    assert receipt is fake_receipt
+    executor = lifecycle[0][3]
+    assert isinstance(executor.multi_reference_adapter, ProductionReferenceBoardAdapter)
+
+
+def test_production_runner_rejects_more_than_four_references_before_gpu_session(
+    monkeypatch, tmp_path
+):
+    lifecycle = _install_fake_persistent_executor(monkeypatch)
+    reference_ids = tuple(f"identity-{index}" for index in range(5))
+    requests = [_request(index, reference_ids) for index in range(5)]
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="at most four"):
+        run_production_benchmark(
+            "too-many-identities",
+            requests,
+            output_dir=tmp_path / "renders",
+            reference_manifest=_reference_manifest(tmp_path, reference_ids),
+        )
+
+    assert lifecycle == []
 
 
 def test_production_runner_fails_closed_without_default_gpu_evidence(
