@@ -10,7 +10,10 @@ foundation capability as native model weights.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 TRANSITION_QUALITY_SCHEMA = "cineos-transition-quality-measurement/0.1"
@@ -18,6 +21,30 @@ TRANSITION_QUALITY_SCHEMA = "cineos-transition-quality-measurement/0.1"
 
 class TransitionQualityError(ValueError):
     """Raised when cross-shot continuity evidence is incomplete or substituted."""
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionQualityPolicy:
+    """Versioned floors for measured visual seam acceptance."""
+
+    visual_similarity_floor: float = 0.78
+    motion_boundary_floor: float = 0.72
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("visual_similarity_floor", self.visual_similarity_floor),
+            ("motion_boundary_floor", self.motion_boundary_floor),
+        ):
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be between 0 and 1")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _required_text(value: Any, *, field: str) -> str:
@@ -33,12 +60,7 @@ def validate_transition_quality_evidence(
     current_receipt: Any,
     current_request: Any,
 ) -> dict[str, Any]:
-    """Validate measured seam evidence against exact predecessor/current artifacts.
-
-    Production evidence must identify the terminal-to-initial scorer, contain at
-    least one measured frame/sample pair, and cryptographically bind both artifacts.
-    The current request must explicitly point at the accepted predecessor shot.
-    """
+    """Validate measured seam evidence against exact predecessor/current artifacts."""
 
     if not isinstance(report, Mapping):
         raise TransitionQualityError("transition quality report must be a mapping")
@@ -133,8 +155,124 @@ def validate_transition_quality_evidence(
     return normalized
 
 
+class ArtifactMeasuredTransitionQualityEvaluator:
+    """Strict adapter for a real two-artifact transition measurement observer.
+
+    The observer must attest itself, expose a stable id, inspect both video files,
+    and return hashes plus normalized seam metrics. This prevents a plain injected
+    lambda from promoting synthetic scores to production continuity evidence.
+    """
+
+    production_measurement_evidence = True
+
+    def __init__(
+        self,
+        observer: Any,
+        policy: TransitionQualityPolicy | None = None,
+    ) -> None:
+        if not callable(observer):
+            raise TypeError("transition observer must be callable")
+        if getattr(observer, "production_measurement_evidence", False) is not True:
+            raise TypeError(
+                "production transition observer must attest measurement evidence"
+            )
+        observer_id = getattr(observer, "observer_id", None)
+        if not isinstance(observer_id, str) or not observer_id.strip():
+            raise TypeError("production transition observer requires observer_id")
+        self.observer = observer
+        self.observer_id = observer_id.strip()
+        self.policy = policy or TransitionQualityPolicy()
+
+    def __call__(
+        self,
+        previous_path: str,
+        current_path: str,
+        *,
+        previous_shot: Any,
+        current_shot: Any,
+        attempt_index: int,
+    ) -> dict[str, Any]:
+        previous = Path(previous_path)
+        current = Path(current_path)
+        if not previous.is_file() or not current.is_file():
+            raise TransitionQualityError(
+                "production transition observer requires both rendered artifacts"
+            )
+        previous_sha = _sha256_file(previous)
+        current_sha = _sha256_file(current)
+        raw = self.observer(
+            previous_path,
+            current_path,
+            previous_shot=previous_shot,
+            current_shot=current_shot,
+            attempt_index=attempt_index,
+        )
+        if not isinstance(raw, Mapping):
+            raise TransitionQualityError("transition observer must return a mapping")
+        if raw.get("schema") != TRANSITION_QUALITY_SCHEMA:
+            raise TransitionQualityError("unsupported transition observer schema")
+        if raw.get("observer_id") != self.observer_id:
+            raise TransitionQualityError("transition observer id changed during measurement")
+        if raw.get("previous_output_sha256") != previous_sha:
+            raise TransitionQualityError("transition observer predecessor hash mismatch")
+        if raw.get("current_output_sha256") != current_sha:
+            raise TransitionQualityError("transition observer current hash mismatch")
+        sample_count = raw.get("measured_sample_count")
+        if not isinstance(sample_count, int) or isinstance(sample_count, bool):
+            raise TransitionQualityError("transition observer sample count must be integer")
+        if sample_count <= 0:
+            raise TransitionQualityError("transition observer measured no samples")
+
+        metrics = raw.get("metrics")
+        if not isinstance(metrics, Mapping):
+            raise TransitionQualityError("transition observer requires metrics mapping")
+        visual = metrics.get("visual_seam_similarity")
+        motion = metrics.get("motion_boundary_consistency")
+        for name, value in (
+            ("visual_seam_similarity", visual),
+            ("motion_boundary_consistency", motion),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TransitionQualityError(f"transition metric {name} must be numeric")
+            if not 0.0 <= float(value) <= 1.0:
+                raise TransitionQualityError(f"transition metric {name} out of range")
+
+        failures: list[str] = []
+        directives: list[str] = []
+        if float(visual) < self.policy.visual_similarity_floor:
+            failures.append("visual_seam_similarity")
+            directives.append(
+                "preserve predecessor composition, lighting, pose, and appearance"
+            )
+        if float(motion) < self.policy.motion_boundary_floor:
+            failures.append("motion_boundary_consistency")
+            directives.append("preserve physically coherent motion across the shot boundary")
+
+        return {
+            "schema": TRANSITION_QUALITY_SCHEMA,
+            "production_measurement_evidence": True,
+            "accepted": not failures,
+            "observer_id": self.observer_id,
+            "previous_scene_id": getattr(previous_shot, "scene_id", None),
+            "previous_shot_id": getattr(previous_shot, "shot_id", None),
+            "current_scene_id": getattr(current_shot, "scene_id", None),
+            "current_shot_id": getattr(current_shot, "shot_id", None),
+            "previous_output_sha256": previous_sha,
+            "current_output_sha256": current_sha,
+            "measured_sample_count": sample_count,
+            "metrics": {
+                "visual_seam_similarity": float(visual),
+                "motion_boundary_consistency": float(motion),
+            },
+            "failed_metrics": failures,
+            "directives": directives,
+        }
+
+
 __all__ = [
     "TRANSITION_QUALITY_SCHEMA",
+    "ArtifactMeasuredTransitionQualityEvaluator",
     "TransitionQualityError",
+    "TransitionQualityPolicy",
     "validate_transition_quality_evidence",
 ]
