@@ -1,29 +1,34 @@
 """Production visual continuity for persistent Diffusers video sessions.
 
 CINEOS owns this orchestration layer; the pretrained video foundation remains
-external.  A connected shot may use the terminal generated frame of its declared
-predecessor as the next image-to-video anchor.  This turns ``previous_shot`` from
+external. A connected shot may use the terminal generated frame of its declared
+predecessor as the next image-to-video anchor. This turns ``previous_shot`` from
 prompt-only metadata into an actual visual conditioning signal while preserving an
-auditable identity-reference lineage.
+auditable identity-reference and artifact lineage.
 
-The handoff is deliberately in-memory.  The production connected benchmark keeps
+The handoff is deliberately in-memory. The production connected benchmark keeps
 one renderer/model session alive across all attempts, so no lossy decode/re-encode
-step is needed between shots.  A continuation cannot be rendered by a fresh
-renderer instance: if the declared predecessor frame is unavailable, execution
-fails closed instead of silently falling back to text-only generation.
+step is needed between shots. A continuation cannot be rendered by a fresh
+renderer instance: if the declared predecessor frame or its render binding is
+unavailable, execution fails closed instead of silently falling back to text-only
+generation.
 """
 
 from __future__ import annotations
 
 import inspect
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from .diffusers_video import DiffusersVideoError, DiffusersVideoRenderer
 from .native_request import NativeShotRequest
-from .production_diffusers import ProductionDiffusersVideoRenderer
+from .production_diffusers import (
+    ProductionDiffusersVideoRenderer,
+    ProductionDiffusersVideoResult,
+)
 
-VISUAL_CONTINUITY_SCHEMA = "cineos-visual-continuity-conditioning/0.1"
+VISUAL_CONTINUITY_SCHEMA = "cineos-visual-continuity-conditioning/0.2"
 
 
 def _continuity_predecessor(request: NativeShotRequest) -> tuple[str, str] | None:
@@ -51,19 +56,26 @@ def _continuity_predecessor(request: NativeShotRequest) -> tuple[str, str] | Non
 class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRenderer):
     """Strict production renderer with predecessor-frame visual handoff.
 
-    The first shot follows the normal approved-reference path.  Every connected
+    The first shot follows the normal approved-reference path. Every connected
     continuation then consumes the terminal frame captured from its declared
-    predecessor.  The current shot must declare the exact same approved reference
+    predecessor. The current shot must declare the exact same approved reference
     lineage as that predecessor; changing identities mid-chain requires an explicit
     new root shot rather than an implicit substitution.
+
+    Each cached terminal frame is also bound to the exact rendered predecessor
+    artifact SHA-256 and request hash. Those bindings are copied into the returned
+    production result so downstream GPU receipts retain auditable continuity
+    evidence without consulting mutable renderer side state.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._terminal_frames: dict[tuple[str, str], Any] = {}
         self._identity_lineage: dict[tuple[str, str], tuple[str, ...]] = {}
+        self._render_bindings: dict[tuple[str, str], tuple[str, str]] = {}
         self._active_continuity_frame: Any | None = None
         self._active_predecessor: tuple[str, str] | None = None
+        self._active_predecessor_binding: tuple[str, str] | None = None
         self._captured_terminal_frame: Any | None = None
         self._last_conditioning_provenance: dict[str, Any] | None = None
 
@@ -73,13 +85,14 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
             return None
         return dict(self._last_conditioning_provenance)
 
-    def render(self, request: Any):
+    def render(self, request: Any) -> ProductionDiffusersVideoResult:
         if not isinstance(request, NativeShotRequest):
             return super().render(request)
 
         predecessor = _continuity_predecessor(request)
         self._active_continuity_frame = None
         self._active_predecessor = predecessor
+        self._active_predecessor_binding = None
         self._captured_terminal_frame = None
 
         if predecessor is not None:
@@ -88,7 +101,18 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
                     "visual continuity predecessor frame is unavailable in the current "
                     f"persistent renderer session: {predecessor[0]}/{predecessor[1]}"
                 )
-            expected_lineage = self._identity_lineage[predecessor]
+            if predecessor not in self._render_bindings:
+                raise DiffusersVideoError(
+                    "visual continuity predecessor render binding is unavailable in the "
+                    f"current persistent renderer session: {predecessor[0]}/"
+                    f"{predecessor[1]}"
+                )
+            expected_lineage = self._identity_lineage.get(predecessor)
+            if expected_lineage is None:
+                raise DiffusersVideoError(
+                    "visual continuity predecessor identity lineage is unavailable in "
+                    "the current persistent renderer session"
+                )
             current_lineage = tuple(request.approved_reference_ids)
             if current_lineage != expected_lineage:
                 raise DiffusersVideoError(
@@ -96,6 +120,7 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
                     "start a new root shot or preserve the exact approved reference ids"
                 )
             self._active_continuity_frame = self._terminal_frames[predecessor]
+            self._active_predecessor_binding = self._render_bindings[predecessor]
 
         try:
             result = super().render(request)
@@ -103,32 +128,68 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
                 raise DiffusersVideoError(
                     "foundation output did not expose a terminal frame for continuity"
                 )
+            if not result.artifact_sha256 or not result.request_hash:
+                raise DiffusersVideoError(
+                    "production continuity requires artifact and request hashes from "
+                    "the completed render"
+                )
 
             identity = (request.scene_id, request.shot_id)
             self._terminal_frames[identity] = self._captured_terminal_frame
             self._identity_lineage[identity] = tuple(request.approved_reference_ids)
+            self._render_bindings[identity] = (
+                result.artifact_sha256,
+                result.request_hash,
+            )
+
             if predecessor is None:
                 mode = (
                     "approved_reference_root"
                     if request.approved_reference_ids
                     else "text_only_root"
                 )
+                predecessor_artifact_sha256 = None
+                predecessor_request_hash = None
             else:
                 mode = "predecessor_terminal_frame_lineage"
-            self._last_conditioning_provenance = {
+                if self._active_predecessor_binding is None:
+                    raise DiffusersVideoError(
+                        "visual continuity predecessor render binding disappeared "
+                        "during inference"
+                    )
+                predecessor_artifact_sha256, predecessor_request_hash = (
+                    self._active_predecessor_binding
+                )
+
+            generic_provenance = result.conditioning_provenance
+            continuity_provenance: dict[str, Any] = {
                 "schema": VISUAL_CONTINUITY_SCHEMA,
                 "mode": mode,
                 "scene_id": request.scene_id,
                 "shot_id": request.shot_id,
                 "previous_scene_id": predecessor[0] if predecessor else None,
                 "previous_shot_id": predecessor[1] if predecessor else None,
+                "predecessor_artifact_sha256": predecessor_artifact_sha256,
+                "predecessor_request_hash": predecessor_request_hash,
+                "current_artifact_sha256": result.artifact_sha256,
+                "current_request_hash": result.request_hash,
                 "approved_reference_ids": list(request.approved_reference_ids),
                 "in_memory_terminal_frame": predecessor is not None,
             }
-            return result
+            if generic_provenance is not None:
+                continuity_provenance["identity_conditioning"] = dict(
+                    generic_provenance
+                )
+
+            self._last_conditioning_provenance = continuity_provenance
+            return replace(
+                result,
+                conditioning_provenance=dict(continuity_provenance),
+            )
         finally:
             self._active_continuity_frame = None
             self._active_predecessor = None
+            self._active_predecessor_binding = None
             self._captured_terminal_frame = None
 
     def _verify_reference_conditioning_path(self, request: NativeShotRequest) -> None:
