@@ -124,7 +124,9 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                     "character approved_reference_ids must be a sequence of non-empty "
                     "strings"
                 )
-            escaped = [reference_id for reference_id in raw_ids if reference_id not in approved]
+            escaped = [
+                reference_id for reference_id in raw_ids if reference_id not in approved
+            ]
             if escaped:
                 character_id = character.get("character_uuid", f"index:{index}")
                 raise DiffusersVideoError(
