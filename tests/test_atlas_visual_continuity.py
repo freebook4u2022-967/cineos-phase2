@@ -71,17 +71,43 @@ def test_connected_shot_consumes_predecessor_terminal_frame(tmp_path):
     pipeline = ImagePipeline()
     renderer = _renderer(tmp_path, pipeline)
 
-    renderer.render(_request("shot-001"))
+    first_result = renderer.render(_request("shot-001"))
     first_provenance = renderer.last_conditioning_provenance
-    renderer.render(_request("shot-002", previous_shot="shot-001"))
+    second_result = renderer.render(_request("shot-002", previous_shot="shot-001"))
     second_provenance = renderer.last_conditioning_provenance
 
     assert pipeline.calls == ["image:hero-front", "shot-0-terminal"]
     assert first_provenance["schema"] == VISUAL_CONTINUITY_SCHEMA
     assert first_provenance["mode"] == "approved_reference_root"
+    assert first_provenance["current_artifact_sha256"] == first_result.artifact_sha256
+    assert first_provenance["current_request_hash"] == first_result.request_hash
+    assert first_provenance["identity_conditioning"]["mode"] == "single_reference"
     assert second_provenance["mode"] == "predecessor_terminal_frame_lineage"
     assert second_provenance["previous_shot_id"] == "shot-001"
+    assert second_provenance["predecessor_artifact_sha256"] == (
+        first_result.artifact_sha256
+    )
+    assert second_provenance["predecessor_request_hash"] == first_result.request_hash
+    assert second_provenance["current_artifact_sha256"] == second_result.artifact_sha256
+    assert second_provenance["current_request_hash"] == second_result.request_hash
     assert second_provenance["in_memory_terminal_frame"] is True
+
+
+def test_returned_result_carries_artifact_bound_continuity_provenance(tmp_path):
+    pipeline = ImagePipeline()
+    renderer = _renderer(tmp_path, pipeline)
+
+    first_result = renderer.render(_request("shot-001"))
+    second_result = renderer.render(_request("shot-002", previous_shot="shot-001"))
+
+    provenance = second_result.conditioning_provenance
+    assert provenance is not None
+    assert provenance == renderer.last_conditioning_provenance
+    assert provenance["schema"] == VISUAL_CONTINUITY_SCHEMA
+    assert provenance["predecessor_artifact_sha256"] == first_result.artifact_sha256
+    assert provenance["predecessor_request_hash"] == first_result.request_hash
+    assert provenance["current_artifact_sha256"] == second_result.artifact_sha256
+    assert provenance["current_request_hash"] == second_result.request_hash
 
 
 def test_continuation_fails_closed_without_predecessor_in_same_session(tmp_path):
@@ -92,6 +118,18 @@ def test_continuation_fails_closed_without_predecessor_in_same_session(tmp_path)
         renderer.render(_request("shot-002", previous_shot="shot-001"))
 
     assert pipeline.calls == []
+
+
+def test_continuation_fails_closed_if_predecessor_render_binding_is_missing(tmp_path):
+    pipeline = ImagePipeline()
+    renderer = _renderer(tmp_path, pipeline)
+    renderer.render(_request("shot-001"))
+    renderer._render_bindings.clear()
+
+    with pytest.raises(DiffusersVideoError, match="render binding is unavailable"):
+        renderer.render(_request("shot-002", previous_shot="shot-001"))
+
+    assert pipeline.calls == ["image:hero-front"]
 
 
 def test_continuation_rejects_identity_reference_change(tmp_path):
@@ -114,15 +152,19 @@ def test_continuation_rejects_identity_reference_change(tmp_path):
 def test_retry_of_same_shot_still_anchors_to_declared_predecessor(tmp_path):
     pipeline = ImagePipeline()
     renderer = _renderer(tmp_path, pipeline)
-    renderer.render(_request("shot-001"))
+    first_result = renderer.render(_request("shot-001"))
     renderer.render(_request("shot-002", previous_shot="shot-001"))
-    renderer.render(_request("shot-002", previous_shot="shot-001"))
+    retried = renderer.render(_request("shot-002", previous_shot="shot-001"))
 
     assert pipeline.calls == [
         "image:hero-front",
         "shot-0-terminal",
         "shot-0-terminal",
     ]
+    provenance = retried.conditioning_provenance
+    assert provenance is not None
+    assert provenance["predecessor_artifact_sha256"] == first_result.artifact_sha256
+    assert provenance["predecessor_request_hash"] == first_result.request_hash
 
 
 def test_conflicting_legacy_and_canonical_predecessor_rejected(tmp_path):
