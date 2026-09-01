@@ -30,7 +30,9 @@ def _sha256_file(path: Path) -> str:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
     except OSError as exc:
-        raise ProductionReferenceError(f"cannot read approved reference: {path}") from exc
+        raise ProductionReferenceError(
+            f"cannot read approved reference: {path}"
+        ) from exc
     return digest.hexdigest()
 
 
@@ -68,7 +70,9 @@ class ProductionReferenceLoader:
                 "approved reference manifest must be UTF-8 JSON"
             ) from exc
         if not isinstance(payload, Mapping):
-            raise ProductionReferenceError("approved reference manifest must be an object")
+            raise ProductionReferenceError(
+                "approved reference manifest must be an object"
+            )
         if payload.get("schema") != REFERENCE_MANIFEST_SCHEMA:
             raise ProductionReferenceError(
                 f"unsupported approved reference manifest schema: {payload.get('schema')!r}"
@@ -107,7 +111,9 @@ class ProductionReferenceLoader:
             if (
                 not isinstance(sha256, str)
                 or len(sha256) != 64
-                or any(character not in "0123456789abcdef" for character in sha256.lower())
+                or any(
+                    character not in "0123456789abcdef" for character in sha256.lower()
+                )
             ):
                 raise ProductionReferenceError(
                     f"approved reference {reference_id!r} requires a 64-character SHA-256"
@@ -128,10 +134,13 @@ class ProductionReferenceLoader:
         return tuple(self._references)
 
     def validate_reference_ids(self, reference_ids: Iterable[str]) -> None:
-        missing = sorted({item for item in reference_ids if item not in self._references})
+        missing = sorted(
+            {item for item in reference_ids if item not in self._references}
+        )
         if missing:
             raise ProductionReferenceError(
-                "approved reference manifest is missing requested ids: " + ", ".join(missing)
+                "approved reference manifest is missing requested ids: "
+                + ", ".join(missing)
             )
 
     def runtime_provenance(self) -> dict[str, Any]:
