@@ -3,8 +3,8 @@
 This module deliberately validates *production evidence*, not architecture readiness.
 A competitive claim requires the exact versioned suite, every mandatory case exactly
 once, real GPU execution metadata, explicit external-foundation provenance, and
-artifact-level validation for every case. Missing GPU evidence remains a blocker
-rather than being converted into a synthetic pass.
+content-addressed artifact validation for every case. Missing GPU evidence remains a
+blocker rather than being converted into a synthetic pass.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def validate_seedance_competitive_release(
     The gate is intentionally strict. It binds the report to the exact competitive
     suite content hash and renderer profile, requires one result per case, rejects
     warnings and duplicate/missing cases, verifies declared real-GPU metadata, and
-    delegates each case to artifact-level real-inference validation.
+    delegates each case to content-addressed real-inference validation.
     """
 
     suite = seedance_competitive_suite()
@@ -97,6 +97,7 @@ def validate_seedance_competitive_release(
             result,
             output_dir,
             foundation=foundation,
+            require_artifact_manifest=True,
         )
 
 
