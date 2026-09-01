@@ -12,7 +12,6 @@ from cineos.benchmarks.real_evidence import (
 from cineos.benchmarks.report import CaseResult
 from cineos.benchmarks.seedance_competitive import seedance_competitive_suite
 
-
 FOUNDATION = {
     "origin": "external_pretrained_foundation",
     "model_id": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
@@ -29,7 +28,9 @@ def _write_expected_outputs(case, root):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.suffix == ".json":
-            path.write_text(json.dumps({"case_id": case.case_id}) + "\n", encoding="utf-8")
+            path.write_text(
+                json.dumps({"case_id": case.case_id}) + "\n", encoding="utf-8"
+            )
         elif path.suffix == ".mp4":
             path.write_bytes(b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2")
         else:
