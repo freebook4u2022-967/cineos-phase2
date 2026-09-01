@@ -151,7 +151,10 @@ def validate_connected_visual_continuity(
                 raise ConnectedContinuityEvidenceError(
                     "continuation provenance is bound to a different predecessor artifact"
                 )
-            if provenance.get("predecessor_request_hash") != previous_result.request_hash:
+            if (
+                provenance.get("predecessor_request_hash")
+                != previous_result.request_hash
+            ):
                 raise ConnectedContinuityEvidenceError(
                     "continuation provenance is bound to a different predecessor request"
                 )
