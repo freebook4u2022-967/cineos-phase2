@@ -44,9 +44,22 @@ def test_release_gate_validates_every_mandatory_case(monkeypatch):
     report = _report()
     calls = []
 
-    def fake_validate(case, result, output_dir, *, foundation):
+    def fake_validate(
+        case,
+        result,
+        output_dir,
+        *,
+        foundation,
+        require_artifact_manifest=False,
+    ):
         calls.append(
-            (case.case_id, result.case_id, str(output_dir), foundation["model_id"])
+            (
+                case.case_id,
+                result.case_id,
+                str(output_dir),
+                foundation["model_id"],
+                require_artifact_manifest,
+            )
         )
 
     monkeypatch.setattr(
@@ -68,6 +81,7 @@ def test_release_gate_validates_every_mandatory_case(monkeypatch):
         case.case_id for case in suite.cases if case.mandatory
     ]
     assert all(case_id == result_id for case_id, result_id, *_ in calls)
+    assert all(item[-1] is True for item in calls)
 
 
 def test_release_gate_rejects_stale_suite_hash(monkeypatch):
