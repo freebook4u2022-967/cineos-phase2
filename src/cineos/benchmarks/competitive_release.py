@@ -34,19 +34,29 @@ def validate_seedance_competitive_release(
 
     suite = seedance_competitive_suite()
     if report.suite_id != suite.suite_id:
-        raise BenchmarkError("competitive report suite_id does not match release contract")
+        raise BenchmarkError(
+            "competitive report suite_id does not match release contract"
+        )
     if report.suite_version != suite.suite_version:
-        raise BenchmarkError("competitive report suite_version does not match release contract")
+        raise BenchmarkError(
+            "competitive report suite_version does not match release contract"
+        )
     if report.suite_hash != suite.content_hash:
-        raise BenchmarkError("competitive report suite_hash does not match release contract")
+        raise BenchmarkError(
+            "competitive report suite_hash does not match release contract"
+        )
     if report.renderer_profile != suite.renderer_profile:
-        raise BenchmarkError("competitive report renderer_profile does not match release contract")
+        raise BenchmarkError(
+            "competitive report renderer_profile does not match release contract"
+        )
     if not report.hardware_profile.strip():
         raise BenchmarkError("competitive report must declare a hardware_profile")
 
     metadata = report.metadata
     if metadata.get("production_gpu_evidence") is not True:
-        raise BenchmarkError("competitive report is not attested as production GPU evidence")
+        raise BenchmarkError(
+            "competitive report is not attested as production GPU evidence"
+        )
     if metadata.get("real_inference") is not True:
         raise BenchmarkError("competitive report is not attested as real inference")
     commit_sha = metadata.get("commit_sha")
@@ -63,9 +73,13 @@ def validate_seedance_competitive_release(
     missing = sorted(set(expected) - set(seen))
     extra = sorted(set(seen) - set(expected))
     if missing:
-        raise BenchmarkError("missing mandatory competitive case(s): " + ", ".join(missing))
+        raise BenchmarkError(
+            "missing mandatory competitive case(s): " + ", ".join(missing)
+        )
     if extra:
-        raise BenchmarkError("unexpected competitive case result(s): " + ", ".join(extra))
+        raise BenchmarkError(
+            "unexpected competitive case result(s): " + ", ".join(extra)
+        )
     if not report.passed:
         raise BenchmarkError("competitive benchmark report did not pass")
 
@@ -75,7 +89,9 @@ def validate_seedance_competitive_release(
             raise BenchmarkError(f"competitive case contains warning(s): {case_id}")
         output_dir = case_output_dirs.get(case_id)
         if output_dir is None:
-            raise BenchmarkError(f"missing output directory for competitive case: {case_id}")
+            raise BenchmarkError(
+                f"missing output directory for competitive case: {case_id}"
+            )
         validate_real_inference_evidence(
             case,
             result,

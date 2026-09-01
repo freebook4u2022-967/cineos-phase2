@@ -45,7 +45,9 @@ def test_release_gate_validates_every_mandatory_case(monkeypatch):
     calls = []
 
     def fake_validate(case, result, output_dir, *, foundation):
-        calls.append((case.case_id, result.case_id, str(output_dir), foundation["model_id"]))
+        calls.append(
+            (case.case_id, result.case_id, str(output_dir), foundation["model_id"])
+        )
 
     monkeypatch.setattr(
         "cineos.benchmarks.competitive_release.validate_real_inference_evidence",
@@ -62,7 +64,9 @@ def test_release_gate_validates_every_mandatory_case(monkeypatch):
     )
 
     suite = seedance_competitive_suite()
-    assert [item[0] for item in calls] == [case.case_id for case in suite.cases if case.mandatory]
+    assert [item[0] for item in calls] == [
+        case.case_id for case in suite.cases if case.mandatory
+    ]
     assert all(case_id == result_id for case_id, result_id, *_ in calls)
 
 
@@ -76,7 +80,10 @@ def test_release_gate_rejects_stale_suite_hash(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={"origin": "external_pretrained_foundation", "model_id": "model"},
+            foundation={
+                "origin": "external_pretrained_foundation",
+                "model_id": "model",
+            },
         )
 
 
@@ -90,7 +97,10 @@ def test_release_gate_rejects_non_production_attestation(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={"origin": "external_pretrained_foundation", "model_id": "model"},
+            foundation={
+                "origin": "external_pretrained_foundation",
+                "model_id": "model",
+            },
         )
 
 
@@ -106,7 +116,10 @@ def test_release_gate_rejects_duplicate_case_result(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={"origin": "external_pretrained_foundation", "model_id": "model"},
+            foundation={
+                "origin": "external_pretrained_foundation",
+                "model_id": "model",
+            },
         )
 
 
@@ -122,5 +135,8 @@ def test_release_gate_rejects_missing_case_output_directory(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=outputs,
-            foundation={"origin": "external_pretrained_foundation", "model_id": "model"},
+            foundation={
+                "origin": "external_pretrained_foundation",
+                "model_id": "model",
+            },
         )
