@@ -24,6 +24,18 @@ class ImagePipeline:
         return FakeOutput()
 
 
+class KwargsPipeline:
+    def __init__(self):
+        self.calls = []
+
+    def to(self, _device):
+        return self
+
+    def __call__(self, prompt, **kwargs):
+        self.calls.append({"prompt": prompt, **kwargs})
+        return FakeOutput()
+
+
 class TextOnlyPipeline:
     def to(self, _device):
         return self
@@ -110,6 +122,25 @@ def test_production_reference_reaches_foundation_pipeline(tmp_path):
     renderer.render(_request())
 
     assert pipeline.calls == ["image:hero-front"]
+
+
+def test_kwargs_pipeline_receives_reference_and_execution_controls(tmp_path):
+    pipeline = KwargsPipeline()
+    renderer = _renderer(
+        tmp_path,
+        pipeline,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+    )
+
+    renderer.render(_request())
+
+    assert len(pipeline.calls) == 1
+    call = pipeline.calls[0]
+    assert call["image"] == "image:hero-front"
+    assert call["width"] == 1280
+    assert call["height"] == 704
+    assert call["num_frames"] == 24
+    assert call["generator"] == 7
 
 
 def test_text_only_production_shot_remains_supported_without_declared_reference(
