@@ -23,6 +23,7 @@ from .gpu_connected_benchmark import (
 )
 from .gpu_persistent_session import PersistentGPUFoundationExecutor
 from .native_request import NATIVE_SHOT_SCHEMA, NativeShotRequest
+from .production_multi_reference import ProductionReferenceBoardAdapter
 from .production_references import ProductionReferenceError, ProductionReferenceLoader
 
 
@@ -114,6 +115,22 @@ def _production_reference_loader(
     return loader
 
 
+def _production_multi_reference_adapter(
+    requests: Sequence[NativeShotRequest],
+) -> ProductionReferenceBoardAdapter | None:
+    """Enable the audited board only when a shot genuinely declares >1 reference."""
+
+    maximum = max((len(request.approved_reference_ids) for request in requests), default=0)
+    if maximum <= 1:
+        return None
+    if maximum > ProductionReferenceBoardAdapter.maximum_references:
+        raise GPUProductionBenchmarkCLIError(
+            "production connected benchmark supports at most four approved identity "
+            "references in one shot with the current audited adapter"
+        )
+    return ProductionReferenceBoardAdapter()
+
+
 def run_production_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
@@ -125,18 +142,21 @@ def run_production_benchmark(
 
     Production connected-shot inference keeps the selected external foundation
     resident across the 5-10 shot sequence. Approved references are resolved only
-    through the CINEOS first-party hash-bound manifest loader, so normal production
-    identity conditioning remains eligible for real GPU evidence while arbitrary
-    injected loaders still fail closed to the lower evidence tier.
+    through the CINEOS first-party hash-bound manifest loader. Shots with 2-4
+    approved identities use the CINEOS-owned deterministic reference-board adapter
+    so the foundation's single image slot receives every declared reference rather
+    than silently discarding secondary characters.
     """
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     reference_loader = _production_reference_loader(requests, reference_manifest)
+    multi_reference_adapter = _production_multi_reference_adapter(requests)
     with PersistentGPUFoundationExecutor(
         WAN22_TI2V_5B_PROFILE,
         output_dir=output_root,
         reference_loader=reference_loader,
+        multi_reference_adapter=multi_reference_adapter,
     ) as executor:
         receipt = run_connected_gpu_benchmark(
             benchmark_id,
