@@ -112,7 +112,9 @@ def test_chained_retries_follow_linear_seed_schedule():
 
     assert seeds == [1234, 1251, 1268, 1285]
     assert effective.metadata["quality_retry"]["original_seed"] == 1234
-    assert effective.metadata["quality_retry"]["root_request_hash"] == request.content_hash
+    assert (
+        effective.metadata["quality_retry"]["root_request_hash"] == request.content_hash
+    )
 
 
 def test_rejects_corrupt_retry_original_seed_lineage():
