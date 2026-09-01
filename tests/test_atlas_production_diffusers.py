@@ -112,7 +112,9 @@ def test_production_reference_reaches_foundation_pipeline(tmp_path):
     assert pipeline.calls == ["image:hero-front"]
 
 
-def test_text_only_production_shot_remains_supported_without_declared_reference(tmp_path):
+def test_text_only_production_shot_remains_supported_without_declared_reference(
+    tmp_path,
+):
     renderer = _renderer(tmp_path, TextOnlyPipeline())
 
     result = renderer.render(_request(references=()))
