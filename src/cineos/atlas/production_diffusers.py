@@ -1,10 +1,10 @@
 """Production-safe Diffusers boundary for CINEOS reference-conditioned shots.
 
 This module strengthens the execution contract around external pretrained video
-foundations.  It does not make the external checkpoint CINEOS-native.  Instead,
+foundations. It does not make the external checkpoint CINEOS-native. Instead,
 it prevents a production shot that declares approved visual references from
-silently degrading to text-only generation when those references cannot actually
-reach the foundation pipeline.
+silently degrading to text-only or partial-reference generation when those
+references cannot actually reach the foundation pipeline.
 """
 
 from __future__ import annotations
@@ -20,9 +20,16 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
     """Diffusers renderer with fail-closed approved-reference conditioning.
 
     Research callers may continue to use :class:`DiffusersVideoRenderer`, which
-    preserves its historical permissive behavior.  Production foundation profiles
+    preserves its historical permissive behavior. Production foundation profiles
     use this subclass so an approved identity reference is never merely recorded in
     a CINEOS request while being ignored by the external model.
+
+    The generic Diffusers execution boundary currently has a single ``image``
+    conditioning slot. Consequently, production requests that declare more than one
+    approved reference fail closed rather than silently forwarding only the first
+    reference. Multi-character production work must therefore use one deliberately
+    composed/approved conditioning image until a foundation-specific adapter with an
+    audited multi-reference contract is available.
     """
 
     def render(self, request: Any):
@@ -38,6 +45,14 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             )
         if self._pipeline is None:
             raise DiffusersVideoError("renderer model is not loaded")
+
+        if len(request.approved_reference_ids) > 1:
+            raise DiffusersVideoError(
+                "production Diffusers boundary cannot safely consume multiple "
+                "approved_reference_ids through its single image-conditioning slot; "
+                "provide one deliberately composed approved reference or use an "
+                "audited foundation-specific multi-reference adapter"
+            )
 
         parameters = inspect.signature(self._pipeline.__call__).parameters
         accepts_kwargs = any(
