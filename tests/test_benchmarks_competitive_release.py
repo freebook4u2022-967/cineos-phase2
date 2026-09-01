@@ -6,6 +6,16 @@ from cineos.benchmarks.report import BenchmarkReport, CaseResult
 from cineos.benchmarks.seedance_competitive import seedance_competitive_suite
 
 COMMIT_SHA = "abcdef1234567890abcdef1234567890abcdef12"
+FOUNDATION_REVISION = "1" * 40
+
+
+def _foundation(**overrides):
+    return {
+        "origin": "external_pretrained_foundation",
+        "model_id": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+        "revision": FOUNDATION_REVISION,
+        **overrides,
+    }
 
 
 def _report(*, metadata=None, results=None, suite_hash=None):
@@ -60,6 +70,7 @@ def test_release_gate_validates_every_mandatory_case(monkeypatch):
                 result.case_id,
                 str(output_dir),
                 foundation["model_id"],
+                foundation["revision"],
                 require_artifact_manifest,
             )
         )
@@ -72,11 +83,9 @@ def test_release_gate_validates_every_mandatory_case(monkeypatch):
     validate_seedance_competitive_release(
         report,
         case_output_dirs=_output_dirs(report),
-        foundation={
-            "origin": "external_pretrained_foundation",
-            "model_id": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
-        },
+        foundation=_foundation(),
         expected_commit_sha=COMMIT_SHA,
+        expected_foundation_revision=FOUNDATION_REVISION,
     )
 
     suite = seedance_competitive_suite()
@@ -84,6 +93,7 @@ def test_release_gate_validates_every_mandatory_case(monkeypatch):
         case.case_id for case in suite.cases if case.mandatory
     ]
     assert all(case_id == result_id for case_id, result_id, *_ in calls)
+    assert all(item[-2] == FOUNDATION_REVISION for item in calls)
     assert all(item[-1] is True for item in calls)
 
 
@@ -97,10 +107,7 @@ def test_release_gate_rejects_stale_suite_hash(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={
-                "origin": "external_pretrained_foundation",
-                "model_id": "model",
-            },
+            foundation=_foundation(),
         )
 
 
@@ -114,10 +121,7 @@ def test_release_gate_rejects_non_production_attestation(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={
-                "origin": "external_pretrained_foundation",
-                "model_id": "model",
-            },
+            foundation=_foundation(),
         )
 
 
@@ -133,10 +137,7 @@ def test_release_gate_rejects_duplicate_case_result(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={
-                "origin": "external_pretrained_foundation",
-                "model_id": "model",
-            },
+            foundation=_foundation(),
         )
 
 
@@ -152,10 +153,7 @@ def test_release_gate_rejects_missing_case_output_directory(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=outputs,
-            foundation={
-                "origin": "external_pretrained_foundation",
-                "model_id": "model",
-            },
+            foundation=_foundation(),
         )
 
 
@@ -169,10 +167,7 @@ def test_release_gate_rejects_abbreviated_or_malformed_commit_sha(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={
-                "origin": "external_pretrained_foundation",
-                "model_id": "model",
-            },
+            foundation=_foundation(),
         )
 
 
@@ -186,11 +181,8 @@ def test_release_gate_rejects_evidence_from_different_checkout(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={
-                "origin": "external_pretrained_foundation",
-                "model_id": "model",
-            },
-            expected_commit_sha="1" * 40,
+            foundation=_foundation(),
+            expected_commit_sha="2" * 40,
         )
 
 
@@ -204,9 +196,50 @@ def test_release_gate_rejects_malformed_expected_checkout_sha(monkeypatch):
         validate_seedance_competitive_release(
             report,
             case_output_dirs=_output_dirs(report),
-            foundation={
-                "origin": "external_pretrained_foundation",
-                "model_id": "model",
-            },
+            foundation=_foundation(),
             expected_commit_sha="not-a-git-sha",
+        )
+
+
+def test_release_gate_rejects_unpinned_foundation_revision(monkeypatch):
+    report = _report()
+    monkeypatch.setattr(
+        "cineos.benchmarks.competitive_release.validate_real_inference_evidence",
+        lambda *args, **kwargs: None,
+    )
+    with pytest.raises(BenchmarkError, match="foundation revision"):
+        validate_seedance_competitive_release(
+            report,
+            case_output_dirs=_output_dirs(report),
+            foundation=_foundation(revision="main"),
+        )
+
+
+def test_release_gate_rejects_foundation_revision_from_different_weights(monkeypatch):
+    report = _report()
+    monkeypatch.setattr(
+        "cineos.benchmarks.competitive_release.validate_real_inference_evidence",
+        lambda *args, **kwargs: None,
+    )
+    with pytest.raises(BenchmarkError, match="release foundation"):
+        validate_seedance_competitive_release(
+            report,
+            case_output_dirs=_output_dirs(report),
+            foundation=_foundation(),
+            expected_foundation_revision="2" * 40,
+        )
+
+
+def test_release_gate_rejects_malformed_expected_foundation_revision(monkeypatch):
+    report = _report()
+    monkeypatch.setattr(
+        "cineos.benchmarks.competitive_release.validate_real_inference_evidence",
+        lambda *args, **kwargs: None,
+    )
+    with pytest.raises(BenchmarkError, match="foundation revision"):
+        validate_seedance_competitive_release(
+            report,
+            case_output_dirs=_output_dirs(report),
+            foundation=_foundation(),
+            expected_foundation_revision="latest",
         )
