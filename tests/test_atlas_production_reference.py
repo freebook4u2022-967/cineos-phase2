@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
-from PIL import Image
 
+from cineos.atlas import production_reference
 from cineos.atlas.production_reference import (
     PRODUCTION_REFERENCE_MANIFEST_SCHEMA,
     ProductionReferenceError,
@@ -18,7 +19,7 @@ from cineos.atlas.production_reference import (
 
 def _manifest(tmp_path, *, approval_status="approved"):
     image_path = tmp_path / "hero.png"
-    Image.new("RGB", (8, 8), (12, 34, 56)).save(image_path)
+    image_path.write_bytes(b"approved-image-bytes")
     digest = hashlib.sha256(image_path.read_bytes()).hexdigest()
     manifest_path = tmp_path / "references.json"
     manifest_path.write_text(
@@ -41,9 +42,35 @@ def _manifest(tmp_path, *, approval_status="approved"):
     return manifest_path, image_path, digest
 
 
-def test_native_reference_loader_verifies_and_decodes_approved_image(tmp_path) -> None:
+class _FakeImage:
+    mode = "RGB"
+    size = (8, 8)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def convert(self, mode):
+        assert mode == "RGB"
+        return self
+
+    def copy(self):
+        return self
+
+
+def test_native_reference_loader_verifies_and_decodes_approved_image(
+    tmp_path, monkeypatch
+) -> None:
     manifest_path, _, _ = _manifest(tmp_path)
     loader = ProductionReferenceManifestLoader(manifest_path)
+    fake_image_module = SimpleNamespace(open=lambda path: _FakeImage())
+    monkeypatch.setattr(
+        production_reference,
+        "import_module",
+        lambda name: fake_image_module,
+    )
 
     image = loader("hero-front")
 
@@ -114,9 +141,7 @@ def test_native_reference_provenance_rejects_other_injected_boundary() -> None:
         },
     }
 
-    with pytest.raises(
-        ProductionReferenceError, match="only native reference resolution"
-    ):
+    with pytest.raises(ProductionReferenceError, match="only native reference resolution"):
         _promote_native_reference_provenance(
             provenance,
             manifest_sha256="a" * 64,
