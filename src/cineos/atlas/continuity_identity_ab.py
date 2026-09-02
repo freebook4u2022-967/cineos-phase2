@@ -171,10 +171,19 @@ def _metric_rows(
                 f"{label} shot identities are missing or duplicated"
             )
         identities.add(identity)
+        if report.get("production_measurement_evidence") is not True:
+            raise ContinuityIdentityABError(
+                f"{label} shot {index} is not production measurement evidence"
+            )
         measurement = report.get("measurement")
         if not isinstance(measurement, Mapping):
             raise ContinuityIdentityABError(f"{label} shot {index} has no measurement")
-        metrics = measurement.get("metrics")
+        artifact_sha256 = measurement.get("artifact_sha256")
+        if artifact_sha256 != report.get("output_sha256"):
+            raise ContinuityIdentityABError(
+                f"{label} shot {index} measurement is not bound to its output"
+            )
+        metrics = report.get("metrics")
         if not isinstance(metrics, Mapping):
             raise ContinuityIdentityABError(
                 f"{label} shot {index} has no metric mapping"
