@@ -87,6 +87,26 @@ def test_manifest_must_cover_every_requested_reference(tmp_path):
         loader.validate_reference_ids(("hero-front", "partner-front"))
 
 
+def test_reference_preflight_rejects_hash_change_before_decode(tmp_path):
+    manifest = _manifest(tmp_path)
+    loader = ProductionReferenceLoader(manifest)
+    (tmp_path / "hero.png").write_bytes(b"swapped-after-approval")
+
+    with pytest.raises(
+        ProductionReferenceError, match="reference hash changed after approval"
+    ):
+        loader.validate_reference_ids(("hero-front",))
+
+
+def test_reference_preflight_rejects_missing_asset_before_decode(tmp_path):
+    manifest = _manifest(tmp_path)
+    loader = ProductionReferenceLoader(manifest)
+    (tmp_path / "hero.png").unlink()
+
+    with pytest.raises(ProductionReferenceError, match="not a readable file"):
+        loader.validate_reference_ids(("hero-front",))
+
+
 def test_manifest_rejects_duplicate_reference_ids(tmp_path):
     image = tmp_path / "hero.png"
     image.write_bytes(b"approved-reference-bytes")
