@@ -14,6 +14,7 @@ from typing import Any
 
 from .diffusers_video import DiffusersVideoRenderer, FoundationProvenance
 from .production_continuity_diffusers import ProductionContinuityDiffusersVideoRenderer
+from .reference_board import compose_reference_board
 
 EXTERNAL_PRETRAINED_FOUNDATION = "external_pretrained_foundation"
 WAN22_TI2V_5B_DIFFUSERS_REVISION = "4c6ca6c2ded5c79550a3ca25555efc561112891a"
@@ -75,7 +76,18 @@ class FoundationExecutionProfile:
         pipeline_factory: Any | None = None,
         video_exporter: Any | None = None,
     ) -> DiffusersVideoRenderer:
-        """Build the strict production renderer for this pinned foundation."""
+        """Build the strict production renderer for this pinned foundation.
+
+        The pinned production profile supplies CINEOS' deterministic reference-board
+        adapter by default. Callers may inject a stronger audited adapter explicitly,
+        while direct generic production renderers remain fail-closed unless an adapter
+        is configured.
+        """
+        adapter = (
+            compose_reference_board
+            if multi_reference_adapter is None
+            else multi_reference_adapter
+        )
         return ProductionContinuityDiffusersVideoRenderer(
             self.provenance,
             output_dir=output_dir,
@@ -84,7 +96,7 @@ class FoundationExecutionProfile:
             fps=self.fps,
             supported_features=frozenset({"text_to_video", "image_to_video"}),
             reference_loader=reference_loader,
-            multi_reference_adapter=multi_reference_adapter,
+            multi_reference_adapter=adapter,
             pipeline_factory=pipeline_factory,
             video_exporter=video_exporter,
         )
