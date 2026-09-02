@@ -174,7 +174,9 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
         # A production continuity render must never bind a stale file left by a
         # previous direct-render attempt. GPU wrappers already do this removal; the
         # renderer repeats it so direct use has the same freshness invariant.
-        expected_artifact = self.output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
+        expected_artifact = (
+            self.output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
+        )
         if expected_artifact.exists():
             expected_artifact.unlink()
 
