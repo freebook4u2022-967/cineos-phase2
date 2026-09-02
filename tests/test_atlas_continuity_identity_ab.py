@@ -6,17 +6,44 @@ from cineos.atlas.continuity_identity_ab import (
     ContinuityIdentityABError,
     evaluate_continuity_identity_ab,
 )
+from cineos.atlas.production_continuity_identity import (
+    CONTINUITY_IDENTITY_ADAPTER_ID,
+    CONTINUITY_IDENTITY_ADAPTER_VERSION,
+)
+from cineos.atlas.production_continuity_identity_runtime import (
+    CONTINUITY_IDENTITY_RUNTIME_SCHEMA,
+)
+
+
+def _strategy(mode: str):
+    if mode == "predecessor_terminal_frame_baseline":
+        return {
+            "schema": CONTINUITY_IDENTITY_RUNTIME_SCHEMA,
+            "mode": mode,
+            "adapter_id": None,
+            "adapter_version": None,
+            "experimental": False,
+        }
+    return {
+        "schema": CONTINUITY_IDENTITY_RUNTIME_SCHEMA,
+        "mode": mode,
+        "adapter_id": CONTINUITY_IDENTITY_ADAPTER_ID,
+        "adapter_version": CONTINUITY_IDENTITY_ADAPTER_VERSION,
+        "experimental": True,
+    }
 
 
 def _receipt(
     *,
     chain: str,
     identity: float,
+    mode: str,
     temporal: float = 0.94,
     motion: float = 0.92,
     artifact: float = 1.0,
 ):
     reports = []
+    shots = []
     for index in range(5):
         reports.append(
             {
@@ -33,6 +60,16 @@ def _receipt(
                 },
             }
         )
+        shots.append(
+            {
+                "scene_id": "scene-ab",
+                "shot_id": f"shot-{index}",
+                "runtime_provenance": {
+                    "production_default_runtime": True,
+                    "continuity_identity_strategy": _strategy(mode),
+                },
+            }
+        )
     return {
         "schema": "cineos-gpu-connected-benchmark/0.2",
         "profile_id": "wan22-ti2v-5b",
@@ -41,12 +78,29 @@ def _receipt(
         "production_quality_evidence": True,
         "evidence_tier": "production-gpu-quality-gated",
         "quality_reports": reports,
+        "shots": shots,
     }
 
 
+def _baseline(**kwargs):
+    return _receipt(mode="predecessor_terminal_frame_baseline", **kwargs)
+
+
+def _candidate(**kwargs):
+    return _receipt(
+        mode="predecessor_terminal_frame_plus_fresh_references",
+        **kwargs,
+    )
+
+
 def test_ab_gate_promotes_measured_identity_gain_without_quality_regression():
-    baseline = _receipt(chain="a", identity=0.80)
-    candidate = _receipt(chain="b", identity=0.84, temporal=0.935, motion=0.915)
+    baseline = _baseline(chain="a", identity=0.80)
+    candidate = _candidate(
+        chain="b",
+        identity=0.84,
+        temporal=0.935,
+        motion=0.915,
+    )
 
     decision = evaluate_continuity_identity_ab(baseline, candidate)
 
@@ -54,12 +108,12 @@ def test_ab_gate_promotes_measured_identity_gain_without_quality_regression():
     assert decision.shot_count == 5
     assert decision.deltas["identity_similarity"] == pytest.approx(0.04)
     assert decision.failed_criteria == ()
-    assert decision.to_dict()["schema"] == "cineos-continuity-identity-ab-decision/0.1"
+    assert decision.to_dict()["schema"] == "cineos-continuity-identity-ab-decision/0.2"
 
 
 def test_ab_gate_rejects_candidate_with_temporal_regression():
-    baseline = _receipt(chain="a", identity=0.80, temporal=0.94)
-    candidate = _receipt(chain="b", identity=0.85, temporal=0.90)
+    baseline = _baseline(chain="a", identity=0.80, temporal=0.94)
+    candidate = _candidate(chain="b", identity=0.85, temporal=0.90)
 
     decision = evaluate_continuity_identity_ab(baseline, candidate)
 
@@ -68,8 +122,8 @@ def test_ab_gate_rejects_candidate_with_temporal_regression():
 
 
 def test_ab_gate_rejects_hidden_per_shot_identity_regression():
-    baseline = _receipt(chain="a", identity=0.80)
-    candidate = _receipt(chain="b", identity=0.84)
+    baseline = _baseline(chain="a", identity=0.80)
+    candidate = _candidate(chain="b", identity=0.84)
     candidate["quality_reports"][2]["measurement"]["metrics"][
         "identity_similarity"
     ] = 0.70
@@ -87,8 +141,8 @@ def test_ab_gate_rejects_hidden_per_shot_identity_regression():
 
 
 def test_ab_gate_requires_production_quality_evidence():
-    baseline = _receipt(chain="a", identity=0.80)
-    candidate = _receipt(chain="b", identity=0.84)
+    baseline = _baseline(chain="a", identity=0.80)
+    candidate = _candidate(chain="b", identity=0.84)
     candidate["production_quality_evidence"] = False
 
     with pytest.raises(ContinuityIdentityABError, match="production measured QC"):
@@ -96,8 +150,9 @@ def test_ab_gate_requires_production_quality_evidence():
 
 
 def test_ab_gate_rejects_reused_render_chain():
-    baseline = _receipt(chain="a", identity=0.80)
+    baseline = _baseline(chain="a", identity=0.80)
     candidate = copy.deepcopy(baseline)
+    candidate["shots"] = _candidate(chain="b", identity=0.84)["shots"]
     candidate["quality_reports"][0]["measurement"]["metrics"][
         "identity_similarity"
     ] = 0.90
@@ -107,9 +162,31 @@ def test_ab_gate_rejects_reused_render_chain():
 
 
 def test_ab_gate_requires_same_ordered_shots():
-    baseline = _receipt(chain="a", identity=0.80)
-    candidate = _receipt(chain="b", identity=0.84)
+    baseline = _baseline(chain="a", identity=0.80)
+    candidate = _candidate(chain="b", identity=0.84)
     candidate["quality_reports"][1]["shot_id"] = "different-shot"
 
     with pytest.raises(ContinuityIdentityABError, match="same ordered shots"):
+        evaluate_continuity_identity_ab(baseline, candidate)
+
+
+def test_ab_gate_rejects_candidate_without_strategy_provenance():
+    baseline = _baseline(chain="a", identity=0.80)
+    candidate = _candidate(chain="b", identity=0.84)
+    candidate["shots"][2]["runtime_provenance"].pop(
+        "continuity_identity_strategy"
+    )
+
+    with pytest.raises(ContinuityIdentityABError, match="strategy provenance"):
+        evaluate_continuity_identity_ab(baseline, candidate)
+
+
+def test_ab_gate_rejects_unrecognized_candidate_adapter():
+    baseline = _baseline(chain="a", identity=0.80)
+    candidate = _candidate(chain="b", identity=0.84)
+    candidate["shots"][3]["runtime_provenance"]["continuity_identity_strategy"][
+        "adapter_id"
+    ] = "borrowed-or-test-adapter"
+
+    with pytest.raises(ContinuityIdentityABError, match="unrecognized adapter"):
         evaluate_continuity_identity_ab(baseline, candidate)
