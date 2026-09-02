@@ -49,5 +49,8 @@ def test_gpu_workflow_records_selected_memory_strategy_for_audit_logs():
 
     assert 'print(f"selected_device={plan.device}")' in workflow
     assert 'print(f"memory_strategy={plan.memory_strategy}")' in workflow
-    assert 'print(f"estimated_model_vram_gb={plan.estimated_model_vram_gb:.2f}")' in workflow
+    assert (
+        'print(f"estimated_model_vram_gb={plan.estimated_model_vram_gb:.2f}")'
+        in workflow
+    )
     assert 'print(f"fit_margin_gb={plan.fit_margin_gb:.2f}")' in workflow
