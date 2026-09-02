@@ -55,11 +55,12 @@ def compose_continuity_identity_board(
 ) -> ContinuityIdentityConditioningResult:
     """Compose predecessor visual state plus every approved identity reference.
 
-    Landscape shots reserve the right quarter for an identity board; portrait
-    shots reserve the bottom quarter. The predecessor is contain-fitted into the
-    remaining dominant region without cropping. The existing reference-board
-    adapter performs duplicate-ID/content checks and preserves all identity images
-    without cropping before its result is fitted into the refresh region.
+    Landscape shots reserve the right quarter for identity refresh; portrait shots
+    reserve the bottom quarter. The predecessor is contain-fitted into the remaining
+    dominant region without cropping. Multi-character identity images first pass
+    through the existing duplicate-safe reference-board adapter. A single-character
+    shot uses its one approved image directly so connected single-character films do
+    not regress merely because the multi-reference adapter requires two inputs.
     """
 
     expected = tuple(request.approved_reference_ids)
@@ -71,6 +72,10 @@ def compose_continuity_identity_board(
         raise DiffusersVideoError(
             "continuity identity refresh received a different number of images than "
             "approved reference ids"
+        )
+    if len(expected) != len(set(expected)):
+        raise DiffusersVideoError(
+            "continuity identity refresh requires unique approved reference ids"
         )
 
     try:
@@ -88,9 +93,23 @@ def compose_continuity_identity_board(
     if predecessor.width <= 0 or predecessor.height <= 0:
         raise DiffusersVideoError("continuity predecessor frame has invalid dimensions")
 
-    identity_board = compose_reference_board(request, references).image
-    if not isinstance(identity_board, Image.Image):
-        raise DiffusersVideoError("reference-board adapter returned a non-image result")
+    if len(references) == 1:
+        reference = references[0]
+        if not isinstance(reference, Image.Image):
+            raise DiffusersVideoError(
+                "continuity identity refresh requires Pillow identity references"
+            )
+        identity_board = reference.convert("RGB")
+        if identity_board.width <= 0 or identity_board.height <= 0:
+            raise DiffusersVideoError(
+                "continuity identity reference has invalid dimensions"
+            )
+    else:
+        identity_board = compose_reference_board(request, references).image
+        if not isinstance(identity_board, Image.Image):
+            raise DiffusersVideoError(
+                "reference-board adapter returned a non-image result"
+            )
 
     raw_resolution = request.camera.get("resolution", (0, 0))
     try:
