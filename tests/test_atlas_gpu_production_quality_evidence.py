@@ -1,3 +1,5 @@
+import hashlib
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -47,6 +49,37 @@ def _requests():
         request.refresh_hash()
         requests.append(request)
     return requests
+
+
+def _reference_manifest(tmp_path):
+    """Create immutable reference evidence without requiring image decoding.
+
+    These wrapper tests never render, but production preflight intentionally validates
+    the same hash-pinned asset manifest required by a real run. Keep that contract in
+    the fixture instead of bypassing or weakening the production boundary.
+    """
+
+    reference = tmp_path / "lead-approved-reference.asset"
+    payload = b"cineos-production-wrapper-reference-fixture\n"
+    reference.write_bytes(payload)
+    manifest = tmp_path / "approved-references.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "cineos-approved-reference-manifest/0.1",
+                "references": [
+                    {
+                        "reference_id": "lead-approved-reference",
+                        "path": reference.name,
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                ],
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return manifest
 
 
 def _patch_persistent(monkeypatch, capture=None):
@@ -111,6 +144,7 @@ def test_production_wrapper_fails_closed_without_artifact_bound_quality(
             WAN22_TI2V_5B_PROFILE,
             output_dir=tmp_path,
             quality_evaluator=_evaluator(),
+            reference_manifest=_reference_manifest(tmp_path),
         )
 
     assert not manifest.exists()
@@ -145,6 +179,7 @@ def test_production_wrapper_requires_exact_quality_gated_evidence_tier(
             WAN22_TI2V_5B_PROFILE,
             output_dir=tmp_path,
             quality_evaluator=_evaluator(),
+            reference_manifest=_reference_manifest(tmp_path),
         )
 
     assert not manifest.exists()
@@ -170,6 +205,7 @@ def test_production_wrapper_returns_only_fully_quality_gated_receipt(
         WAN22_TI2V_5B_PROFILE,
         output_dir=tmp_path,
         quality_evaluator=_evaluator(),
+        reference_manifest=_reference_manifest(tmp_path),
     )
 
     assert result is fake
@@ -236,6 +272,7 @@ def test_production_wrapper_allows_real_runtime_tuning_kwargs(monkeypatch, tmp_p
         WAN22_TI2V_5B_PROFILE,
         output_dir=tmp_path,
         quality_evaluator=_evaluator(),
+        reference_manifest=_reference_manifest(tmp_path),
         shot_executor_kwargs={
             "estimated_model_vram_gb": 18.0,
             "prefer_bfloat16": False,
