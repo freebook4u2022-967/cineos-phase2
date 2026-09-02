@@ -261,7 +261,9 @@ def test_strict_production_entry_accepts_complete_lineage_and_transition_evidenc
         SimpleNamespace(),
         output_dir=tmp_path,
         quality_evaluator=SimpleNamespace(),
-        transition_evaluator=ArtifactMeasuredTransitionQualityEvaluator(MeasuredObserver()),
+        transition_evaluator=ArtifactMeasuredTransitionQualityEvaluator(
+            MeasuredObserver()
+        ),
     )
 
     assert result is aggregate
