@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from .diffusers_video import DiffusersVideoRenderer, FoundationProvenance
-from .production_continuity_diffusers import ProductionContinuityDiffusersVideoRenderer
+from .production_continuity_identity import (
+    ProductionContinuityIdentityDiffusersVideoRenderer,
+    compose_continuity_identity_board,
+)
 from .reference_board import compose_reference_board
 
 EXTERNAL_PRETRAINED_FOUNDATION = "external_pretrained_foundation"
@@ -73,22 +76,27 @@ class FoundationExecutionProfile:
         output_dir: str | Path,
         reference_loader: Any | None = None,
         multi_reference_adapter: Any | None = None,
+        continuity_identity_adapter: Any | None = compose_continuity_identity_board,
         pipeline_factory: Any | None = None,
         video_exporter: Any | None = None,
     ) -> DiffusersVideoRenderer:
         """Build the strict production renderer for this pinned foundation.
 
-        The pinned production profile supplies CINEOS' deterministic reference-board
-        adapter by default. Callers may inject a stronger audited adapter explicitly,
-        while direct generic production renderers remain fail-closed unless an adapter
-        is configured.
+        The pinned production profile supplies CINEOS deterministic reference-board
+        adapters by default. Root multi-character shots compose every approved
+        identity reference into the foundation's single image slot. Connected shots
+        additionally compose the accepted predecessor terminal frame with fresh
+        approved identity pixels so temporal anchoring no longer silently replaces
+        identity conditioning. Callers may pass ``None`` for
+        ``continuity_identity_adapter`` to preserve predecessor-only inheritance for
+        backwards-compatible A/B benchmarks.
         """
         adapter = (
             compose_reference_board
             if multi_reference_adapter is None
             else multi_reference_adapter
         )
-        return ProductionContinuityDiffusersVideoRenderer(
+        return ProductionContinuityIdentityDiffusersVideoRenderer(
             self.provenance,
             output_dir=output_dir,
             resolutions=self.resolutions,
@@ -97,6 +105,7 @@ class FoundationExecutionProfile:
             supported_features=frozenset({"text_to_video", "image_to_video"}),
             reference_loader=reference_loader,
             multi_reference_adapter=adapter,
+            continuity_identity_adapter=continuity_identity_adapter,
             pipeline_factory=pipeline_factory,
             video_exporter=video_exporter,
         )
@@ -135,6 +144,7 @@ def build_wan22_ti2v_5b_renderer(
     output_dir: str | Path,
     reference_loader: Any | None = None,
     multi_reference_adapter: Any | None = None,
+    continuity_identity_adapter: Any | None = compose_continuity_identity_board,
     pipeline_factory: Any | None = None,
     video_exporter: Any | None = None,
 ) -> DiffusersVideoRenderer:
@@ -143,6 +153,7 @@ def build_wan22_ti2v_5b_renderer(
         output_dir=output_dir,
         reference_loader=reference_loader,
         multi_reference_adapter=multi_reference_adapter,
+        continuity_identity_adapter=continuity_identity_adapter,
         pipeline_factory=pipeline_factory,
         video_exporter=video_exporter,
     )
