@@ -6,10 +6,18 @@ on:
       requests_path:
         description: Path to a committed 5-10 shot native request JSON manifest
         required: true
+      reference_manifest_path:
+        description: Path to committed hash-pinned approved reference JSON manifest
+        required: true
       benchmark_id:
         description: Stable benchmark evidence identifier
         required: true
         default: cineos-connected-production
+      continuity_identity_refresh:
+        description: Run experimental predecessor-frame plus fresh-reference candidate
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +40,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[video]"
+
+      - name: Verify benchmark inputs exist
+        run: |
+          test -f "${{ inputs.requests_path }}"
+          test -f "${{ inputs.reference_manifest_path }}"
 
       - name: Verify real CUDA runner
         run: |
@@ -87,11 +100,18 @@ jobs:
       - name: Run real connected GPU benchmark
         env:
           HF_HOME: ${{ runner.temp }}/cineos-hf-cache
+          CONTINUITY_IDENTITY_REFRESH: ${{ inputs.continuity_identity_refresh }}
         run: |
+          refresh_args=()
+          if [[ "$CONTINUITY_IDENTITY_REFRESH" == "true" ]]; then
+            refresh_args+=(--continuity-identity-refresh)
+          fi
           python -m cineos.atlas.gpu_benchmark_cli \
             --requests "${{ inputs.requests_path }}" \
+            --reference-manifest "${{ inputs.reference_manifest_path }}" \
             --output-dir "${{ runner.temp }}/cineos-connected-production" \
-            --benchmark-id "${{ inputs.benchmark_id }}"
+            --benchmark-id "${{ inputs.benchmark_id }}" \
+            "${refresh_args[@]}"
 
       - name: Upload production GPU evidence
         if: success()
