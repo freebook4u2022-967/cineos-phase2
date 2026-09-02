@@ -91,6 +91,12 @@ def test_connected_shot_consumes_predecessor_terminal_frame(tmp_path):
     assert second_provenance["current_artifact_sha256"] == second_result.artifact_sha256
     assert second_provenance["current_request_hash"] == second_result.request_hash
     assert second_provenance["in_memory_terminal_frame"] is True
+    assert second_provenance["identity_conditioning"] == {
+        "mode": "predecessor_terminal_frame_identity_lineage",
+        "inherited_reference_ids": ["hero-front"],
+        "identity_signal_source": "predecessor_terminal_frame",
+        "fresh_reference_pixels_consumed": False,
+    }
 
 
 def test_returned_result_carries_artifact_bound_continuity_provenance(tmp_path):
@@ -145,6 +151,34 @@ def test_continuation_rejects_identity_reference_change(tmp_path):
                 references=("different-hero",),
             )
         )
+
+    assert pipeline.calls == ["image:hero-front"]
+
+
+def test_continuation_rechecks_character_reference_authorization(tmp_path):
+    pipeline = ImagePipeline()
+    renderer = _renderer(tmp_path, pipeline)
+    root = _request("shot-001")
+    root.characters = [
+        {
+            "character_uuid": "hero",
+            "approved_reference_ids": ["hero-front"],
+        }
+    ]
+    root.refresh_hash()
+    renderer.render(root)
+
+    continuation = _request("shot-002", previous_shot="shot-001")
+    continuation.characters = [
+        {
+            "character_uuid": "hero",
+            "approved_reference_ids": ["unapproved-side-profile"],
+        }
+    ]
+    continuation.refresh_hash()
+
+    with pytest.raises(DiffusersVideoError, match="not approved by the shot"):
+        renderer.render(continuation)
 
     assert pipeline.calls == ["image:hero-front"]
 
