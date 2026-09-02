@@ -87,6 +87,51 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
             return None
         return dict(self._last_conditioning_provenance)
 
+    def discard_quality_rejected_result(self, receipt_or_result: Any) -> None:
+        """Remove an exact rejected attempt from successor continuity state.
+
+        Rendering must temporarily retain its terminal frame so the outer artifact
+        and semantic QC layers can inspect the produced video. A rejected attempt,
+        however, must never remain eligible to condition a later connected shot.
+        This method is intentionally exact-binding: it removes state only when the
+        scene/shot, request hash, and artifact SHA-256 match the currently cached
+        render. A stale or mismatched rejection therefore fails closed rather than
+        deleting a newer accepted continuity anchor.
+        """
+
+        result = getattr(receipt_or_result, "result", receipt_or_result)
+        scene_id = getattr(result, "scene_id", None)
+        shot_id = getattr(result, "shot_id", None)
+        request_hash = getattr(result, "request_hash", None)
+        artifact_sha256 = getattr(receipt_or_result, "output_sha256", None)
+        if artifact_sha256 is None:
+            artifact_sha256 = getattr(result, "artifact_sha256", None)
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (scene_id, shot_id, request_hash, artifact_sha256)
+        ):
+            raise DiffusersVideoError(
+                "quality rejection must bind a scene, shot, request hash, and artifact digest"
+            )
+
+        identity = (scene_id.strip(), shot_id.strip())
+        expected = (artifact_sha256.strip(), request_hash.strip())
+        current = self._render_bindings.get(identity)
+        if current != expected:
+            raise DiffusersVideoError(
+                "quality rejection does not match the currently cached continuity render"
+            )
+
+        self._terminal_frames.pop(identity, None)
+        self._identity_lineage.pop(identity, None)
+        self._render_bindings.pop(identity, None)
+        if self._last_conditioning_provenance is not None:
+            if (
+                self._last_conditioning_provenance.get("scene_id") == identity[0]
+                and self._last_conditioning_provenance.get("shot_id") == identity[1]
+            ):
+                self._last_conditioning_provenance = None
+
     def _fresh_artifact_result(
         self,
         request: NativeShotRequest,
