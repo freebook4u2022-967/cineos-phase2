@@ -111,7 +111,8 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
             for value in (scene_id, shot_id, request_hash, artifact_sha256)
         ):
             raise DiffusersVideoError(
-                "quality rejection must bind a scene, shot, request hash, and artifact digest"
+                "quality rejection must bind a scene, shot, request hash, "
+                "and artifact digest"
             )
 
         identity = (scene_id.strip(), shot_id.strip())
@@ -119,7 +120,8 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
         current = self._render_bindings.get(identity)
         if current != expected:
             raise DiffusersVideoError(
-                "quality rejection does not match the currently cached continuity render"
+                "quality rejection does not match the currently cached "
+                "continuity render"
             )
 
         self._terminal_frames.pop(identity, None)
@@ -197,9 +199,9 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
                 )
             if predecessor not in self._render_bindings:
                 raise DiffusersVideoError(
-                    "visual continuity predecessor render binding is unavailable in the "
-                    f"current persistent renderer session: {predecessor[0]}/"
-                    f"{predecessor[1]}"
+                    "visual continuity predecessor render binding is unavailable "
+                    "in the current persistent renderer session: "
+                    f"{predecessor[0]}/{predecessor[1]}"
                 )
             expected_lineage = self._identity_lineage.get(predecessor)
             if expected_lineage is None:
