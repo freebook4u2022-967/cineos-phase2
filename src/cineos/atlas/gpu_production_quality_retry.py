@@ -12,6 +12,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from .connected_continuity_evidence import (
+    ConnectedContinuityEvidenceError,
+    validate_connected_visual_continuity,
+)
 from .foundation_profiles import FoundationExecutionProfile
 from .gpu_connected_benchmark import (
     GPUConnectedBenchmarkReceipt,
@@ -176,7 +180,7 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
     shot_executor: ShotExecutor = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
-    """Run the strict production sequence gate with mandatory cross-shot seam QC."""
+    """Run the strict production sequence gate with visual lineage and seam QC."""
 
     if not isinstance(
         transition_evaluator,
@@ -197,6 +201,13 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
         shot_executor_kwargs=shot_executor_kwargs,
     )
     manifest = Path(receipt.manifest_path)
+    try:
+        validate_connected_visual_continuity(receipt.shot_receipts)
+    except ConnectedContinuityEvidenceError as exc:
+        _remove_stale_manifest(manifest)
+        raise ProductionGPUQualityRetryError(
+            "production continuity lacks artifact-bound terminal-frame lineage"
+        ) from exc
     try:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
