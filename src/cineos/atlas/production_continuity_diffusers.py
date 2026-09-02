@@ -30,7 +30,7 @@ from .production_diffusers import (
     ProductionDiffusersVideoResult,
 )
 
-VISUAL_CONTINUITY_SCHEMA = "cineos-visual-continuity-conditioning/0.2"
+VISUAL_CONTINUITY_SCHEMA = "cineos-visual-continuity-conditioning/0.3"
 
 
 def _continuity_predecessor(request: NativeShotRequest) -> tuple[str, str] | None:
@@ -259,6 +259,13 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
     def _verify_reference_conditioning_path(self, request: NativeShotRequest) -> None:
         if self._active_continuity_frame is None:
             return super()._verify_reference_conditioning_path(request)
+
+        # Continuation frames replace the foundation's single image slot, but that
+        # must not bypass the production character-to-reference authorization gate.
+        # We also record explicitly that identity is inherited through the exact
+        # predecessor frame rather than falsely claiming fresh reference pixels were
+        # consumed by this inference call.
+        self._validate_character_reference_lineage(request)
         if self._pipeline is None:
             raise DiffusersVideoError("renderer model is not loaded")
         parameters = inspect.signature(self._pipeline.__call__).parameters
@@ -271,6 +278,12 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
                 "connected production shot requires image conditioning for visual "
                 "continuity, but the loaded foundation pipeline does not expose it"
             )
+        self._conditioning_provenance = {
+            "mode": "predecessor_terminal_frame_identity_lineage",
+            "inherited_reference_ids": list(request.approved_reference_ids),
+            "identity_signal_source": "predecessor_terminal_frame",
+            "fresh_reference_pixels_consumed": False,
+        }
 
     def _load_primary_reference(self, request: NativeShotRequest) -> Any | None:
         if self._active_continuity_frame is not None:
