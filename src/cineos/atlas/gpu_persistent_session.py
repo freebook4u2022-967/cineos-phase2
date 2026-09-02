@@ -25,6 +25,7 @@ from .gpu_foundation_smoke import (
 )
 from .gpu_preflight import inspect_cuda_environment, select_gpu_execution
 from .native_request import NativeShotRequest
+from .production_continuity_identity_runtime import bind_continuity_identity_runtime
 from .production_multi_reference import bind_production_multi_reference_runtime
 from .production_references import bind_production_reference_runtime
 
@@ -51,6 +52,7 @@ class PersistentGPUFoundationExecutor:
         torch_module: Any | None = None,
         reference_loader: Any | None = None,
         multi_reference_adapter: Any | None = None,
+        continuity_identity_adapter: Any | None = None,
         pipeline_factory: Any | None = None,
         video_exporter: Any | None = None,
     ) -> None:
@@ -61,6 +63,7 @@ class PersistentGPUFoundationExecutor:
         self.torch_module = torch_module
         self.reference_loader = reference_loader
         self.multi_reference_adapter = multi_reference_adapter
+        self.continuity_identity_adapter = continuity_identity_adapter
         self.pipeline_factory = pipeline_factory
         self.video_exporter = video_exporter
         self._renderer: Any | None = None
@@ -89,6 +92,7 @@ class PersistentGPUFoundationExecutor:
             output_dir=self.output_dir,
             reference_loader=self.reference_loader,
             multi_reference_adapter=self.multi_reference_adapter,
+            continuity_identity_adapter=self.continuity_identity_adapter,
             pipeline_factory=self.pipeline_factory,
             video_exporter=self.video_exporter,
         )
@@ -110,6 +114,9 @@ class PersistentGPUFoundationExecutor:
         runtime = bind_production_reference_runtime(runtime, self.reference_loader)
         runtime = bind_production_multi_reference_runtime(
             runtime, self.multi_reference_adapter
+        )
+        runtime = bind_continuity_identity_runtime(
+            runtime, self.continuity_identity_adapter
         )
         runtime["persistent_model_session"] = True
         self._renderer = renderer
