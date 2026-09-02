@@ -1,11 +1,10 @@
 """Production CLI for the connected CINEOS GPU benchmark.
 
 This entrypoint intentionally uses the default CUDA + Diffusers runtime plus the
-first-party, hash-bound CINEOS production reference loader. A successful command
-therefore means the connected benchmark produced real production GPU execution
-evidence without treating approved local identity assets as a test injection.
-External pretrained foundation weights remain explicitly identified by the pinned
-execution profile.
+first-party, hash-bound CINEOS production reference loader. Production execution is
+also required to pass the artifact-bound learned visual-QC and reject/rerender gate;
+a render is not accepted merely because CUDA inference completed. External pretrained
+foundation and QC weights remain explicitly identified by their pinned provenance.
 """
 
 from __future__ import annotations
@@ -16,16 +15,18 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from .artifact_video_observer import ArtifactVideoMetricObserver
 from .foundation_profiles import WAN22_TI2V_5B_PROFILE
-from .gpu_connected_benchmark import (
-    GPUConnectedBenchmarkReceipt,
-    run_connected_gpu_benchmark,
+from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
+from .gpu_production_quality_retry import (
+    ProductionGPUQualityRetryError,
+    run_production_quality_retry_connected_gpu_benchmark,
 )
-from .gpu_persistent_session import PersistentGPUFoundationExecutor
 from .native_request import NATIVE_SHOT_SCHEMA, NativeShotRequest
-from .production_continuity_identity import compose_continuity_identity_board
 from .production_multi_reference import ProductionReferenceBoardAdapter
 from .production_references import ProductionReferenceError, ProductionReferenceLoader
+from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
+from .siglip2_video_scorer import SigLIP2FeatureVideoScorer, SigLIP2VideoScorerError
 
 
 class GPUProductionBenchmarkCLIError(RuntimeError):
@@ -119,7 +120,7 @@ def _production_reference_loader(
 def _production_multi_reference_adapter(
     requests: Sequence[NativeShotRequest],
 ) -> ProductionReferenceBoardAdapter | None:
-    """Enable the audited board only when a shot genuinely declares >1 reference."""
+    """Validate current audited multi-reference capacity before model loading."""
 
     maximum = max(
         (len(request.approved_reference_ids) for request in requests), default=0
@@ -134,6 +135,34 @@ def _production_multi_reference_adapter(
     return ProductionReferenceBoardAdapter()
 
 
+def _production_quality_evaluator(
+    requests: Sequence[NativeShotRequest],
+    reference_manifest: str | Path | None,
+) -> ArtifactMeasuredSequenceQualityEvaluator:
+    """Build the pinned learned observer used by the production reject/rerender gate.
+
+    SigLIP2 is an external Apache-2.0 pretrained QC foundation. CINEOS owns the
+    artifact binding, policy and retry decision, not the SigLIP2 model weights.
+    ``local_files_only`` is enforced inside the scorer so the workflow must prefetch
+    the exact pinned revision before production inference begins.
+    """
+
+    loader = _production_reference_loader(requests, reference_manifest)
+    _production_multi_reference_adapter(requests)
+    try:
+        scorer = SigLIP2FeatureVideoScorer(loader, device="cuda")
+    except SigLIP2VideoScorerError as exc:
+        raise GPUProductionBenchmarkCLIError(
+            f"cannot initialize pinned production visual QC: {exc}"
+        ) from exc
+    observer = ArtifactVideoMetricObserver(scorer)
+    if observer.production_measurement_evidence is not True:
+        raise GPUProductionBenchmarkCLIError(
+            "production visual QC scorer did not attest measured semantic evidence"
+        )
+    return ArtifactMeasuredSequenceQualityEvaluator(observer)
+
+
 def run_production_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
@@ -142,60 +171,54 @@ def run_production_benchmark(
     reference_manifest: str | Path | None = None,
     continuity_identity_refresh: bool = False,
 ) -> GPUConnectedBenchmarkReceipt:
-    """Run the pinned foundation through one persistent real GPU model session.
+    """Run pinned foundation inference behind mandatory learned visual QC + retry.
 
-    Production connected-shot inference keeps the selected external foundation
-    resident across the 5-10 shot sequence. Approved references are resolved only
-    through the CINEOS first-party hash-bound manifest loader. Shots with 2-4
-    approved identities use the CINEOS-owned deterministic reference-board adapter
-    so the foundation's single image slot receives every declared reference rather
-    than silently discarding secondary characters.
-
-    ``continuity_identity_refresh`` is deliberately opt-in. ``False`` preserves the
-    validated predecessor-terminal-frame baseline. ``True`` selects the current
-    experimental CINEOS compositor that combines the predecessor terminal frame and
-    fresh approved identity references. Runtime provenance records the strategy so
-    the two runs can be compared without pretending the experiment is already the
-    production default.
+    The external video foundation remains explicitly identified by the immutable
+    execution profile. Approved references are hash-bound through CINEOS production
+    loaders. Each rendered shot must then pass artifact-bound measured QC; rejected
+    attempts receive auditable CINEOS retry directives and deterministic seed changes
+    before another real GPU render is attempted. This path deliberately does not
+    treat successful inference alone as production-quality evidence.
     """
 
     if not isinstance(continuity_identity_refresh, bool):
         raise TypeError("continuity_identity_refresh must be a bool")
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
-    reference_loader = _production_reference_loader(requests, reference_manifest)
-    multi_reference_adapter = _production_multi_reference_adapter(requests)
-    executor_kwargs: dict[str, Any] = {
-        "output_dir": output_root,
-        "reference_loader": reference_loader,
-        "multi_reference_adapter": multi_reference_adapter,
-    }
-    if continuity_identity_refresh:
-        executor_kwargs["continuity_identity_adapter"] = (
-            compose_continuity_identity_board
-        )
-
-    with PersistentGPUFoundationExecutor(
-        WAN22_TI2V_5B_PROFILE,
-        **executor_kwargs,
-    ) as executor:
-        receipt = run_connected_gpu_benchmark(
+    quality_evaluator = _production_quality_evaluator(requests, reference_manifest)
+    try:
+        receipt = run_production_quality_retry_connected_gpu_benchmark(
             benchmark_id,
             requests,
             WAN22_TI2V_5B_PROFILE,
             output_dir=output_root,
-            shot_executor=executor,
+            quality_evaluator=quality_evaluator,
+            reference_manifest=reference_manifest,
+            continuity_identity_refresh=continuity_identity_refresh,
         )
+    except ProductionGPUQualityRetryError as exc:
+        raise GPUProductionBenchmarkCLIError(str(exc)) from exc
     if not receipt.production_gpu_evidence:
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark completed without default production CUDA evidence"
+        )
+    if not receipt.production_quality_evidence:
+        raise GPUProductionBenchmarkCLIError(
+            "connected benchmark completed without artifact-bound production QC evidence"
+        )
+    if receipt.evidence_tier != "production-gpu-quality-gated":
+        raise GPUProductionBenchmarkCLIError(
+            "connected benchmark did not reach production-gpu-quality-gated evidence tier"
         )
     return receipt
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run a real 5-10 shot CINEOS connected GPU benchmark."
+        description=(
+            "Run a real 5-10 shot CINEOS connected GPU benchmark with mandatory "
+            "artifact-bound learned QC and reject/rerender."
+        )
     )
     parser.add_argument("--requests", required=True, help="Native shot JSON manifest")
     parser.add_argument(
