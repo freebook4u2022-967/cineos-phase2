@@ -54,6 +54,12 @@ from .native_request import (
     NativeShotRequest,
     compile_native_shot_request,
 )
+from .production_connected_evidence import (
+    ProductionConnectedEvidence,
+    ProductionConnectedEvidenceError,
+    production_connected_evidence,
+    validate_production_connected_evidence,
+)
 from .production_reference import (
     PRODUCTION_REFERENCE_MANIFEST_SCHEMA,
     ProductionReferenceError,
@@ -104,6 +110,8 @@ __all__ = [
     "NativeShotRequest",
     "NegotiatedCapabilities",
     "PRODUCTION_REFERENCE_MANIFEST_SCHEMA",
+    "ProductionConnectedEvidence",
+    "ProductionConnectedEvidenceError",
     "ProductionReferenceError",
     "ProductionReferenceManifestLoader",
     "QualityGatedShotExecutor",
@@ -131,10 +139,12 @@ __all__ = [
     "ingest_native_request",
     "inspect_cuda_environment",
     "plan_gpu_execution",
+    "production_connected_evidence",
     "production_visual_continuity_evidence",
     "run_connected_gpu_benchmark",
     "run_quality_gated_connected_gpu_benchmark",
     "select_gpu_execution",
     "validate_connected_visual_continuity",
     "validate_native_request",
+    "validate_production_connected_evidence",
 ]
