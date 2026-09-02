@@ -64,6 +64,4 @@ def test_unrecognized_adapter_cannot_masquerade_as_production_candidate():
     assert bound["runtime_mode"] == "injected"
     assert bound["production_default_runtime"] is False
     assert bound["injected_boundaries"]["continuity_identity_adapter"] is True
-    assert bound["continuity_identity_strategy"]["mode"] == (
-        "injected_or_unrecognized"
-    )
+    assert bound["continuity_identity_strategy"]["mode"] == ("injected_or_unrecognized")
