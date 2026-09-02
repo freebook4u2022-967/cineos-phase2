@@ -28,16 +28,30 @@ class ProductionReferenceBoardAdapter:
     Each source is contain-fitted into a stable cell without cropping so identity
     evidence is not silently discarded. The adapter is CINEOS-owned preprocessing,
     not a native capability claim about the external video foundation.
+
+    Every approved reference id must be unique. Repeating one identity under the
+    same id could otherwise occupy multiple board cells and make a two-character
+    request appear fully conditioned while one distinct character is absent.
     """
 
     adapter_id = "cineos.production.reference_board"
-    adapter_version = "0.1.0"
+    adapter_version = "0.1.1"
     maximum_references = 4
 
     def __call__(
         self, request: NativeShotRequest, references: Sequence[Any]
     ) -> MultiReferenceConditioningResult:
         expected_ids = tuple(request.approved_reference_ids)
+        if len(set(expected_ids)) != len(expected_ids):
+            duplicates = sorted(
+                reference_id
+                for reference_id in set(expected_ids)
+                if expected_ids.count(reference_id) > 1
+            )
+            raise ProductionMultiReferenceError(
+                "production multi-reference conditioning requires unique approved "
+                "reference ids; duplicates: " + ", ".join(duplicates)
+            )
         if len(references) != len(expected_ids):
             raise ProductionMultiReferenceError(
                 "multi-reference board received a different number of images than "
@@ -75,6 +89,10 @@ class ProductionReferenceBoardAdapter:
         board = Image.new("RGB", (width, height), (127, 127, 127))
         cell_width = width // columns
         cell_height = height // rows
+        if cell_width <= 0 or cell_height <= 0:
+            raise ProductionMultiReferenceError(
+                "shot camera resolution is too small for multi-reference board layout"
+            )
 
         for index, source in enumerate(references):
             if not hasattr(source, "convert") or not hasattr(source, "resize"):
@@ -118,6 +136,7 @@ class ProductionReferenceBoardAdapter:
             "adapter_version": self.adapter_version,
             "maximum_references": self.maximum_references,
             "composition": "deterministic_contain_fit_reference_board",
+            "requires_unique_reference_ids": True,
         }
 
 
