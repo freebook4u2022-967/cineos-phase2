@@ -57,7 +57,9 @@ def test_first_party_multi_reference_adapter_remains_production_evidence():
     assert bound["multi_reference_conditioning"]["adapter_version"] == (
         adapter.adapter_version
     )
-    assert bound["multi_reference_conditioning"]["requires_unique_reference_ids"] is True
+    assert (
+        bound["multi_reference_conditioning"]["requires_unique_reference_ids"] is True
+    )
 
 
 def test_arbitrary_multi_reference_adapter_downgrades_runtime_evidence():
@@ -88,7 +90,9 @@ def test_duplicate_reference_ids_fail_before_image_processing():
         def resize(self, _size, _resample):
             raise AssertionError("duplicate ids must fail before image processing")
 
-    with pytest.raises(ProductionMultiReferenceError, match="unique approved reference ids"):
+    with pytest.raises(
+        ProductionMultiReferenceError, match="unique approved reference ids"
+    ):
         adapter(request, (ExplodingImage(), ExplodingImage()))
 
 
