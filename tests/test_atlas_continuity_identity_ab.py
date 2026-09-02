@@ -173,9 +173,7 @@ def test_ab_gate_requires_same_ordered_shots():
 def test_ab_gate_rejects_candidate_without_strategy_provenance():
     baseline = _baseline(chain="a", identity=0.80)
     candidate = _candidate(chain="b", identity=0.84)
-    candidate["shots"][2]["runtime_provenance"].pop(
-        "continuity_identity_strategy"
-    )
+    candidate["shots"][2]["runtime_provenance"].pop("continuity_identity_strategy")
 
     with pytest.raises(ContinuityIdentityABError, match="strategy provenance"):
         evaluate_continuity_identity_ab(baseline, candidate)
