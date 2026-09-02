@@ -69,6 +69,16 @@ def test_reference_board_preserves_full_portrait_identity_evidence():
     assert any(blue > red and blue > green for red, green, blue in pixels)
 
 
+def test_reference_board_rejects_duplicate_identity_references():
+    request = _request("hero", "hero")
+
+    with pytest.raises(DiffusersVideoError, match="unique approved reference ids"):
+        compose_reference_board(
+            request,
+            (_solid((255, 0, 0)), _solid((255, 0, 0))),
+        )
+
+
 def test_reference_board_uses_stable_two_by_two_layout_for_three_characters():
     request = _request("hero", "partner", "villain")
 
