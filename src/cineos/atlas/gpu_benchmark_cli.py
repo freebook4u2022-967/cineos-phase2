@@ -165,15 +165,19 @@ def run_production_benchmark(
     output_root.mkdir(parents=True, exist_ok=True)
     reference_loader = _production_reference_loader(requests, reference_manifest)
     multi_reference_adapter = _production_multi_reference_adapter(requests)
-    continuity_identity_adapter = (
-        compose_continuity_identity_board if continuity_identity_refresh else None
-    )
+    executor_kwargs: dict[str, Any] = {
+        "output_dir": output_root,
+        "reference_loader": reference_loader,
+        "multi_reference_adapter": multi_reference_adapter,
+    }
+    if continuity_identity_refresh:
+        executor_kwargs["continuity_identity_adapter"] = (
+            compose_continuity_identity_board
+        )
+
     with PersistentGPUFoundationExecutor(
         WAN22_TI2V_5B_PROFILE,
-        output_dir=output_root,
-        reference_loader=reference_loader,
-        multi_reference_adapter=multi_reference_adapter,
-        continuity_identity_adapter=continuity_identity_adapter,
+        **executor_kwargs,
     ) as executor:
         receipt = run_connected_gpu_benchmark(
             benchmark_id,
