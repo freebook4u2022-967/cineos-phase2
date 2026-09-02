@@ -16,7 +16,7 @@ from .native_request import NativeShotRequest
 from .production_diffusers import MultiReferenceConditioningResult
 
 REFERENCE_BOARD_ADAPTER_ID = "cineos.reference-board"
-REFERENCE_BOARD_ADAPTER_VERSION = "1.1"
+REFERENCE_BOARD_ADAPTER_VERSION = "1.2"
 _MAX_REFERENCES = 4
 
 
@@ -28,11 +28,13 @@ def compose_reference_board(
 
     The board is deterministic for a fixed input sequence and target resolution.
     References retain request order, matching the production boundary's exact
-    consumption attestation. Each source is aspect-preserving letterboxed inside its
-    tile rather than center-cropped: production identity conditioning must not discard
-    face, hair, wardrobe, body-shape, or silhouette evidence merely to fill a tile.
-    Pillow is imported lazily so base CINEOS installs do not acquire an image
-    dependency unless neural/video execution is requested.
+    consumption attestation. Each approved reference id must be unique: repeating
+    one identity would consume board capacity while falsely presenting the request
+    as broader multi-reference conditioning. Each source is aspect-preserving
+    letterboxed inside its tile rather than center-cropped: production identity
+    conditioning must not discard face, hair, wardrobe, body-shape, or silhouette
+    evidence merely to fill a tile. Pillow is imported lazily so base CINEOS installs
+    do not acquire an image dependency unless neural/video execution is requested.
     """
 
     expected = tuple(request.approved_reference_ids)
@@ -40,6 +42,10 @@ def compose_reference_board(
         raise DiffusersVideoError(
             "reference-board adapter received a different number of images than "
             "approved reference ids"
+        )
+    if len(expected) != len(set(expected)):
+        raise DiffusersVideoError(
+            "reference-board adapter requires unique approved reference ids"
         )
     if len(references) < 2:
         raise DiffusersVideoError(
