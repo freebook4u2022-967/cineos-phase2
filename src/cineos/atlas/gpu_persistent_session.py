@@ -160,6 +160,30 @@ class PersistentGPUFoundationExecutor:
             )
         return self.render(request)
 
+    def discard_quality_rejected_result(
+        self, receipt: GPUFoundationExecutionReceipt
+    ) -> None:
+        """Ensure rejected GPU output cannot become a successor continuity anchor."""
+
+        renderer = self._renderer
+        if renderer is None:
+            raise PersistentGPUSessionError(
+                "persistent GPU session must be opened before rejecting a render"
+            )
+        discard = getattr(renderer, "discard_quality_rejected_result", None)
+        if discard is None:
+            return
+        if not callable(discard):
+            raise PersistentGPUSessionError(
+                "renderer exposes a non-callable quality rejection hook"
+            )
+        try:
+            discard(receipt)
+        except Exception as exc:
+            raise PersistentGPUSessionError(
+                "renderer could not remove rejected continuity state"
+            ) from exc
+
     def render(self, request: NativeShotRequest) -> GPUFoundationExecutionReceipt:
         renderer = self._renderer
         plan = self._plan
