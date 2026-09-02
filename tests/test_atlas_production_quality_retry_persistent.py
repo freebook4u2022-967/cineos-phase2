@@ -10,7 +10,9 @@ from cineos.atlas.gpu_production_quality_retry import (
     run_production_quality_retry_connected_gpu_benchmark,
 )
 from cineos.atlas.native_request import NativeShotRequest
-from cineos.atlas.production_continuity_identity import compose_continuity_identity_board
+from cineos.atlas.production_continuity_identity import (
+    compose_continuity_identity_board,
+)
 from cineos.atlas.production_multi_reference import ProductionReferenceBoardAdapter
 from cineos.atlas.sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 
