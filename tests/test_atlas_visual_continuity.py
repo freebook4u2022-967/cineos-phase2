@@ -116,6 +116,43 @@ def test_returned_result_carries_artifact_bound_continuity_provenance(tmp_path):
     assert provenance["current_request_hash"] == second_result.request_hash
 
 
+def test_quality_rejected_result_is_evicted_from_continuity_state(tmp_path):
+    pipeline = ImagePipeline()
+    renderer = _renderer(tmp_path, pipeline)
+
+    rejected = renderer.render(_request("shot-001"))
+    renderer.discard_quality_rejected_result(rejected)
+
+    assert renderer.last_conditioning_provenance is None
+    with pytest.raises(DiffusersVideoError, match="predecessor frame is unavailable"):
+        renderer.render(_request("shot-002", previous_shot="shot-001"))
+    assert pipeline.calls == ["image:hero-front"]
+
+
+def test_quality_rejection_requires_exact_cached_artifact_binding(tmp_path):
+    pipeline = ImagePipeline()
+    renderer = _renderer(tmp_path, pipeline)
+    result = renderer.render(_request("shot-001"))
+
+    tampered = result.__class__(
+        shot_id=result.shot_id,
+        scene_id=result.scene_id,
+        output_path=result.output_path,
+        frame_count=result.frame_count,
+        seed=result.seed,
+        foundation=result.foundation,
+        request_hash=result.request_hash,
+        artifact_sha256="0" * 64,
+        artifact_size_bytes=result.artifact_size_bytes,
+        conditioning_provenance=result.conditioning_provenance,
+    )
+    with pytest.raises(DiffusersVideoError, match="does not match"):
+        renderer.discard_quality_rejected_result(tampered)
+
+    renderer.render(_request("shot-002", previous_shot="shot-001"))
+    assert pipeline.calls == ["image:hero-front", "shot-0-terminal"]
+
+
 def test_continuation_fails_closed_without_predecessor_in_same_session(tmp_path):
     pipeline = ImagePipeline()
     renderer = _renderer(tmp_path, pipeline)
