@@ -23,6 +23,7 @@ from .gpu_connected_benchmark import (
 )
 from .gpu_persistent_session import PersistentGPUFoundationExecutor
 from .native_request import NATIVE_SHOT_SCHEMA, NativeShotRequest
+from .production_continuity_identity import compose_continuity_identity_board
 from .production_multi_reference import ProductionReferenceBoardAdapter
 from .production_references import ProductionReferenceError, ProductionReferenceLoader
 
@@ -139,6 +140,7 @@ def run_production_benchmark(
     *,
     output_dir: str | Path,
     reference_manifest: str | Path | None = None,
+    continuity_identity_refresh: bool = False,
 ) -> GPUConnectedBenchmarkReceipt:
     """Run the pinned foundation through one persistent real GPU model session.
 
@@ -148,17 +150,30 @@ def run_production_benchmark(
     approved identities use the CINEOS-owned deterministic reference-board adapter
     so the foundation's single image slot receives every declared reference rather
     than silently discarding secondary characters.
+
+    ``continuity_identity_refresh`` is deliberately opt-in. ``False`` preserves the
+    validated predecessor-terminal-frame baseline. ``True`` selects the current
+    experimental CINEOS compositor that combines the predecessor terminal frame and
+    fresh approved identity references. Runtime provenance records the strategy so
+    the two runs can be compared without pretending the experiment is already the
+    production default.
     """
 
+    if not isinstance(continuity_identity_refresh, bool):
+        raise TypeError("continuity_identity_refresh must be a bool")
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     reference_loader = _production_reference_loader(requests, reference_manifest)
     multi_reference_adapter = _production_multi_reference_adapter(requests)
+    continuity_identity_adapter = (
+        compose_continuity_identity_board if continuity_identity_refresh else None
+    )
     with PersistentGPUFoundationExecutor(
         WAN22_TI2V_5B_PROFILE,
         output_dir=output_root,
         reference_loader=reference_loader,
         multi_reference_adapter=multi_reference_adapter,
+        continuity_identity_adapter=continuity_identity_adapter,
     ) as executor:
         receipt = run_connected_gpu_benchmark(
             benchmark_id,
@@ -192,6 +207,14 @@ def _parser() -> argparse.ArgumentParser:
         default="cineos-connected-production",
         help="Stable identifier written into the benchmark evidence manifest",
     )
+    parser.add_argument(
+        "--continuity-identity-refresh",
+        action="store_true",
+        help=(
+            "Run the experimental CINEOS predecessor-frame + fresh-reference "
+            "conditioning strategy for a measured GPU A/B candidate."
+        ),
+    )
     return parser
 
 
@@ -203,6 +226,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         requests,
         output_dir=args.output_dir,
         reference_manifest=args.reference_manifest,
+        continuity_identity_refresh=args.continuity_identity_refresh,
     )
     print(json.dumps(receipt.to_dict(), indent=2, sort_keys=True))
     return 0
