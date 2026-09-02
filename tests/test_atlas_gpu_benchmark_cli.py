@@ -229,7 +229,9 @@ def test_production_runner_fails_closed_without_quality_evidence(monkeypatch, tm
         )
 
 
-def test_production_runner_returns_verified_quality_gated_receipt(monkeypatch, tmp_path):
+def test_production_runner_returns_verified_quality_gated_receipt(
+    monkeypatch, tmp_path
+):
     fake_receipt = _quality_receipt()
     monkeypatch.setattr(
         cli,
