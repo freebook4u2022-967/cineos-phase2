@@ -19,6 +19,12 @@ class Shot:
 class AttestedSemanticScorer:
     semantic_measurement_evidence = True
 
+    def runtime_provenance(self):
+        return {
+            "schema": "test-semantic-scorer/0.1",
+            "origin": "external-pretrained-foundation",
+        }
+
     def __call__(self, sample, **_kwargs):
         assert len(sample.frames) == 3
         return {
@@ -71,6 +77,10 @@ def test_video_observer_binds_decoded_measurements_to_exact_artifact(tmp_path):
     assert measurement["metrics"]["motion_quality"] == pytest.approx(0.88)
     assert measurement["metrics"]["artifact_integrity"] == pytest.approx(1.0)
     assert measurement["metrics"]["temporal_consistency"] == pytest.approx(1.0)
+    assert measurement["semantic_scorer"] == {
+        "schema": "test-semantic-scorer/0.1",
+        "origin": "external-pretrained-foundation",
+    }
 
 
 def test_video_observer_integrates_with_artifact_measured_quality_gate(tmp_path):
@@ -131,4 +141,19 @@ def test_video_observer_rejects_out_of_range_semantic_metric(tmp_path):
     )
 
     with pytest.raises(VideoArtifactObservationError, match="between 0 and 1"):
+        observer(str(artifact), shot=Shot(), attempt_index=0)
+
+
+def test_video_observer_rejects_invalid_semantic_runtime_provenance(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"actual-rendered-video-container")
+
+    class InvalidProvenanceScorer(AttestedSemanticScorer):
+        runtime_provenance = "not-callable"
+
+    observer = ArtifactVideoMetricObserver(
+        InvalidProvenanceScorer(),
+        sampler=_sampler,
+    )
+    with pytest.raises(VideoArtifactObservationError, match="must be callable"):
         observer(str(artifact), shot=Shot(), attempt_index=0)
