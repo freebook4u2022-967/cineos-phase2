@@ -53,6 +53,22 @@ def test_reference_board_consumes_every_reference_in_request_order():
     assert result.image.getpixel((6, 1)) == (0, 255, 0)
 
 
+def test_reference_board_preserves_full_portrait_identity_evidence():
+    request = _request("hero", "partner")
+    portrait = Image.new("RGB", (2, 6), (0, 255, 0))
+    portrait.putpixel((0, 0), (255, 0, 0))
+    portrait.putpixel((1, 0), (255, 0, 0))
+    portrait.putpixel((0, 5), (0, 0, 255))
+    portrait.putpixel((1, 5), (0, 0, 255))
+
+    result = compose_reference_board(request, (portrait, _solid((255, 255, 255))))
+    left_tile = result.image.crop((0, 0, 4, 4))
+    pixels = set(left_tile.getdata())
+
+    assert any(red > green and red > blue for red, green, blue in pixels)
+    assert any(blue > red and blue > green for red, green, blue in pixels)
+
+
 def test_reference_board_uses_stable_two_by_two_layout_for_three_characters():
     request = _request("hero", "partner", "villain")
 
