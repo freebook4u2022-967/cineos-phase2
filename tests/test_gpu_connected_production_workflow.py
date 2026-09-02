@@ -10,7 +10,7 @@ def _workflow_text() -> str:
 def test_gpu_workflow_prefetches_and_verifies_pinned_foundation_revision():
     workflow = _workflow_text()
 
-    assert "Prefetch and verify immutable foundation snapshot" in workflow
+    assert "Prefetch and verify immutable foundation and QC snapshots" in workflow
     assert (
         "from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE" in workflow
     )
@@ -19,6 +19,18 @@ def test_gpu_workflow_prefetches_and_verifies_pinned_foundation_revision():
     assert "revision=revision" in workflow
     assert "resolved_revision != revision" in workflow
     assert "foundation snapshot resolved to unexpected revision" in workflow
+
+
+def test_gpu_workflow_prefetches_and_verifies_pinned_learned_qc_revision():
+    workflow = _workflow_text()
+
+    assert "from cineos.atlas.siglip2_video_scorer import (" in workflow
+    assert "SIGLIP2_QC_MODEL_ID" in workflow
+    assert "SIGLIP2_QC_REVISION" in workflow
+    assert "repo_id=SIGLIP2_QC_MODEL_ID" in workflow
+    assert "revision=SIGLIP2_QC_REVISION" in workflow
+    assert "resolved_qc_revision != SIGLIP2_QC_REVISION" in workflow
+    assert "QC snapshot resolved to unexpected revision" in workflow
 
 
 def test_gpu_workflow_uses_same_hf_cache_for_prefetch_and_render():
@@ -36,7 +48,7 @@ def test_gpu_workflow_uses_cineos_memory_planner_before_foundation_download():
     model_requirement = (
         "estimated_model_vram_gb=WAN22_TI2V_5B_PROFILE.minimum_gpu_vram_gb"
     )
-    prefetch_step = "- name: Prefetch and verify immutable foundation snapshot"
+    prefetch_step = "- name: Prefetch and verify immutable foundation and QC snapshots"
 
     assert planner_import in workflow
     assert planner_call in workflow
@@ -54,3 +66,12 @@ def test_gpu_workflow_records_selected_memory_strategy_for_audit_logs():
         in workflow
     )
     assert 'print(f"fit_margin_gb={plan.fit_margin_gb:.2f}")' in workflow
+
+
+def test_gpu_workflow_runs_production_cli_after_qc_snapshot_is_pinned():
+    workflow = _workflow_text()
+
+    prefetch_step = "- name: Prefetch and verify immutable foundation and QC snapshots"
+    run_step = "- name: Run real connected GPU benchmark with production visual QC"
+    assert workflow.index(prefetch_step) < workflow.index(run_step)
+    assert "python -m cineos.atlas.gpu_benchmark_cli" in workflow
