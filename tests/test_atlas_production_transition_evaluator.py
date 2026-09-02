@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ from cineos.atlas.gpu_production_quality_retry import (
     ProductionGPUQualityRetryError,
     run_production_continuity_quality_retry_connected_gpu_benchmark,
 )
+from cineos.atlas.production_continuity_diffusers import VISUAL_CONTINUITY_SCHEMA
 from cineos.atlas.transition_quality import (
     TRANSITION_QUALITY_SCHEMA,
     ArtifactMeasuredTransitionQualityEvaluator,
@@ -142,3 +144,125 @@ def test_strict_production_entry_rejects_unattested_transition_before_gpu() -> N
             quality_evaluator=SimpleNamespace(),
             transition_evaluator=lambda *_args, **_kwargs: {},
         )
+
+
+def _connected_receipts(*, omit_lineage_at: int | None = None):
+    receipts = []
+    for index in range(5):
+        artifact_sha = f"{index + 1:064x}"
+        request_hash = f"request-{index}"
+        if index == 0:
+            provenance = {
+                "schema": VISUAL_CONTINUITY_SCHEMA,
+                "mode": "approved_reference_root",
+                "scene_id": "s1",
+                "shot_id": "q0",
+                "current_artifact_sha256": artifact_sha,
+                "current_request_hash": request_hash,
+                "previous_scene_id": None,
+                "previous_shot_id": None,
+                "predecessor_artifact_sha256": None,
+                "predecessor_request_hash": None,
+                "in_memory_terminal_frame": False,
+            }
+        else:
+            provenance = {
+                "schema": VISUAL_CONTINUITY_SCHEMA,
+                "mode": "predecessor_terminal_frame_lineage",
+                "scene_id": "s1",
+                "shot_id": f"q{index}",
+                "current_artifact_sha256": artifact_sha,
+                "current_request_hash": request_hash,
+                "previous_scene_id": "s1",
+                "previous_shot_id": f"q{index - 1}",
+                "predecessor_artifact_sha256": f"{index:064x}",
+                "predecessor_request_hash": f"request-{index - 1}",
+                "in_memory_terminal_frame": True,
+            }
+        if index == omit_lineage_at:
+            provenance = None
+        receipts.append(
+            SimpleNamespace(
+                output_sha256=artifact_sha,
+                result=SimpleNamespace(
+                    scene_id="s1",
+                    shot_id=f"q{index}",
+                    request_hash=request_hash,
+                    conditioning_provenance=provenance,
+                ),
+            )
+        )
+    return tuple(receipts)
+
+
+def _strict_receipt(tmp_path: Path, *, omit_lineage_at: int | None = None):
+    manifest = tmp_path / "benchmark.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "quality_retry_gate": {
+                    "transition_gate_applied": True,
+                    "accepted_transition_count": 4,
+                    "accepted_transitions": [
+                        {"production_measurement_evidence": True} for _ in range(4)
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return SimpleNamespace(
+        manifest_path=str(manifest),
+        shot_receipts=_connected_receipts(omit_lineage_at=omit_lineage_at),
+    )
+
+
+def test_strict_production_entry_requires_terminal_frame_lineage(
+    monkeypatch, tmp_path: Path
+) -> None:
+    aggregate = _strict_receipt(tmp_path, omit_lineage_at=2)
+    monkeypatch.setattr(
+        "cineos.atlas.gpu_production_quality_retry."
+        "run_production_quality_retry_connected_gpu_benchmark",
+        lambda *_args, **_kwargs: aggregate,
+    )
+
+    with pytest.raises(
+        ProductionGPUQualityRetryError,
+        match="artifact-bound terminal-frame lineage",
+    ):
+        run_production_continuity_quality_retry_connected_gpu_benchmark(
+            "lineage-required",
+            [SimpleNamespace()] * 5,
+            SimpleNamespace(),
+            output_dir=tmp_path,
+            quality_evaluator=SimpleNamespace(),
+            transition_evaluator=ArtifactMeasuredTransitionQualityEvaluator(
+                MeasuredObserver()
+            ),
+        )
+
+    assert not Path(aggregate.manifest_path).exists()
+
+
+def test_strict_production_entry_accepts_complete_lineage_and_transition_evidence(
+    monkeypatch, tmp_path: Path
+) -> None:
+    aggregate = _strict_receipt(tmp_path)
+    monkeypatch.setattr(
+        "cineos.atlas.gpu_production_quality_retry."
+        "run_production_quality_retry_connected_gpu_benchmark",
+        lambda *_args, **_kwargs: aggregate,
+    )
+
+    result = run_production_continuity_quality_retry_connected_gpu_benchmark(
+        "lineage-complete",
+        [SimpleNamespace()] * 5,
+        SimpleNamespace(),
+        output_dir=tmp_path,
+        quality_evaluator=SimpleNamespace(),
+        transition_evaluator=ArtifactMeasuredTransitionQualityEvaluator(MeasuredObserver()),
+    )
+
+    assert result is aggregate
+    assert Path(aggregate.manifest_path).exists()
