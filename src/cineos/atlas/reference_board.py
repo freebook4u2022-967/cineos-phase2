@@ -16,7 +16,7 @@ from .native_request import NativeShotRequest
 from .production_diffusers import MultiReferenceConditioningResult
 
 REFERENCE_BOARD_ADAPTER_ID = "cineos.reference-board"
-REFERENCE_BOARD_ADAPTER_VERSION = "1.0"
+REFERENCE_BOARD_ADAPTER_VERSION = "1.1"
 _MAX_REFERENCES = 4
 
 
@@ -28,8 +28,11 @@ def compose_reference_board(
 
     The board is deterministic for a fixed input sequence and target resolution.
     References retain request order, matching the production boundary's exact
-    consumption attestation. Pillow is imported lazily so base CINEOS installs do
-    not acquire an image dependency unless neural/video execution is requested.
+    consumption attestation. Each source is aspect-preserving letterboxed inside its
+    tile rather than center-cropped: production identity conditioning must not discard
+    face, hair, wardrobe, body-shape, or silhouette evidence merely to fill a tile.
+    Pillow is imported lazily so base CINEOS installs do not acquire an image
+    dependency unless neural/video execution is requested.
     """
 
     expected = tuple(request.approved_reference_ids)
@@ -79,14 +82,16 @@ def compose_reference_board(
             raise DiffusersVideoError(
                 "reference-board adapter requires Pillow Image reference inputs"
             )
-        tile = ImageOps.fit(
-            reference.convert("RGB"),
+        source = reference.convert("RGB")
+        tile = ImageOps.contain(
+            source,
             (tile_width, tile_height),
             method=Image.Resampling.LANCZOS,
-            centering=(0.5, 0.5),
         )
-        x = (index % columns) * tile_width
-        y = (index // columns) * tile_height
+        x0 = (index % columns) * tile_width
+        y0 = (index // columns) * tile_height
+        x = x0 + (tile_width - tile.width) // 2
+        y = y0 + (tile_height - tile.height) // 2
         board.paste(tile, (x, y))
 
     return MultiReferenceConditioningResult(
