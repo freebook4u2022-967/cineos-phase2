@@ -50,8 +50,9 @@ class ProductionReferenceLoader:
         }
 
     Relative paths are resolved against the manifest directory. The manifest is
-    hashed from its exact bytes, and each image is re-hashed immediately before it
-    is opened so a post-approval file swap fails closed.
+    hashed from its exact bytes. Requested assets are hash-verified during production
+    preflight, before model execution, and each image is re-hashed immediately before
+    it is opened so a post-preflight file swap also fails closed.
     """
 
     def __init__(self, manifest_path: str | Path) -> None:
@@ -133,25 +134,7 @@ class ProductionReferenceLoader:
     def reference_ids(self) -> tuple[str, ...]:
         return tuple(self._references)
 
-    def validate_reference_ids(self, reference_ids: Iterable[str]) -> None:
-        missing = sorted(
-            {item for item in reference_ids if item not in self._references}
-        )
-        if missing:
-            raise ProductionReferenceError(
-                "approved reference manifest is missing requested ids: "
-                + ", ".join(missing)
-            )
-
-    def runtime_provenance(self) -> dict[str, Any]:
-        return {
-            "schema": REFERENCE_RUNTIME_SCHEMA,
-            "loader": "cineos.atlas.production_references.ProductionReferenceLoader",
-            "manifest_sha256": self.manifest_sha256,
-            "reference_count": len(self._references),
-        }
-
-    def __call__(self, reference_id: str) -> Any:
+    def _validated_reference_path(self, reference_id: str) -> Path:
         try:
             path, expected_sha256 = self._references[reference_id]
         except KeyError as exc:
@@ -167,6 +150,33 @@ class ProductionReferenceLoader:
             raise ProductionReferenceError(
                 f"approved reference hash changed after approval: {reference_id!r}"
             )
+        return path
+
+    def validate_reference_ids(self, reference_ids: Iterable[str]) -> None:
+        requested = tuple(reference_ids)
+        missing = sorted({item for item in requested if item not in self._references})
+        if missing:
+            raise ProductionReferenceError(
+                "approved reference manifest is missing requested ids: "
+                + ", ".join(missing)
+            )
+        # Production preflight calls this before creating the persistent GPU executor.
+        # Validate every distinct requested payload now so a stale late-shot asset does
+        # not burn model-load time or earlier renders before failing. __call__ repeats
+        # the check immediately before decode to protect against a post-preflight swap.
+        for reference_id in dict.fromkeys(requested):
+            self._validated_reference_path(reference_id)
+
+    def runtime_provenance(self) -> dict[str, Any]:
+        return {
+            "schema": REFERENCE_RUNTIME_SCHEMA,
+            "loader": "cineos.atlas.production_references.ProductionReferenceLoader",
+            "manifest_sha256": self.manifest_sha256,
+            "reference_count": len(self._references),
+        }
+
+    def __call__(self, reference_id: str) -> Any:
+        path = self._validated_reference_path(reference_id)
         try:
             image_module = import_module("PIL.Image")
         except ImportError as exc:
