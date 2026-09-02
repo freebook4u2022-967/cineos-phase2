@@ -8,6 +8,7 @@ no pretrained weights or external-model capability are represented as CINEOS-nat
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from typing import Any
 
@@ -16,7 +17,7 @@ from .native_request import NativeShotRequest
 from .production_diffusers import MultiReferenceConditioningResult
 
 REFERENCE_BOARD_ADAPTER_ID = "cineos.reference-board"
-REFERENCE_BOARD_ADAPTER_VERSION = "1.2"
+REFERENCE_BOARD_ADAPTER_VERSION = "1.3"
 _MAX_REFERENCES = 4
 
 
@@ -30,11 +31,14 @@ def compose_reference_board(
     References retain request order, matching the production boundary's exact
     consumption attestation. Each approved reference id must be unique: repeating
     one identity would consume board capacity while falsely presenting the request
-    as broader multi-reference conditioning. Each source is aspect-preserving
-    letterboxed inside its tile rather than center-cropped: production identity
-    conditioning must not discard face, hair, wardrobe, body-shape, or silhouette
-    evidence merely to fill a tile. Pillow is imported lazily so base CINEOS installs
-    do not acquire an image dependency unless neural/video execution is requested.
+    as broader multi-reference conditioning. Exact duplicate image payloads are
+    rejected as well, even when they arrive under different approved ids, so one
+    source portrait cannot masquerade as multiple independently conditioned
+    identities. Each source is aspect-preserving letterboxed inside its tile rather
+    than center-cropped: production identity conditioning must not discard face,
+    hair, wardrobe, body-shape, or silhouette evidence merely to fill a tile.
+    Pillow is imported lazily so base CINEOS installs do not acquire an image
+    dependency unless neural/video execution is requested.
     """
 
     expected = tuple(request.approved_reference_ids)
@@ -63,6 +67,25 @@ def compose_reference_board(
             "reference-board adapter requires Pillow; install cineos[video]"
         ) from exc
 
+    normalized = []
+    fingerprints: set[str] = set()
+    for reference in references:
+        if not isinstance(reference, Image.Image):
+            raise DiffusersVideoError(
+                "reference-board adapter requires Pillow Image reference inputs"
+            )
+        source = reference.convert("RGB")
+        digest = hashlib.sha256()
+        digest.update(f"{source.width}x{source.height}:RGB:".encode("ascii"))
+        digest.update(source.tobytes())
+        fingerprint = digest.hexdigest()
+        if fingerprint in fingerprints:
+            raise DiffusersVideoError(
+                "reference-board adapter requires distinct reference image content"
+            )
+        fingerprints.add(fingerprint)
+        normalized.append(source)
+
     width, height = request.camera.get("resolution", (0, 0))
     if (
         not isinstance(width, int)
@@ -74,7 +97,7 @@ def compose_reference_board(
             "reference-board adapter requires a positive integer camera resolution"
         )
 
-    count = len(references)
+    count = len(normalized)
     columns = 2 if count > 1 else 1
     rows = 1 if count <= 2 else 2
     tile_width = width // columns
@@ -83,12 +106,7 @@ def compose_reference_board(
         raise DiffusersVideoError("reference-board target resolution is too small")
 
     board = Image.new("RGB", (width, height), (0, 0, 0))
-    for index, reference in enumerate(references):
-        if not isinstance(reference, Image.Image):
-            raise DiffusersVideoError(
-                "reference-board adapter requires Pillow Image reference inputs"
-            )
-        source = reference.convert("RGB")
+    for index, source in enumerate(normalized):
         tile = ImageOps.contain(
             source,
             (tile_width, tile_height),
