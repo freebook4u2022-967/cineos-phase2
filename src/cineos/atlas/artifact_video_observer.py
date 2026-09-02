@@ -184,6 +184,22 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _semantic_scorer_provenance(scorer: Any) -> dict[str, Any] | None:
+    provider = getattr(scorer, "runtime_provenance", None)
+    if provider is None:
+        return None
+    if not callable(provider):
+        raise VideoArtifactObservationError(
+            "semantic scorer runtime_provenance must be callable"
+        )
+    provenance = provider()
+    if not isinstance(provenance, Mapping):
+        raise VideoArtifactObservationError(
+            "semantic scorer runtime provenance must be a mapping"
+        )
+    return dict(provenance)
+
+
 class ArtifactVideoMetricObserver:
     """Create artifact-bound measurements from decoded video evidence.
 
@@ -197,7 +213,10 @@ class ArtifactVideoMetricObserver:
     evidence is exposed only when the scorer explicitly attests that its semantic
     outputs are measured evidence. This prevents a lambda, fixture, or synthetic
     score map from being promoted to production identity/motion QC merely because
-    the outer MP4 observer decoded a real artifact.
+    the outer MP4 observer decoded a real artifact. When a scorer exposes runtime
+    provenance, that provenance is serialized into the artifact-bound measurement
+    so external pretrained QC foundations remain auditable instead of being
+    mislabeled as native CINEOS capability.
     """
 
     def __init__(
@@ -269,7 +288,7 @@ class ArtifactVideoMetricObserver:
             raise VideoArtifactObservationError(
                 "video observer missing core metric(s): " + ", ".join(missing_core)
             )
-        return {
+        measurement = {
             "schema": PRODUCTION_MEASUREMENT_SCHEMA,
             "observer_id": self.observer_id,
             "artifact_sha256": _sha256_file(artifact),
@@ -281,6 +300,10 @@ class ArtifactVideoMetricObserver:
                 "frame_count": len(sample.frames),
             },
         }
+        provenance = _semantic_scorer_provenance(self.semantic_scorer)
+        if provenance is not None:
+            measurement["semantic_scorer"] = provenance
+        return measurement
 
 
 __all__ = [
