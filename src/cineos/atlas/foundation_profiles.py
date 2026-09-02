@@ -15,7 +15,6 @@ from typing import Any
 from .diffusers_video import DiffusersVideoRenderer, FoundationProvenance
 from .production_continuity_identity import (
     ProductionContinuityIdentityDiffusersVideoRenderer,
-    compose_continuity_identity_board,
 )
 from .reference_board import compose_reference_board
 
@@ -76,20 +75,20 @@ class FoundationExecutionProfile:
         output_dir: str | Path,
         reference_loader: Any | None = None,
         multi_reference_adapter: Any | None = None,
-        continuity_identity_adapter: Any | None = compose_continuity_identity_board,
+        continuity_identity_adapter: Any | None = None,
         pipeline_factory: Any | None = None,
         video_exporter: Any | None = None,
     ) -> DiffusersVideoRenderer:
         """Build the strict production renderer for this pinned foundation.
 
-        The pinned production profile supplies CINEOS deterministic reference-board
-        adapters by default. Root multi-character shots compose every approved
-        identity reference into the foundation's single image slot. Connected shots
-        additionally compose the accepted predecessor terminal frame with fresh
-        approved identity pixels so temporal anchoring no longer silently replaces
-        identity conditioning. Callers may pass ``None`` for
-        ``continuity_identity_adapter`` to preserve predecessor-only inheritance for
-        backwards-compatible A/B benchmarks.
+        Root multi-character shots use CINEOS' deterministic reference-board adapter
+        by default. Connected shots keep the already validated predecessor-terminal-
+        frame handoff unless an explicit ``continuity_identity_adapter`` is supplied.
+        The fresh-reference compositor remains an experimental CINEOS conditioning
+        strategy until a real GPU A/B benchmark demonstrates that it improves
+        identity without degrading temporal continuity or renderer quality. This
+        prevents an unmeasured preprocessing change from being promoted merely to
+        accelerate the milestone date.
         """
         adapter = (
             compose_reference_board
@@ -144,7 +143,7 @@ def build_wan22_ti2v_5b_renderer(
     output_dir: str | Path,
     reference_loader: Any | None = None,
     multi_reference_adapter: Any | None = None,
-    continuity_identity_adapter: Any | None = compose_continuity_identity_board,
+    continuity_identity_adapter: Any | None = None,
     pipeline_factory: Any | None = None,
     video_exporter: Any | None = None,
 ) -> DiffusersVideoRenderer:
