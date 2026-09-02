@@ -237,9 +237,7 @@ def evaluate_continuity_identity_ab(
         maximum_artifact_regression,
     )
     if any(
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or value < 0
+        isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0
         for value in thresholds
     ):
         raise ValueError("A/B thresholds must be non-negative numbers")
@@ -273,15 +271,10 @@ def evaluate_continuity_identity_ab(
 
     baseline_rows = _metric_rows(baseline_reports, label="baseline")
     candidate_rows = _metric_rows(candidate_reports, label="candidate")
-    baseline_means = {
-        name: _mean(baseline_rows, name) for name in _REQUIRED_METRICS
-    }
-    candidate_means = {
-        name: _mean(candidate_rows, name) for name in _REQUIRED_METRICS
-    }
+    baseline_means = {name: _mean(baseline_rows, name) for name in _REQUIRED_METRICS}
+    candidate_means = {name: _mean(candidate_rows, name) for name in _REQUIRED_METRICS}
     deltas = {
-        name: candidate_means[name] - baseline_means[name]
-        for name in _REQUIRED_METRICS
+        name: candidate_means[name] - baseline_means[name] for name in _REQUIRED_METRICS
     }
 
     failed: list[str] = []
