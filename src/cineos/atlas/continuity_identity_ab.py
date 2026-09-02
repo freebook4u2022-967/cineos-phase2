@@ -54,15 +54,21 @@ class ContinuityIdentityABDecision:
         }
 
 
-def _production_reports(receipt: Mapping[str, Any], *, label: str) -> tuple[Mapping[str, Any], ...]:
+def _production_reports(
+    receipt: Mapping[str, Any], *, label: str
+) -> tuple[Mapping[str, Any], ...]:
     if receipt.get("schema") != "cineos-gpu-connected-benchmark/0.2":
         raise ContinuityIdentityABError(f"{label} uses unsupported benchmark schema")
     if receipt.get("production_gpu_evidence") is not True:
         raise ContinuityIdentityABError(f"{label} is not production GPU evidence")
     if receipt.get("production_quality_evidence") is not True:
-        raise ContinuityIdentityABError(f"{label} is not production measured QC evidence")
+        raise ContinuityIdentityABError(
+            f"{label} is not production measured QC evidence"
+        )
     if receipt.get("evidence_tier") != "production-gpu-quality-gated":
-        raise ContinuityIdentityABError(f"{label} does not have the required evidence tier")
+        raise ContinuityIdentityABError(
+            f"{label} does not have the required evidence tier"
+        )
     reports = receipt.get("quality_reports")
     if not isinstance(reports, Sequence) or isinstance(reports, (str, bytes)):
         raise ContinuityIdentityABError(f"{label} quality_reports must be a sequence")
@@ -71,30 +77,42 @@ def _production_reports(receipt: Mapping[str, Any], *, label: str) -> tuple[Mapp
     return tuple(reports)
 
 
-def _metric_rows(reports: Sequence[Mapping[str, Any]], *, label: str) -> tuple[dict[str, float], ...]:
+def _metric_rows(
+    reports: Sequence[Mapping[str, Any]], *, label: str
+) -> tuple[dict[str, float], ...]:
     rows: list[dict[str, float]] = []
     identities: set[tuple[Any, Any]] = set()
     for index, report in enumerate(reports):
         if not isinstance(report, Mapping) or report.get("accepted") is not True:
-            raise ContinuityIdentityABError(f"{label} shot {index} is not accepted measured QC")
+            raise ContinuityIdentityABError(
+                f"{label} shot {index} is not accepted measured QC"
+            )
         identity = (report.get("scene_id"), report.get("shot_id"))
         if None in identity or identity in identities:
-            raise ContinuityIdentityABError(f"{label} shot identities are missing or duplicated")
+            raise ContinuityIdentityABError(
+                f"{label} shot identities are missing or duplicated"
+            )
         identities.add(identity)
         measurement = report.get("measurement")
         if not isinstance(measurement, Mapping):
             raise ContinuityIdentityABError(f"{label} shot {index} has no measurement")
         metrics = measurement.get("metrics")
         if not isinstance(metrics, Mapping):
-            raise ContinuityIdentityABError(f"{label} shot {index} has no metric mapping")
+            raise ContinuityIdentityABError(
+                f"{label} shot {index} has no metric mapping"
+            )
         row: dict[str, float] = {}
         for name in _REQUIRED_METRICS:
             value = metrics.get(name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ContinuityIdentityABError(f"{label} shot {index} missing numeric {name}")
+                raise ContinuityIdentityABError(
+                    f"{label} shot {index} missing numeric {name}"
+                )
             numeric = float(value)
             if not 0.0 <= numeric <= 1.0:
-                raise ContinuityIdentityABError(f"{label} shot {index} {name} is outside [0, 1]")
+                raise ContinuityIdentityABError(
+                    f"{label} shot {index} {name} is outside [0, 1]"
+                )
             row[name] = numeric
         rows.append(row)
     return tuple(rows)
@@ -143,8 +161,12 @@ def evaluate_continuity_identity_ab(
     if baseline_chain == candidate_chain:
         raise ContinuityIdentityABError("A/B runs reused the same rendered chain")
 
-    baseline_ids = [(item.get("scene_id"), item.get("shot_id")) for item in baseline_reports]
-    candidate_ids = [(item.get("scene_id"), item.get("shot_id")) for item in candidate_reports]
+    baseline_ids = [
+        (item.get("scene_id"), item.get("shot_id")) for item in baseline_reports
+    ]
+    candidate_ids = [
+        (item.get("scene_id"), item.get("shot_id")) for item in candidate_reports
+    ]
     if baseline_ids != candidate_ids:
         raise ContinuityIdentityABError("A/B runs do not cover the same ordered shots")
 
@@ -153,13 +175,16 @@ def evaluate_continuity_identity_ab(
     means = lambda rows, name: sum(row[name] for row in rows) / len(rows)
     baseline_means = {name: means(baseline_rows, name) for name in _REQUIRED_METRICS}
     candidate_means = {name: means(candidate_rows, name) for name in _REQUIRED_METRICS}
-    deltas = {name: candidate_means[name] - baseline_means[name] for name in _REQUIRED_METRICS}
+    deltas = {
+        name: candidate_means[name] - baseline_means[name] for name in _REQUIRED_METRICS
+    }
 
     failed: list[str] = []
     if deltas["identity_similarity"] < minimum_identity_gain:
         failed.append("insufficient_mean_identity_gain")
     if any(
-        candidate["identity_similarity"] < baseline["identity_similarity"] - maximum_identity_shot_regression
+        candidate["identity_similarity"]
+        < baseline["identity_similarity"] - maximum_identity_shot_regression
         for baseline, candidate in zip(baseline_rows, candidate_rows, strict=True)
     ):
         failed.append("per_shot_identity_regression")
