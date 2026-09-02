@@ -88,14 +88,18 @@ class PersistentGPUFoundationExecutor:
             estimated_model_vram_gb=estimated_vram,
             prefer_bfloat16=self.prefer_bfloat16,
         )
-        renderer = self.profile.renderer(
-            output_dir=self.output_dir,
-            reference_loader=self.reference_loader,
-            multi_reference_adapter=self.multi_reference_adapter,
-            continuity_identity_adapter=self.continuity_identity_adapter,
-            pipeline_factory=self.pipeline_factory,
-            video_exporter=self.video_exporter,
-        )
+        renderer_kwargs: dict[str, Any] = {
+            "output_dir": self.output_dir,
+            "reference_loader": self.reference_loader,
+            "multi_reference_adapter": self.multi_reference_adapter,
+            "pipeline_factory": self.pipeline_factory,
+            "video_exporter": self.video_exporter,
+        }
+        if self.continuity_identity_adapter is not None:
+            renderer_kwargs["continuity_identity_adapter"] = (
+                self.continuity_identity_adapter
+            )
+        renderer = self.profile.renderer(**renderer_kwargs)
         renderer.initialize()
         try:
             renderer.load_model(**plan.renderer_options())
