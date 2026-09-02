@@ -16,9 +16,11 @@ generation.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 from collections.abc import Mapping
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from .diffusers_video import DiffusersVideoError, DiffusersVideoRenderer
@@ -85,6 +87,53 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
             return None
         return dict(self._last_conditioning_provenance)
 
+    def _fresh_artifact_result(
+        self,
+        request: NativeShotRequest,
+        result: ProductionDiffusersVideoResult,
+    ) -> ProductionDiffusersVideoResult:
+        """Bind newly exported bytes when the outer execution layer owns validation.
+
+        GPU execution wrappers historically leave ``require_artifact_evidence``
+        disabled on the renderer because they perform stronger MP4 validation and
+        error translation after rendering. Continuity lineage nevertheless needs a
+        byte digest before the next shot can consume the terminal frame. We hash the
+        renderer's exact expected output only when a fresh non-empty file exists;
+        absent/empty artifacts remain unbound so the owning execution layer can
+        preserve its established error contract.
+        """
+
+        if result.artifact_sha256 is not None:
+            return result
+        artifact = Path(result.output_path)
+        expected = self.output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
+        try:
+            if artifact.resolve(strict=False) != expected.resolve(strict=False):
+                return result
+        except OSError:
+            return result
+        if not artifact.is_file():
+            return result
+        try:
+            size = artifact.stat().st_size
+        except OSError:
+            return result
+        if size <= 0:
+            return result
+
+        digest = hashlib.sha256()
+        try:
+            with artifact.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError:
+            return result
+        return replace(
+            result,
+            artifact_sha256=digest.hexdigest(),
+            artifact_size_bytes=size,
+        )
+
     def render(self, request: Any) -> ProductionDiffusersVideoResult:
         if not isinstance(request, NativeShotRequest):
             return super().render(request)
@@ -122,16 +171,29 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
             self._active_continuity_frame = self._terminal_frames[predecessor]
             self._active_predecessor_binding = self._render_bindings[predecessor]
 
+        # A production continuity render must never bind a stale file left by a
+        # previous direct-render attempt. GPU wrappers already do this removal; the
+        # renderer repeats it so direct use has the same freshness invariant.
+        expected_artifact = self.output_dir / f"{request.scene_id}-{request.shot_id}.mp4"
+        if expected_artifact.exists():
+            expected_artifact.unlink()
+
         try:
-            result = super().render(request)
+            result = self._fresh_artifact_result(request, super().render(request))
             if self._captured_terminal_frame is None:
                 raise DiffusersVideoError(
                     "foundation output did not expose a terminal frame for continuity"
                 )
-            if not result.artifact_sha256 or not result.request_hash:
+
+            # Missing/empty output is intentionally left to the outer execution
+            # boundary, which owns MP4 validation and its public error taxonomy.
+            # Without a digest this shot is never admitted to continuity state.
+            if not result.artifact_sha256:
+                return result
+            if not result.request_hash:
                 raise DiffusersVideoError(
-                    "production continuity requires artifact and request hashes from "
-                    "the completed render"
+                    "production continuity requires a request hash from the completed "
+                    "render"
                 )
 
             identity = (request.scene_id, request.shot_id)
@@ -217,9 +279,3 @@ class ProductionContinuityDiffusersVideoRenderer(ProductionDiffusersVideoRendere
         frames = DiffusersVideoRenderer._extract_frames(output)
         self._captured_terminal_frame = frames[-1]
         return frames
-
-
-__all__ = [
-    "ProductionContinuityDiffusersVideoRenderer",
-    "VISUAL_CONTINUITY_SCHEMA",
-]
