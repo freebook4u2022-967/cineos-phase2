@@ -68,7 +68,9 @@ def _rows(value: Any) -> list[list[float]]:
     rows: list[list[float]] = []
     for row in candidate:
         if not isinstance(row, Sequence) or isinstance(row, (str, bytes)):
-            raise SigLIP2VideoScorerError("vision encoder features must be two-dimensional")
+            raise SigLIP2VideoScorerError(
+                "vision encoder features must be two-dimensional"
+            )
         rows.append([float(value) for value in row])
     if not rows:
         raise SigLIP2VideoScorerError("vision encoder returned no features")
@@ -104,8 +106,10 @@ class SigLIP2FeatureVideoScorer:
         injected = any(value is not None for value in (model, processor, torch_module))
         try:
             torch = torch_module or import_module("torch")
-            transformers = None if model is not None and processor is not None else import_module(
-                "transformers"
+            transformers = (
+                None
+                if model is not None and processor is not None
+                else import_module("transformers")
             )
         except ImportError as exc:
             raise SigLIP2VideoScorerError(
@@ -124,7 +128,9 @@ class SigLIP2FeatureVideoScorer:
         if processor is None:
             auto_processor = getattr(transformers, "AutoProcessor", None)
             if auto_processor is None:
-                raise SigLIP2VideoScorerError("transformers.AutoProcessor is unavailable")
+                raise SigLIP2VideoScorerError(
+                    "transformers.AutoProcessor is unavailable"
+                )
             processor = auto_processor.from_pretrained(
                 SIGLIP2_QC_MODEL_ID,
                 revision=SIGLIP2_QC_REVISION,
@@ -134,7 +140,9 @@ class SigLIP2FeatureVideoScorer:
         to_device = getattr(model, "to", None)
         eval_mode = getattr(model, "eval", None)
         if not callable(to_device) or not callable(eval_mode):
-            raise SigLIP2VideoScorerError("SigLIP2 model lacks required inference methods")
+            raise SigLIP2VideoScorerError(
+                "SigLIP2 model lacks required inference methods"
+            )
         self.model = to_device(device)
         self.model.eval()
         self.processor = processor
@@ -211,7 +219,9 @@ class SigLIP2FeatureVideoScorer:
         ]
         if len(steps) == 1:
             return 1.0
-        accelerations = [abs(left - right) for left, right in zip(steps, steps[1:], strict=True)]
+        accelerations = [
+            abs(left - right) for left, right in zip(steps, steps[1:], strict=True)
+        ]
         return max(0.0, min(1.0, 1.0 - sum(accelerations) / len(accelerations)))
 
     def __call__(
