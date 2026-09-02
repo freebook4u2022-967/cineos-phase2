@@ -55,7 +55,12 @@ def compose_reference_board(
         ) from exc
 
     width, height = request.camera.get("resolution", (0, 0))
-    if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
+    if (
+        not isinstance(width, int)
+        or not isinstance(height, int)
+        or width <= 0
+        or height <= 0
+    ):
         raise DiffusersVideoError(
             "reference-board adapter requires a positive integer camera resolution"
         )
