@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from cineos.atlas import gpu_benchmark_cli as cli
 from cineos.atlas.gpu_benchmark_cli import (
     GPUProductionBenchmarkCLIError,
     load_native_requests,
@@ -57,6 +58,16 @@ def _reference_manifest(tmp_path, reference_ids=("lead-approved-reference",)):
     return manifest
 
 
+def _quality_receipt(*, gpu=True, quality=True):
+    return SimpleNamespace(
+        production_gpu_evidence=gpu,
+        production_quality_evidence=quality,
+        evidence_tier=(
+            "production-gpu-quality-gated" if gpu and quality else "research"
+        ),
+    )
+
+
 def test_load_native_requests_recomputes_and_preserves_valid_hashes(tmp_path):
     source = tmp_path / "requests.json"
     requests = [_request(index) for index in range(5)]
@@ -91,43 +102,7 @@ def test_load_native_requests_rejects_non_array_manifest(tmp_path):
         load_native_requests(source)
 
 
-def _install_fake_persistent_executor(monkeypatch):
-    lifecycle = []
-
-    class FakePersistentExecutor:
-        def __init__(
-            self,
-            profile,
-            *,
-            output_dir,
-            reference_loader=None,
-            multi_reference_adapter=None,
-        ):
-            self.profile = profile
-            self.output_dir = output_dir
-            self.reference_loader = reference_loader
-            self.multi_reference_adapter = multi_reference_adapter
-            lifecycle.append(("init", profile, output_dir, self))
-
-        def __enter__(self):
-            lifecycle.append(("enter", self))
-            return self
-
-        def __exit__(self, exc_type, exc, traceback):
-            lifecycle.append(("exit", exc_type, self))
-
-    monkeypatch.setattr(
-        "cineos.atlas.gpu_benchmark_cli.PersistentGPUFoundationExecutor",
-        FakePersistentExecutor,
-    )
-    return lifecycle
-
-
-def test_production_runner_requires_reference_manifest_before_gpu_session(
-    monkeypatch, tmp_path
-):
-    lifecycle = _install_fake_persistent_executor(monkeypatch)
-
+def test_production_runner_requires_reference_manifest_before_qc_model_load(tmp_path):
     with pytest.raises(GPUProductionBenchmarkCLIError, match="reference-manifest"):
         run_production_benchmark(
             "production-evidence",
@@ -135,13 +110,8 @@ def test_production_runner_requires_reference_manifest_before_gpu_session(
             output_dir=tmp_path / "renders",
         )
 
-    assert lifecycle == []
 
-
-def test_production_runner_rejects_manifest_missing_requested_identity(
-    monkeypatch, tmp_path
-):
-    lifecycle = _install_fake_persistent_executor(monkeypatch)
+def test_production_runner_rejects_manifest_missing_requested_identity(tmp_path):
     manifest = _reference_manifest(tmp_path)
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["references"][0]["reference_id"] = "somebody-else"
@@ -155,13 +125,16 @@ def test_production_runner_rejects_manifest_missing_requested_identity(
             reference_manifest=manifest,
         )
 
-    assert lifecycle == []
 
-
-def test_production_runner_uses_one_persistent_gpu_executor(monkeypatch, tmp_path):
-    fake_receipt = SimpleNamespace(production_gpu_evidence=True)
-    lifecycle = _install_fake_persistent_executor(monkeypatch)
+def test_production_runner_routes_through_quality_retry_boundary(monkeypatch, tmp_path):
+    evaluator = object()
+    fake_receipt = _quality_receipt()
     captured = {}
+    monkeypatch.setattr(
+        cli,
+        "_production_quality_evaluator",
+        lambda requests, reference_manifest: evaluator,
+    )
 
     def fake_run(*args, **kwargs):
         captured["args"] = args
@@ -169,79 +142,56 @@ def test_production_runner_uses_one_persistent_gpu_executor(monkeypatch, tmp_pat
         return fake_receipt
 
     monkeypatch.setattr(
-        "cineos.atlas.gpu_benchmark_cli.run_connected_gpu_benchmark",
+        cli,
+        "run_production_quality_retry_connected_gpu_benchmark",
         fake_run,
     )
-
     requests = [_request(index) for index in range(5)]
+    manifest = _reference_manifest(tmp_path)
+
     receipt = run_production_benchmark(
         "production-evidence",
         requests,
         output_dir=tmp_path / "renders",
-        reference_manifest=_reference_manifest(tmp_path),
+        reference_manifest=manifest,
     )
 
     assert receipt is fake_receipt
-    assert [event[0] for event in lifecycle] == ["init", "enter", "exit"]
-    executor = lifecycle[0][3]
-    assert executor.reference_loader.reference_ids == ("lead-approved-reference",)
-    assert executor.multi_reference_adapter is None
-    assert captured["kwargs"]["shot_executor"] is executor
+    assert captured["args"][:2] == ("production-evidence", requests)
+    assert captured["kwargs"]["quality_evaluator"] is evaluator
+    assert captured["kwargs"]["reference_manifest"] == manifest
     assert captured["kwargs"]["output_dir"] == tmp_path / "renders"
-    assert (tmp_path / "renders").is_dir()
 
 
-def test_production_runner_enables_audited_multi_reference_adapter(
-    monkeypatch, tmp_path
-):
-    fake_receipt = SimpleNamespace(production_gpu_evidence=True)
-    lifecycle = _install_fake_persistent_executor(monkeypatch)
-    monkeypatch.setattr(
-        "cineos.atlas.gpu_benchmark_cli.run_connected_gpu_benchmark",
-        lambda *args, **kwargs: fake_receipt,
-    )
+def test_production_runner_enables_audited_multi_reference_adapter():
     reference_ids = ("lead-approved-reference", "partner-approved-reference")
     requests = [_request(index, reference_ids) for index in range(5)]
 
-    receipt = run_production_benchmark(
-        "production-multi-reference",
-        requests,
-        output_dir=tmp_path / "renders",
-        reference_manifest=_reference_manifest(tmp_path, reference_ids),
-    )
+    adapter = cli._production_multi_reference_adapter(requests)
 
-    assert receipt is fake_receipt
-    executor = lifecycle[0][3]
-    assert isinstance(executor.multi_reference_adapter, ProductionReferenceBoardAdapter)
+    assert isinstance(adapter, ProductionReferenceBoardAdapter)
 
 
-def test_production_runner_rejects_more_than_four_references_before_gpu_session(
-    monkeypatch, tmp_path
-):
-    lifecycle = _install_fake_persistent_executor(monkeypatch)
+def test_production_runner_rejects_more_than_four_references_before_qc_load():
     reference_ids = tuple(f"identity-{index}" for index in range(5))
     requests = [_request(index, reference_ids) for index in range(5)]
 
     with pytest.raises(GPUProductionBenchmarkCLIError, match="at most four"):
-        run_production_benchmark(
-            "too-many-identities",
-            requests,
-            output_dir=tmp_path / "renders",
-            reference_manifest=_reference_manifest(tmp_path, reference_ids),
-        )
-
-    assert lifecycle == []
+        cli._production_multi_reference_adapter(requests)
 
 
 def test_production_runner_fails_closed_without_default_gpu_evidence(
     monkeypatch, tmp_path
 ):
-    fake_receipt = SimpleNamespace(production_gpu_evidence=False)
-    _install_fake_persistent_executor(monkeypatch)
-
     monkeypatch.setattr(
-        "cineos.atlas.gpu_benchmark_cli.run_connected_gpu_benchmark",
-        lambda *args, **kwargs: fake_receipt,
+        cli,
+        "_production_quality_evaluator",
+        lambda requests, reference_manifest: object(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_production_quality_retry_connected_gpu_benchmark",
+        lambda *args, **kwargs: _quality_receipt(gpu=False),
     )
 
     with pytest.raises(
@@ -251,16 +201,44 @@ def test_production_runner_fails_closed_without_default_gpu_evidence(
             "production-evidence",
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
-            reference_manifest=_reference_manifest(tmp_path),
+            reference_manifest="approved-references.json",
         )
 
 
-def test_production_runner_returns_verified_default_gpu_receipt(monkeypatch, tmp_path):
-    fake_receipt = SimpleNamespace(production_gpu_evidence=True)
-    _install_fake_persistent_executor(monkeypatch)
-
+def test_production_runner_fails_closed_without_quality_evidence(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "cineos.atlas.gpu_benchmark_cli.run_connected_gpu_benchmark",
+        cli,
+        "_production_quality_evaluator",
+        lambda requests, reference_manifest: object(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_production_quality_retry_connected_gpu_benchmark",
+        lambda *args, **kwargs: _quality_receipt(quality=False),
+    )
+
+    with pytest.raises(
+        GPUProductionBenchmarkCLIError,
+        match="without artifact-bound production QC evidence",
+    ):
+        run_production_benchmark(
+            "production-evidence",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path,
+            reference_manifest="approved-references.json",
+        )
+
+
+def test_production_runner_returns_verified_quality_gated_receipt(monkeypatch, tmp_path):
+    fake_receipt = _quality_receipt()
+    monkeypatch.setattr(
+        cli,
+        "_production_quality_evaluator",
+        lambda requests, reference_manifest: object(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_production_quality_retry_connected_gpu_benchmark",
         lambda *args, **kwargs: fake_receipt,
     )
 
@@ -268,7 +246,7 @@ def test_production_runner_returns_verified_default_gpu_receipt(monkeypatch, tmp
         "production-evidence",
         [_request(index) for index in range(5)],
         output_dir=tmp_path,
-        reference_manifest=_reference_manifest(tmp_path),
+        reference_manifest="approved-references.json",
     )
 
     assert receipt is fake_receipt
