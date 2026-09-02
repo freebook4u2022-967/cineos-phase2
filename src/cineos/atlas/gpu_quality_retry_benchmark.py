@@ -128,6 +128,27 @@ def _render_attempt(
     return receipt
 
 
+def _discard_rejected_attempt(
+    executor: ShotExecutor,
+    receipt: GPUFoundationExecutionReceipt,
+) -> None:
+    """Remove rejected output from executor-owned continuity state when supported."""
+
+    discard = getattr(executor, "discard_quality_rejected_result", None)
+    if discard is None:
+        return
+    if not callable(discard):
+        raise GPUQualityRetryBenchmarkError(
+            "shot executor exposes a non-callable quality rejection hook"
+        )
+    try:
+        discard(receipt)
+    except Exception as exc:
+        raise GPUQualityRetryBenchmarkError(
+            "shot executor failed to discard rejected continuity state"
+        ) from exc
+
+
 def run_quality_retry_connected_gpu_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
@@ -147,8 +168,10 @@ def run_quality_retry_connected_gpu_benchmark(
     seed, quality report, and output digest. When ``transition_evaluator`` is given,
     shot two onward must also pass artifact-bound predecessor-to-current seam QC.
     A failed seam rerenders only the current shot, preserving its accepted
-    predecessor as the continuity anchor. The benchmark fails closed and writes no
-    completed manifest if any shot exhausts the retry policy.
+    predecessor as the continuity anchor. Executors that retain in-memory visual
+    handoff state are told to discard every rejected attempt before retry/advance,
+    so a failed artifact cannot become a successor conditioning frame. The benchmark
+    fails closed and writes no completed manifest if any shot exhausts the policy.
     """
 
     if not benchmark_id.strip():
@@ -236,6 +259,8 @@ def run_quality_retry_connected_gpu_benchmark(
                         ),
                         "directives": transition_report.get("directives", []),
                     }
+
+                _discard_rejected_attempt(shot_executor, receipt)
 
                 if attempt_index + 1 >= policy.max_attempts:
                     failed = rejection_report.get("failed_metrics") or [
