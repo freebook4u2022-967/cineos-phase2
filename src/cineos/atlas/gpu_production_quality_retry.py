@@ -32,6 +32,9 @@ from .gpu_quality_retry_benchmark import (
     run_quality_retry_connected_gpu_benchmark,
 )
 from .native_request import NativeShotRequest
+from .production_continuity_identity import compose_continuity_identity_board
+from .production_multi_reference import ProductionReferenceBoardAdapter
+from .production_references import ProductionReferenceError, ProductionReferenceLoader
 from .quality_retry import QualityRetryPolicy
 from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
@@ -45,6 +48,8 @@ _INJECTED_RUNTIME_KWARGS = frozenset(
     {
         "torch_module",
         "reference_loader",
+        "multi_reference_adapter",
+        "continuity_identity_adapter",
         "pipeline_factory",
         "video_exporter",
     }
@@ -80,6 +85,65 @@ def _validate_production_executor_kwargs(
     return supplied
 
 
+def _production_identity_runtime(
+    requests: Sequence[NativeShotRequest],
+    *,
+    reference_manifest: str | Path | None,
+    continuity_identity_refresh: bool,
+) -> dict[str, Any]:
+    """Build only audited first-party identity-conditioning boundaries.
+
+    The public production API accepts paths and a boolean strategy selector rather
+    than arbitrary loader/adapter callables. This keeps the runtime reproducible and
+    prevents test or borrowed conditioning code from being promoted to production
+    evidence while allowing both baseline and experimental A/B runs to use the exact
+    same approved assets.
+    """
+
+    if not isinstance(continuity_identity_refresh, bool):
+        raise TypeError("continuity_identity_refresh must be a bool")
+
+    requested_ids = [
+        reference_id
+        for request in requests
+        for reference_id in request.approved_reference_ids
+    ]
+    if not requested_ids:
+        raise ProductionGPUQualityRetryError(
+            "production quality benchmark requires approved identity references"
+        )
+    if reference_manifest is None:
+        raise ProductionGPUQualityRetryError(
+            "production quality benchmark requires a hash-pinned reference manifest"
+        )
+
+    try:
+        reference_loader = ProductionReferenceLoader(reference_manifest)
+        reference_loader.validate_reference_ids(requested_ids)
+    except ProductionReferenceError as exc:
+        raise ProductionGPUQualityRetryError(str(exc)) from exc
+
+    maximum_references = max(
+        (len(request.approved_reference_ids) for request in requests),
+        default=0,
+    )
+    multi_reference_adapter: ProductionReferenceBoardAdapter | None = None
+    if maximum_references > ProductionReferenceBoardAdapter.maximum_references:
+        raise ProductionGPUQualityRetryError(
+            "production quality benchmark supports at most four approved identity "
+            "references per shot with the current audited adapter"
+        )
+    if maximum_references > 1:
+        multi_reference_adapter = ProductionReferenceBoardAdapter()
+
+    runtime: dict[str, Any] = {"reference_loader": reference_loader}
+    if multi_reference_adapter is not None:
+        runtime["multi_reference_adapter"] = multi_reference_adapter
+    if continuity_identity_refresh:
+        runtime["continuity_identity_adapter"] = compose_continuity_identity_board
+    return runtime
+
+
 def run_production_quality_retry_connected_gpu_benchmark(
     benchmark_id: str,
     requests: Sequence[NativeShotRequest],
@@ -89,10 +153,17 @@ def run_production_quality_retry_connected_gpu_benchmark(
     quality_evaluator: QualityEvaluator,
     transition_evaluator: TransitionEvaluator | None = None,
     retry_policy: QualityRetryPolicy | None = None,
+    reference_manifest: str | Path | None = None,
+    continuity_identity_refresh: bool = False,
     shot_executor: ShotExecutor = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
     """Run 5-10 shots requiring real GPU and artifact-bound shot QC evidence.
+
+    Approved identity assets are resolved internally through the hash-pinned CINEOS
+    production manifest loader. Multi-reference composition and the optional
+    experimental continuity + fresh-reference strategy are also selected internally;
+    callers cannot inject substitute conditioning code into production evidence.
 
     ``transition_evaluator`` is optional here for backwards compatibility. When it
     is supplied on the production path it must be the attested artifact-measured
@@ -119,9 +190,14 @@ def run_production_quality_retry_connected_gpu_benchmark(
         )
 
     _validate_requests(requests)
+    identity_runtime = _production_identity_runtime(
+        requests,
+        reference_manifest=reference_manifest,
+        continuity_identity_refresh=continuity_identity_refresh,
+    )
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
-    persistent_kwargs: dict[str, Any] = {}
+    persistent_kwargs: dict[str, Any] = dict(identity_runtime)
     if "estimated_model_vram_gb" in runtime_options:
         persistent_kwargs["estimated_model_vram_gb"] = runtime_options[
             "estimated_model_vram_gb"
@@ -177,6 +253,8 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
     quality_evaluator: ArtifactMeasuredSequenceQualityEvaluator,
     transition_evaluator: ArtifactMeasuredTransitionQualityEvaluator,
     retry_policy: QualityRetryPolicy | None = None,
+    reference_manifest: str | Path | None = None,
+    continuity_identity_refresh: bool = False,
     shot_executor: ShotExecutor = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
@@ -197,6 +275,8 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
         quality_evaluator=quality_evaluator,
         transition_evaluator=transition_evaluator,
         retry_policy=retry_policy,
+        reference_manifest=reference_manifest,
+        continuity_identity_refresh=continuity_identity_refresh,
         shot_executor=shot_executor,
         shot_executor_kwargs=shot_executor_kwargs,
     )
