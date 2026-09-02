@@ -70,7 +70,9 @@ def test_continuity_identity_board_rejects_duplicate_multi_character_content() -
     )
 
     with pytest.raises(Exception, match="distinct reference image content"):
-        compose_continuity_identity_board(request, duplicate, (duplicate, duplicate.copy()))
+        compose_continuity_identity_board(
+            request, duplicate, (duplicate, duplicate.copy())
+        )
 
 
 class _Pipeline:
@@ -97,8 +99,9 @@ class _Pipeline:
         return SimpleNamespace(frames=[[terminal, terminal.copy()]])
 
 
-
-def test_connected_renderer_consumes_fresh_identity_pixels_with_predecessor(tmp_path) -> None:
+def test_connected_renderer_consumes_fresh_identity_pixels_with_predecessor(
+    tmp_path,
+) -> None:
     pipeline = _Pipeline()
     reference = Image.new("RGB", (8, 8), (255, 0, 0))
     load_calls: list[str] = []
