@@ -79,6 +79,18 @@ def test_reference_board_rejects_duplicate_identity_references():
         )
 
 
+def test_reference_board_rejects_same_image_under_distinct_identity_ids():
+    request = _request("hero", "partner")
+    portrait = _solid((120, 80, 40))
+    same_pixels_different_mode = portrait.convert("RGBA")
+
+    with pytest.raises(DiffusersVideoError, match="distinct reference image content"):
+        compose_reference_board(
+            request,
+            (portrait, same_pixels_different_mode),
+        )
+
+
 def test_reference_board_uses_stable_two_by_two_layout_for_three_characters():
     request = _request("hero", "partner", "villain")
 
