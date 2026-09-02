@@ -68,9 +68,10 @@ def validate_production_connected_evidence(
 
     if not isinstance(benchmark, GPUConnectedBenchmarkReceipt):
         raise TypeError("benchmark must be a GPUConnectedBenchmarkReceipt")
-    if not benchmark.shot_receipts:
+    shot_count = len(benchmark.shot_receipts)
+    if not 5 <= shot_count <= 10:
         raise ProductionConnectedEvidenceError(
-            "production connected evidence requires at least one render receipt"
+            "production connected evidence requires between 5 and 10 render receipts"
         )
     if not benchmark.production_gpu_evidence:
         raise ProductionConnectedEvidenceError(
@@ -78,7 +79,8 @@ def validate_production_connected_evidence(
         )
     if not benchmark.production_quality_evidence:
         raise ProductionConnectedEvidenceError(
-            "production connected evidence requires measured artifact-bound QC for every shot"
+            "production connected evidence requires measured artifact-bound QC "
+            "for every shot"
         )
 
     try:
@@ -92,7 +94,7 @@ def validate_production_connected_evidence(
         benchmark_id=benchmark.benchmark_id,
         profile_id=benchmark.profile_id,
         origin=benchmark.origin,
-        shot_count=len(benchmark.shot_receipts),
+        shot_count=shot_count,
         chain_sha256=benchmark.chain_sha256,
         runtime_valid=True,
         quality_valid=True,
