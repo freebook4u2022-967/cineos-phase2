@@ -46,21 +46,29 @@ jobs:
           test -f "${{ inputs.requests_path }}"
           test -f "${{ inputs.reference_manifest_path }}"
 
-      - name: Verify real CUDA runner
+      - name: Verify real CUDA runner and safe execution plan
         run: |
           nvidia-smi
           python - <<'PY'
-          import torch
+          from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
+          from cineos.atlas.gpu_preflight import (
+              inspect_cuda_environment,
+              select_gpu_execution,
+          )
 
-          if not torch.cuda.is_available():
-              raise SystemExit("CUDA is unavailable on the self-hosted GPU runner")
-          print("cuda_device_count=", torch.cuda.device_count())
-          for index in range(torch.cuda.device_count()):
-              properties = torch.cuda.get_device_properties(index)
-              print(
-                  f"cuda:{index} name={properties.name!r} "
-                  f"vram_gb={properties.total_memory / (1024 ** 3):.2f}"
-              )
+          devices = inspect_cuda_environment()
+          plan = select_gpu_execution(
+              devices,
+              estimated_model_vram_gb=WAN22_TI2V_5B_PROFILE.minimum_gpu_vram_gb,
+          )
+          print(f"selected_device={plan.device}")
+          print(f"memory_strategy={plan.memory_strategy}")
+          print(f"dtype={plan.dtype}")
+          print(f"observed_total_vram_gb={plan.observed_total_vram_gb:.2f}")
+          if plan.observed_free_vram_gb is not None:
+              print(f"observed_free_vram_gb={plan.observed_free_vram_gb:.2f}")
+          print(f"estimated_model_vram_gb={plan.estimated_model_vram_gb:.2f}")
+          print(f"fit_margin_gb={plan.fit_margin_gb:.2f}")
           PY
 
       - name: Prefetch and verify immutable foundation snapshot
