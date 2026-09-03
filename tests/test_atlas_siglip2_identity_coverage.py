@@ -40,6 +40,38 @@ def test_multi_reference_identity_passes_when_every_identity_has_frame_support()
     assert score == pytest.approx(1.0)
 
 
+def test_multi_reference_identity_rejects_single_lucky_frame_support() -> None:
+    score = _identity_score(
+        [(1.0, 0.0)] * 7 + [(-1.0, 0.0)],
+        [(1.0, 0.0), (-1.0, 0.0)],
+        mean_weight=0.7,
+        multi_identity_support_fraction=0.25,
+    )
+
+    assert score == pytest.approx(0.5)
+
+
+def test_multi_reference_identity_accepts_sustained_fractional_support() -> None:
+    score = _identity_score(
+        [(1.0, 0.0)] * 6 + [(-1.0, 0.0)] * 2,
+        [(1.0, 0.0), (-1.0, 0.0)],
+        mean_weight=0.7,
+        multi_identity_support_fraction=0.25,
+    )
+
+    assert score == pytest.approx(1.0)
+
+
+def test_multi_reference_identity_rejects_invalid_support_fraction() -> None:
+    with pytest.raises(SigLIP2VideoScorerError, match="support fraction"):
+        _identity_score(
+            [(1.0, 0.0), (-1.0, 0.0)],
+            [(1.0, 0.0), (-1.0, 0.0)],
+            mean_weight=0.7,
+            multi_identity_support_fraction=0.0,
+        )
+
+
 @pytest.mark.parametrize(
     ("frames", "references", "message"),
     [
