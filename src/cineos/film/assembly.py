@@ -85,9 +85,7 @@ def assemble(
         ]
     )
     if audio_source is not None:
-        command.extend(
-            ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest"]
-        )
+        command.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest"])
     command.extend(["-movflags", "+faststart", str(destination)])
 
     result = subprocess.run(command, capture_output=True, text=True, check=False)

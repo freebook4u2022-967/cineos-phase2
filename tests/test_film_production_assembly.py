@@ -172,9 +172,7 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
         "cineos.film.production_assembly.probe_media",
         lambda _path: _probe(audio=1),
     )
-    monkeypatch.setattr(
-        "cineos.film.production_assembly.probe_audio_signal", _audible
-    )
+    monkeypatch.setattr("cineos.film.production_assembly.probe_audio_signal", _audible)
     manifest = assemble_production_film(
         records,
         output,
@@ -184,7 +182,9 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
     assert captured["audio_path"] == audio.resolve()
     assert manifest["audio"]["sha256"] == _sha(audio)
     assert manifest["final_media"]["audio_stream_count"] == 1
-    assert manifest["final_media"]["production_audio_stream"]["sample_rate_hz"] == 48_000
+    assert (
+        manifest["final_media"]["production_audio_stream"]["sample_rate_hz"] == 48_000
+    )
     assert manifest["final_media"]["production_audio_signal"]["max_volume_db"] == -3.0
 
     audio.write_bytes(b"swapped-mix")
@@ -264,9 +264,7 @@ def test_rejects_audio_stream_that_does_not_cover_approved_timeline(
         "cineos.film.production_assembly.probe_media",
         lambda _path: _probe(audio=1, audio_duration=2.0),
     )
-    monkeypatch.setattr(
-        "cineos.film.production_assembly.probe_audio_signal", _audible
-    )
+    monkeypatch.setattr("cineos.film.production_assembly.probe_audio_signal", _audible)
 
     with pytest.raises(AssemblyError, match="audio duration deviates"):
         assemble_production_film(

@@ -78,7 +78,9 @@ def _validate_audio_stream(
             f"{PRODUCTION_AUDIO_SAMPLE_RATE_HZ} Hz"
         )
     if channels <= 0:
-        raise AssemblyError("production final MP4 audio must have a valid channel count")
+        raise AssemblyError(
+            "production final MP4 audio must have a valid channel count"
+        )
     if duration <= 0:
         raise AssemblyError(
             "production final MP4 audio must expose a positive stream duration"

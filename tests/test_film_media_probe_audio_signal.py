@@ -1,4 +1,3 @@
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,9 +10,7 @@ def test_probe_audio_signal_reports_decoded_volume(tmp_path, monkeypatch):
     movie.write_bytes(b"film")
     captured = []
 
-    monkeypatch.setattr(
-        "cineos.film.media_probe._ffmpeg", lambda: "/usr/bin/ffmpeg"
-    )
+    monkeypatch.setattr("cineos.film.media_probe._ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
@@ -34,22 +31,15 @@ def test_probe_audio_signal_reports_decoded_volume(tmp_path, monkeypatch):
     assert "0:a:0" in captured
 
 
-def test_probe_audio_signal_normalizes_negative_infinity_silence(
-    tmp_path, monkeypatch
-):
+def test_probe_audio_signal_normalizes_negative_infinity_silence(tmp_path, monkeypatch):
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"film")
-    monkeypatch.setattr(
-        "cineos.film.media_probe._ffmpeg", lambda: "/usr/bin/ffmpeg"
-    )
+    monkeypatch.setattr("cineos.film.media_probe._ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(
         "cineos.film.media_probe.subprocess.run",
         lambda *_args, **_kwargs: SimpleNamespace(
             returncode=0,
-            stderr=(
-                "mean_volume: -inf dB\n"
-                "max_volume: -inf dB\n"
-            ),
+            stderr=("mean_volume: -inf dB\n" "max_volume: -inf dB\n"),
         ),
     )
 
@@ -58,14 +48,10 @@ def test_probe_audio_signal_normalizes_negative_infinity_silence(
     assert evidence == {"mean_volume_db": -120.0, "max_volume_db": -120.0}
 
 
-def test_probe_audio_signal_fails_closed_on_incomplete_evidence(
-    tmp_path, monkeypatch
-):
+def test_probe_audio_signal_fails_closed_on_incomplete_evidence(tmp_path, monkeypatch):
     movie = tmp_path / "film.mp4"
     movie.write_bytes(b"film")
-    monkeypatch.setattr(
-        "cineos.film.media_probe._ffmpeg", lambda: "/usr/bin/ffmpeg"
-    )
+    monkeypatch.setattr("cineos.film.media_probe._ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(
         "cineos.film.media_probe.subprocess.run",
         lambda *_args, **_kwargs: SimpleNamespace(
