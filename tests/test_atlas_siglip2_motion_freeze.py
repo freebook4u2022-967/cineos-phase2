@@ -19,10 +19,19 @@ def test_motion_qc_rejects_frozen_two_frame_sequence() -> None:
     assert score == 0.0
 
 
-def test_motion_qc_preserves_nonzero_two_frame_motion() -> None:
-    score = SigLIP2FeatureVideoScorer._motion_coherence([(1.0, 0.0), (0.0, 1.0)])
+def test_motion_qc_preserves_plausible_two_frame_motion() -> None:
+    root_half = 2**-0.5
+    score = SigLIP2FeatureVideoScorer._motion_coherence(
+        [(1.0, 0.0), (root_half, root_half)]
+    )
 
     assert score == 1.0
+
+
+def test_motion_qc_rejects_scene_cut_like_two_frame_jump() -> None:
+    score = SigLIP2FeatureVideoScorer._motion_coherence([(1.0, 0.0), (0.0, 1.0)])
+
+    assert score == 0.0
 
 
 def test_motion_qc_preserves_stable_nonzero_feature_steps() -> None:
