@@ -77,7 +77,7 @@ def probe_media(path: str | Path) -> dict[str, Any]:
         "-show_entries",
         (
             "format=duration,format_name:"
-            "stream=index,codec_type,codec_name,duration,width,height,"
+            "stream=index,codec_type,codec_name,duration,width,height,avg_frame_rate,"
             "sample_rate,channels"
         ),
         "-of",
@@ -106,6 +106,9 @@ def probe_media(path: str | Path) -> dict[str, Any]:
         "audio_codecs": [str(item.get("codec_name") or "") for item in audio],
         "video_dimensions": [
             {"width": item.get("width"), "height": item.get("height")} for item in video
+        ],
+        "video_frame_rates": [
+            str(item.get("avg_frame_rate") or "").strip() for item in video
         ],
         "audio_streams": [
             {
