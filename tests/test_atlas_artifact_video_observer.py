@@ -144,6 +144,29 @@ def test_video_observer_rejects_out_of_range_semantic_metric(tmp_path):
         observer(str(artifact), shot=Shot(), attempt_index=0)
 
 
+@pytest.mark.parametrize("observer_metric", ["artifact_integrity", "temporal_consistency"])
+def test_semantic_scorer_cannot_override_observer_owned_metrics(
+    tmp_path,
+    observer_metric,
+):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"actual-rendered-video-container")
+    observer = ArtifactVideoMetricObserver(
+        lambda *_args, **_kwargs: {
+            "identity_similarity": 0.94,
+            "motion_quality": 0.88,
+            observer_metric: 0.0,
+        },
+        sampler=_sampler,
+    )
+
+    with pytest.raises(
+        VideoArtifactObservationError,
+        match="cannot override observer-owned metric",
+    ):
+        observer(str(artifact), shot=Shot(), attempt_index=0)
+
+
 def test_video_observer_rejects_invalid_semantic_runtime_provenance(tmp_path):
     artifact = tmp_path / "candidate.mp4"
     artifact.write_bytes(b"actual-rendered-video-container")
