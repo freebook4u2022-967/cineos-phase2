@@ -151,6 +151,28 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _validated_semantic_scorer_provenance(raw: Mapping[str, Any]) -> dict[str, Any] | None:
+    provenance = raw.get("semantic_scorer")
+    if provenance is None:
+        return None
+    if not isinstance(provenance, Mapping):
+        raise SequenceQualityError(
+            "production quality semantic_scorer provenance must be a mapping"
+        )
+    normalized = dict(provenance)
+    schema = normalized.get("schema")
+    origin = normalized.get("origin")
+    if not isinstance(schema, str) or not schema.strip():
+        raise SequenceQualityError(
+            "production quality semantic_scorer provenance requires a non-empty schema"
+        )
+    if not isinstance(origin, str) or not origin.strip():
+        raise SequenceQualityError(
+            "production quality semantic_scorer provenance requires a non-empty origin"
+        )
+    return normalized
+
+
 class CineosSequenceQualityEvaluator:
     """Callable bridge from measured shot metrics to the rerender loop.
 
@@ -195,6 +217,13 @@ class ArtifactMeasuredSequenceQualityEvaluator:
     actual rendered artifact, and return a structured measurement envelope bound
     to the SHA-256 of that artifact. Merely wrapping a synthetic lambda that knows
     the artifact hash is not sufficient for production milestone evidence.
+
+    The per-call measurement must repeat the production-evidence attestation.
+    This prevents a dynamically downgraded or partially initialized observer from
+    being promoted merely because its Python object advertised production support
+    at construction time. Learned semantic-scorer provenance, when supplied by the
+    observer, is validated and retained in the final report for model/revision
+    auditability.
     """
 
     production_measurement_evidence = True
@@ -244,6 +273,11 @@ class ArtifactMeasuredSequenceQualityEvaluator:
             raise SequenceQualityError(
                 "unsupported production quality measurement schema"
             )
+        if raw.get("production_measurement_evidence") is not True:
+            raise SequenceQualityError(
+                "production quality measurement must attest "
+                "production_measurement_evidence=True"
+            )
         observer_id = raw.get("observer_id")
         if not isinstance(observer_id, str) or not observer_id.strip():
             raise SequenceQualityError(
@@ -263,15 +297,20 @@ class ArtifactMeasuredSequenceQualityEvaluator:
             raise SequenceQualityError(
                 "production quality measurement requires a metrics mapping"
             )
+        semantic_scorer = _validated_semantic_scorer_provenance(raw)
         metrics = _validated_metrics(raw_metrics)
         report = _quality_report(metrics, self.policy)
         report["production_measurement_evidence"] = True
-        report["measurement"] = {
+        measurement: dict[str, Any] = {
             "schema": PRODUCTION_MEASUREMENT_SCHEMA,
             "observer_id": self.observer_id,
             "artifact_sha256": artifact_sha256,
             "observer_attested": True,
+            "measurement_attested": True,
         }
+        if semantic_scorer is not None:
+            measurement["semantic_scorer"] = semantic_scorer
+        report["measurement"] = measurement
         return report
 
 
