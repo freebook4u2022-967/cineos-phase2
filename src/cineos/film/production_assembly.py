@@ -82,10 +82,6 @@ def _validate_bound_shot_media(shot_id: str, movie: Path) -> dict[str, Any]:
         raise AssemblyError(
             f"production shot {shot_id} must contain exactly one H.264 video stream"
         )
-    if int(media.get("audio_stream_count") or 0) != 0:
-        raise AssemblyError(
-            f"production shot {shot_id} must not contain a hidden audio stream"
-        )
 
     dimensions = media.get("video_dimensions") or []
     if len(dimensions) != 1 or not isinstance(dimensions[0], Mapping):
@@ -96,9 +92,11 @@ def _validate_bound_shot_media(shot_id: str, movie: Path) -> dict[str, Any]:
         width = int(dimensions[0].get("width") or 0)
         height = int(dimensions[0].get("height") or 0)
         duration = float(media.get("duration_seconds") or 0.0)
+        audio_stream_count = int(media.get("audio_stream_count") or 0)
     except (TypeError, ValueError):
         width = height = 0
         duration = 0.0
+        audio_stream_count = 0
     if width <= 0 or height <= 0 or width % 2 or height % 2:
         raise AssemblyError(
             f"production shot {shot_id} has invalid H.264/yuv420p video dimensions"
@@ -112,7 +110,7 @@ def _validate_bound_shot_media(shot_id: str, movie: Path) -> dict[str, Any]:
         "width": width,
         "height": height,
         "duration_seconds": duration,
-        "audio_stream_count": 0,
+        "audio_stream_count": audio_stream_count,
     }
 
 
@@ -285,14 +283,16 @@ def assemble_production_film(
     """Assemble and validate only exact artifacts approved by GPU/QC evidence.
 
     Every shot and optional audio mix is hash-bound before FFmpeg runs. Each bound shot
-    is independently media-probed so a corrupt, mislabeled, audio-bearing, or non-video
-    artifact cannot reach final assembly merely because its hash matches metadata. A
-    connected production film must contain distinct rendered artifacts backed by
-    distinct QC evidence, so one successful render cannot be relabeled to satisfy the
-    5-10-shot release gate. The final MP4 is inspected and, when audio is required, the
-    encoded AAC stream must have production sample rate, timeline coverage, and
-    measurable decoded signal. Signal presence is an integrity check only; it is not
-    evidence of dialogue intelligibility, semantic correctness, or lip synchronization.
+    is independently media-probed so a corrupt, mislabeled, or non-video artifact cannot
+    reach final assembly merely because its hash matches metadata. Source-shot audio is
+    recorded as evidence but cannot supersede an approved external mix because assembly
+    explicitly maps that mix. A connected production film must contain distinct rendered
+    artifacts backed by distinct QC evidence, so one successful render cannot be
+    relabeled to satisfy the 5-10-shot release gate. The final MP4 is inspected and,
+    when audio is required, the encoded AAC stream must have production sample rate,
+    timeline coverage, and measurable decoded signal. Signal presence is an integrity
+    check only; it is not evidence of dialogue intelligibility, semantic correctness,
+    or lip synchronization.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
