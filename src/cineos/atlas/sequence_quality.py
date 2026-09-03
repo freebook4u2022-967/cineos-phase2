@@ -151,7 +151,9 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validated_semantic_scorer_provenance(raw: Mapping[str, Any]) -> dict[str, Any] | None:
+def _validated_semantic_scorer_provenance(
+    raw: Mapping[str, Any],
+) -> dict[str, Any] | None:
     provenance = raw.get("semantic_scorer")
     if provenance is None:
         return None
