@@ -16,6 +16,7 @@ from .validator import file_hash
 PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.6"
 PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
 MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
+MAX_EDIT_DURATION_OVERRUN_SECONDS = 0.05
 MIN_AUDIO_MEAN_VOLUME_DB = -80.0
 MIN_AUDIO_MAX_VOLUME_DB = -60.0
 
@@ -111,6 +112,53 @@ def _validate_bound_shot_media(shot_id: str, movie: Path) -> dict[str, Any]:
         "height": height,
         "duration_seconds": duration,
         "audio_stream_count": audio_stream_count,
+    }
+
+
+def _validate_connected_shot_compatibility(
+    bound: Sequence[tuple[str, Path, str, str]],
+    shot_media: Mapping[str, Mapping[str, Any]],
+    *,
+    durations: Sequence[float] | None,
+) -> dict[str, Any]:
+    """Fail before FFmpeg when connected-shot media cannot form a truthful timeline."""
+    first_shot_id = bound[0][0]
+    expected_width = int(shot_media[first_shot_id]["width"])
+    expected_height = int(shot_media[first_shot_id]["height"])
+
+    edit_durations: list[float] | None = None
+    if durations is not None:
+        edit_durations = [float(value) for value in durations]
+
+    for index, (shot_id, _, _, _) in enumerate(bound):
+        media = shot_media[shot_id]
+        width = int(media["width"])
+        height = int(media["height"])
+        if (width, height) != (expected_width, expected_height):
+            raise AssemblyError(
+                "production connected shots must use identical frame dimensions; "
+                f"shot {shot_id} is {width}x{height}, expected "
+                f"{expected_width}x{expected_height}"
+            )
+
+        if edit_durations is not None:
+            requested = edit_durations[index]
+            available = float(media["duration_seconds"])
+            tolerance = max(
+                MAX_EDIT_DURATION_OVERRUN_SECONDS,
+                available * 0.01,
+            )
+            if requested > available + tolerance:
+                raise AssemblyError(
+                    f"production shot {shot_id} edit duration exceeds approved source "
+                    f"duration ({requested:.3f}s requested vs {available:.3f}s available; "
+                    f"tolerance {tolerance:.3f}s)"
+                )
+
+    return {
+        "width": expected_width,
+        "height": expected_height,
+        "edit_durations_seconds": edit_durations,
     }
 
 
@@ -284,16 +332,18 @@ def assemble_production_film(
 
     Every shot and optional audio mix is hash-bound before FFmpeg runs. Each bound shot
     is independently media-probed so a corrupt, mislabeled, or non-video artifact cannot
-    reach final assembly merely because its hash matches metadata. Source-shot audio is
-    recorded as evidence but cannot supersede an approved external mix because assembly
-    explicitly maps that mix. A connected production film must contain distinct rendered
-    artifacts backed by distinct QC evidence, so one successful render cannot be
-    relabeled to satisfy the 5-10-shot release gate. The final MP4 is inspected and its
-    duration is bound to either the explicit edit durations or the independently probed
-    source-shot timeline. When audio is required, the encoded AAC stream must have
-    production sample rate, timeline coverage, and measurable decoded signal. Signal
-    presence is an integrity check only; it is not evidence of dialogue intelligibility,
-    semantic correctness, or lip synchronization.
+    reach final assembly merely because its hash matches metadata. Connected shots must
+    use identical frame dimensions, and explicit edit durations cannot exceed the
+    independently probed approved source footage. Source-shot audio is recorded as
+    evidence but cannot supersede an approved external mix because assembly explicitly
+    maps that mix. A connected production film must contain distinct rendered artifacts
+    backed by distinct QC evidence, so one successful render cannot be relabeled to
+    satisfy the 5-10-shot release gate. The final MP4 is inspected and its duration is
+    bound to either the explicit edit durations or the independently probed source-shot
+    timeline. When audio is required, the encoded AAC stream must have production sample
+    rate, timeline coverage, and measurable decoded signal. Signal presence is an
+    integrity check only; it is not evidence of dialogue intelligibility, semantic
+    correctness, or lip synchronization.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
@@ -328,6 +378,11 @@ def assemble_production_film(
         shot_id: _validate_bound_shot_media(shot_id, path)
         for shot_id, path, _, _ in bound
     }
+    timeline_compatibility = _validate_connected_shot_compatibility(
+        bound,
+        shot_media,
+        durations=durations,
+    )
 
     audio: dict[str, Any] | None = None
     audio_source: Path | None = None
@@ -383,6 +438,7 @@ def assemble_production_film(
         "timeline": {
             "source": timeline_source,
             "expected_duration_seconds": expected_duration,
+            "compatibility": timeline_compatibility,
         },
         "audio": audio,
         "final_mp4": str(movie.resolve()),
