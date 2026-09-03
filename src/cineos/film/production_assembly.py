@@ -13,7 +13,7 @@ from .exceptions import AssemblyError
 from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.6"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.5"
 PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
 MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
 MIN_AUDIO_MEAN_VOLUME_DB = -80.0
