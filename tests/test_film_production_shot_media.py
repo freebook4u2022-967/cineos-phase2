@@ -88,7 +88,7 @@ def test_records_independently_probed_shot_media_in_manifest(tmp_path, monkeypat
     def fake_probe(path):
         path = Path(path)
         if path.name == "final.mp4":
-            return _media(duration_seconds=5.0)
+            return _media(duration_seconds=6.0)
         index = int(path.stem.split("-")[-1])
         audio_count = 1 if index == 2 else 0
         return _media(
@@ -108,3 +108,4 @@ def test_records_independently_probed_shot_media_in_manifest(tmp_path, monkeypat
     assert manifest["shots"][0]["media"]["video_codec"] == "h264"
     assert manifest["shots"][2]["media"]["audio_stream_count"] == 1
     assert manifest["shots"][4]["media"]["duration_seconds"] == 1.4
+    assert manifest["timeline"]["expected_duration_seconds"] == 6.0
