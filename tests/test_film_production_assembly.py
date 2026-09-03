@@ -32,7 +32,17 @@ def _records(tmp_path: Path, count: int = 5):
     return records
 
 
-def _probe(*, duration=5.0, audio=0, video_codec="h264", audio_codec="aac"):
+def _probe(
+    *,
+    duration=5.0,
+    audio=0,
+    video_codec="h264",
+    audio_codec="aac",
+    audio_duration=None,
+    sample_rate=48_000,
+    channels=2,
+):
+    stream_duration = duration if audio_duration is None else audio_duration
     return {
         "duration_seconds": duration,
         "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
@@ -41,7 +51,23 @@ def _probe(*, duration=5.0, audio=0, video_codec="h264", audio_codec="aac"):
         "video_codecs": [video_codec],
         "audio_codecs": [audio_codec] if audio else [],
         "video_dimensions": [{"width": 1280, "height": 720}],
+        "audio_streams": (
+            [
+                {
+                    "codec_name": audio_codec,
+                    "sample_rate_hz": sample_rate,
+                    "channels": channels,
+                    "duration_seconds": stream_duration,
+                }
+            ]
+            if audio
+            else []
+        ),
     }
+
+
+def _audible(_path):
+    return {"mean_volume_db": -24.0, "max_volume_db": -3.0}
 
 
 def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
@@ -73,7 +99,7 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
     assert manifest["shot_count"] == 5
     assert manifest["final_mp4_sha256"] == _sha(output)
     assert manifest["final_media"]["video_stream_count"] == 1
-    assert manifest["schema"] == "cineos-production-film-evidence/0.3"
+    assert manifest["schema"] == "cineos-production-film-evidence/0.4"
     assert len(manifest["manifest_sha256"]) == 64
     assert (tmp_path / "final.production.json").is_file()
 
@@ -146,6 +172,9 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
         "cineos.film.production_assembly.probe_media",
         lambda _path: _probe(audio=1),
     )
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_audio_signal", _audible
+    )
     manifest = assemble_production_film(
         records,
         output,
@@ -155,6 +184,8 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
     assert captured["audio_path"] == audio.resolve()
     assert manifest["audio"]["sha256"] == _sha(audio)
     assert manifest["final_media"]["audio_stream_count"] == 1
+    assert manifest["final_media"]["production_audio_stream"]["sample_rate_hz"] == 48_000
+    assert manifest["final_media"]["production_audio_signal"]["max_volume_db"] == -3.0
 
     audio.write_bytes(b"swapped-mix")
     with pytest.raises(AssemblyError, match="audio artifact hash does not match"):
@@ -181,6 +212,88 @@ def test_rejects_silent_output_when_approved_audio_was_required(tmp_path, monkey
     )
 
     with pytest.raises(AssemblyError, match="exactly one approved audio stream"):
+        assemble_production_film(
+            records,
+            tmp_path / "final.mp4",
+            audio_path=audio,
+            audio_sha256=_sha(audio),
+        )
+
+
+def test_rejects_encoded_audio_with_no_meaningful_decoded_signal(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    audio = tmp_path / "mix.wav"
+    audio.write_bytes(b"approved-mix")
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"silent-aac-film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media",
+        lambda _path: _probe(audio=1),
+    )
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_audio_signal",
+        lambda _path: {"mean_volume_db": -120.0, "max_volume_db": -91.0},
+    )
+
+    with pytest.raises(AssemblyError, match="effectively silent"):
+        assemble_production_film(
+            records,
+            tmp_path / "final.mp4",
+            audio_path=audio,
+            audio_sha256=_sha(audio),
+        )
+
+
+def test_rejects_audio_stream_that_does_not_cover_approved_timeline(
+    tmp_path, monkeypatch
+):
+    records = _records(tmp_path)
+    audio = tmp_path / "mix.wav"
+    audio.write_bytes(b"approved-mix")
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"short-audio-film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media",
+        lambda _path: _probe(audio=1, audio_duration=2.0),
+    )
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_audio_signal", _audible
+    )
+
+    with pytest.raises(AssemblyError, match="audio duration deviates"):
+        assemble_production_film(
+            records,
+            tmp_path / "final.mp4",
+            durations=[1.0] * 5,
+            audio_path=audio,
+            audio_sha256=_sha(audio),
+        )
+
+
+def test_rejects_audio_stream_without_production_sample_rate(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    audio = tmp_path / "mix.wav"
+    audio.write_bytes(b"approved-mix")
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"wrong-rate-film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.probe_media",
+        lambda _path: _probe(audio=1, sample_rate=44_100),
+    )
+
+    with pytest.raises(AssemblyError, match="exactly 48000 Hz"):
         assemble_production_film(
             records,
             tmp_path / "final.mp4",

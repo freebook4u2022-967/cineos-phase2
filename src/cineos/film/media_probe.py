@@ -1,8 +1,9 @@
-"""Fail-closed FFprobe inspection for production film artifacts."""
+"""Fail-closed FFprobe/FFmpeg inspection for production film artifacts."""
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,23 +23,42 @@ def _ffprobe() -> str:
     return executable
 
 
+def _ffmpeg() -> str:
+    executable = shutil.which("ffmpeg")
+    if not executable:
+        raise MediaProbeError(
+            "FFmpeg is unavailable; install ffmpeg for production audio validation"
+        )
+    return executable
+
+
+def _positive_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def _duration(payload: dict[str, Any]) -> float:
     raw = (payload.get("format") or {}).get("duration")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        value = 0.0
-    if value > 0:
+    value = _positive_float(raw)
+    if value is not None:
         return value
 
-    durations: list[float] = []
-    for stream in payload.get("streams") or []:
-        try:
-            item = float(stream.get("duration"))
-        except (TypeError, ValueError, AttributeError):
-            continue
-        if item > 0:
-            durations.append(item)
+    durations = [
+        item
+        for stream in payload.get("streams") or []
+        if (item := _positive_float(stream.get("duration"))) is not None
+    ]
     if not durations:
         raise MediaProbeError("FFprobe did not report a positive media duration")
     return max(durations)
@@ -55,7 +75,11 @@ def probe_media(path: str | Path) -> dict[str, Any]:
         "-v",
         "error",
         "-show_entries",
-        "format=duration,format_name:stream=index,codec_type,codec_name,duration,width,height,sample_rate,channels",
+        (
+            "format=duration,format_name:"
+            "stream=index,codec_type,codec_name,duration,width,height,"
+            "sample_rate,channels"
+        ),
         "-of",
         "json",
         str(source),
@@ -83,7 +107,68 @@ def probe_media(path: str | Path) -> dict[str, Any]:
         "video_dimensions": [
             {"width": item.get("width"), "height": item.get("height")} for item in video
         ],
+        "audio_streams": [
+            {
+                "codec_name": str(item.get("codec_name") or ""),
+                "sample_rate_hz": _positive_int(item.get("sample_rate")),
+                "channels": _positive_int(item.get("channels")),
+                "duration_seconds": _positive_float(item.get("duration")),
+            }
+            for item in audio
+        ],
     }
 
 
-__all__ = ["MediaProbeError", "probe_media"]
+_VOLUME_RE = re.compile(
+    r"(?P<kind>mean_volume|max_volume):\s*(?P<value>-?inf|-?\d+(?:\.\d+)?)\s*dB",
+    re.IGNORECASE,
+)
+
+
+def probe_audio_signal(path: str | Path) -> dict[str, float]:
+    """Decode the primary audio stream and return signal-level evidence.
+
+    FFmpeg's ``volumedetect`` runs over the encoded final artifact, so a muxed AAC
+    stream containing only digital silence cannot pass merely because the stream
+    exists. Infinite-negative silence is normalized to -120 dB to keep manifests
+    standards-compliant JSON.
+    """
+    source = Path(path).resolve()
+    if not source.is_file() or source.stat().st_size == 0:
+        raise MediaProbeError(f"missing or empty media artifact: {source}")
+
+    command = [
+        _ffmpeg(),
+        "-nostdin",
+        "-v",
+        "info",
+        "-i",
+        str(source),
+        "-map",
+        "0:a:0",
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode:
+        raise MediaProbeError(
+            f"FFmpeg audio signal inspection failed: {result.stderr.strip()}"
+        )
+
+    values: dict[str, float] = {}
+    for match in _VOLUME_RE.finditer(result.stderr):
+        raw = match.group("value").lower()
+        value = -120.0 if raw in {"-inf", "inf"} else float(raw)
+        values[match.group("kind").lower()] = value
+    if "mean_volume" not in values or "max_volume" not in values:
+        raise MediaProbeError("FFmpeg did not report complete audio signal evidence")
+    return {
+        "mean_volume_db": values["mean_volume"],
+        "max_volume_db": values["max_volume"],
+    }
+
+
+__all__ = ["MediaProbeError", "probe_audio_signal", "probe_media"]

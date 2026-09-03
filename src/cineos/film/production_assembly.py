@@ -10,10 +10,14 @@ from typing import Any
 
 from .assembly import assemble
 from .exceptions import AssemblyError
-from .media_probe import MediaProbeError, probe_media
+from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.3"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.4"
+PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
+MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
+MIN_AUDIO_MEAN_VOLUME_DB = -80.0
+MIN_AUDIO_MAX_VOLUME_DB = -60.0
 
 
 def _canonical_hash(value: Mapping[str, Any]) -> str:
@@ -50,6 +54,80 @@ def _require_bound_shot(
     if len(evidence_hash) != 64:
         raise AssemblyError(f"production shot {shot_id} is missing evidence SHA-256")
     return shot_id, output_path, evidence_hash
+
+
+def _validate_audio_stream(
+    media: Mapping[str, Any], *, expected_duration: float | None
+) -> dict[str, Any]:
+    streams = media.get("audio_streams") or []
+    if len(streams) != 1 or not isinstance(streams[0], Mapping):
+        raise AssemblyError("production final MP4 is missing audio stream evidence")
+    stream = streams[0]
+
+    try:
+        sample_rate = int(stream.get("sample_rate_hz") or 0)
+        channels = int(stream.get("channels") or 0)
+        duration = float(stream.get("duration_seconds") or 0.0)
+    except (TypeError, ValueError):
+        sample_rate = channels = 0
+        duration = 0.0
+
+    if sample_rate != PRODUCTION_AUDIO_SAMPLE_RATE_HZ:
+        raise AssemblyError(
+            "production final MP4 audio must be encoded at exactly "
+            f"{PRODUCTION_AUDIO_SAMPLE_RATE_HZ} Hz"
+        )
+    if channels <= 0:
+        raise AssemblyError("production final MP4 audio must have a valid channel count")
+    if duration <= 0:
+        raise AssemblyError(
+            "production final MP4 audio must expose a positive stream duration"
+        )
+
+    duration_delta: float | None = None
+    if expected_duration is not None:
+        duration_delta = abs(duration - expected_duration)
+        tolerance = max(
+            MAX_AUDIO_DURATION_DELTA_SECONDS,
+            expected_duration * 0.02,
+        )
+        if duration_delta > tolerance:
+            raise AssemblyError(
+                "production final audio duration deviates from the approved visual "
+                f"timeline ({duration:.3f}s vs {expected_duration:.3f}s; "
+                f"tolerance {tolerance:.3f}s)"
+            )
+
+    return {
+        "codec_name": str(stream.get("codec_name") or ""),
+        "sample_rate_hz": sample_rate,
+        "channels": channels,
+        "duration_seconds": duration,
+        "duration_delta_seconds": duration_delta,
+    }
+
+
+def _validate_audio_signal(movie: Path) -> dict[str, float]:
+    try:
+        signal = probe_audio_signal(movie)
+    except MediaProbeError as exc:
+        raise AssemblyError(
+            f"production final audio signal validation failed: {exc}"
+        ) from exc
+
+    mean_volume = float(signal.get("mean_volume_db", -120.0))
+    max_volume = float(signal.get("max_volume_db", -120.0))
+    if mean_volume < MIN_AUDIO_MEAN_VOLUME_DB or max_volume < MIN_AUDIO_MAX_VOLUME_DB:
+        raise AssemblyError(
+            "production final audio is effectively silent or below the minimum "
+            "decoded-signal floor"
+        )
+    return {
+        "mean_volume_db": mean_volume,
+        "max_volume_db": max_volume,
+        "minimum_mean_volume_db": MIN_AUDIO_MEAN_VOLUME_DB,
+        "minimum_max_volume_db": MIN_AUDIO_MAX_VOLUME_DB,
+    }
 
 
 def _validate_final_media(
@@ -109,9 +187,14 @@ def _validate_final_media(
             raise AssemblyError(
                 "production final MP4 approved audio stream must be AAC"
             )
+        media["production_audio_stream"] = _validate_audio_stream(
+            media, expected_duration=expected_duration
+        )
+        media["production_audio_signal"] = _validate_audio_signal(movie)
     elif audio_count:
         raise AssemblyError(
-            "production final MP4 contains audio even though no approved audio artifact was supplied"
+            "production final MP4 contains audio even though no approved audio artifact "
+            "was supplied"
         )
 
     duration = float(media.get("duration_seconds") or 0.0)
@@ -122,9 +205,10 @@ def _validate_final_media(
         if abs(duration - expected_duration) > tolerance:
             raise AssemblyError(
                 "production final MP4 duration deviates from the approved visual timeline "
-                f"({duration:.3f}s vs {expected_duration:.3f}s; tolerance {tolerance:.3f}s)"
+                f"({duration:.3f}s vs {expected_duration:.3f}s; "
+                f"tolerance {tolerance:.3f}s)"
             )
-    return media
+    return dict(media)
 
 
 def assemble_production_film(
@@ -139,9 +223,10 @@ def assemble_production_film(
     """Assemble and validate only exact artifacts approved by GPU/QC evidence.
 
     Every shot and optional audio mix is hash-bound before FFmpeg runs. The final
-    MP4 is then inspected with FFprobe so a truncated, malformed, codec-drifted,
-    video-less, or unexpectedly silent artifact cannot be promoted merely because
-    a file and SHA-256 exist.
+    MP4 is inspected and, when audio is required, the encoded AAC stream must have
+    production sample rate, timeline coverage, and measurable decoded signal.
+    Signal presence is an integrity check only; it is not evidence of dialogue
+    intelligibility, semantic correctness, or lip synchronization.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")

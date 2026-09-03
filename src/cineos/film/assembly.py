@@ -30,7 +30,9 @@ def assemble(
     The default remains video-only for backwards compatibility. When ``audio_path``
     is supplied, the exact referenced audio artifact is added as a second FFmpeg
     input and muxed with the assembled H.264 picture. ``-shortest`` prevents a
-    longer mix from extending the visual timeline unexpectedly.
+    longer mix from extending the visual timeline unexpectedly. Production audio
+    is normalized to the 48 kHz film/video delivery rate so downstream evidence is
+    deterministic across source mixes.
     """
     if not shots:
         raise AssemblyError("cannot assemble an empty timeline")
@@ -83,7 +85,9 @@ def assemble(
         ]
     )
     if audio_source is not None:
-        command.extend(["-c:a", "aac", "-b:a", "192k", "-shortest"])
+        command.extend(
+            ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-shortest"]
+        )
     command.extend(["-movflags", "+faststart", str(destination)])
 
     result = subprocess.run(command, capture_output=True, text=True, check=False)
