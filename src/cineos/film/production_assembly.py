@@ -13,7 +13,7 @@ from .exceptions import AssemblyError
 from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.5"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.6"
 PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
 MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
 MIN_AUDIO_MEAN_VOLUME_DB = -80.0
@@ -54,6 +54,66 @@ def _require_bound_shot(
     if len(evidence_hash) != 64:
         raise AssemblyError(f"production shot {shot_id} is missing evidence SHA-256")
     return shot_id, output_path, actual_hash, evidence_hash
+
+
+def _validate_bound_shot_media(shot_id: str, movie: Path) -> dict[str, Any]:
+    try:
+        media = probe_media(movie)
+    except MediaProbeError as exc:
+        raise AssemblyError(
+            f"production shot {shot_id} media validation failed: {exc}"
+        ) from exc
+
+    format_names = {
+        item.strip().lower()
+        for item in str(media.get("format_name") or "").split(",")
+        if item.strip()
+    }
+    if "mp4" not in format_names:
+        raise AssemblyError(f"production shot {shot_id} is not an MP4 container")
+    if int(media.get("video_stream_count") or 0) != 1:
+        raise AssemblyError(
+            f"production shot {shot_id} must contain exactly one video stream"
+        )
+    video_codecs = [
+        str(item).strip().lower() for item in media.get("video_codecs") or []
+    ]
+    if video_codecs != ["h264"]:
+        raise AssemblyError(
+            f"production shot {shot_id} must contain exactly one H.264 video stream"
+        )
+    if int(media.get("audio_stream_count") or 0) != 0:
+        raise AssemblyError(
+            f"production shot {shot_id} must not contain a hidden audio stream"
+        )
+
+    dimensions = media.get("video_dimensions") or []
+    if len(dimensions) != 1 or not isinstance(dimensions[0], Mapping):
+        raise AssemblyError(
+            f"production shot {shot_id} is missing valid video dimensions"
+        )
+    try:
+        width = int(dimensions[0].get("width") or 0)
+        height = int(dimensions[0].get("height") or 0)
+        duration = float(media.get("duration_seconds") or 0.0)
+    except (TypeError, ValueError):
+        width = height = 0
+        duration = 0.0
+    if width <= 0 or height <= 0 or width % 2 or height % 2:
+        raise AssemblyError(
+            f"production shot {shot_id} has invalid H.264/yuv420p video dimensions"
+        )
+    if duration <= 0:
+        raise AssemblyError(f"production shot {shot_id} has no positive duration")
+
+    return {
+        "format_name": str(media.get("format_name") or ""),
+        "video_codec": "h264",
+        "width": width,
+        "height": height,
+        "duration_seconds": duration,
+        "audio_stream_count": 0,
+    }
 
 
 def _validate_audio_stream(
@@ -224,13 +284,15 @@ def assemble_production_film(
 ) -> dict[str, Any]:
     """Assemble and validate only exact artifacts approved by GPU/QC evidence.
 
-    Every shot and optional audio mix is hash-bound before FFmpeg runs. A connected
-    production film must contain distinct rendered artifacts backed by distinct QC
-    evidence, so one successful render cannot be relabeled to satisfy the 5-10-shot
-    release gate. The final MP4 is inspected and, when audio is required, the encoded
-    AAC stream must have production sample rate, timeline coverage, and measurable
-    decoded signal. Signal presence is an integrity check only; it is not evidence of
-    dialogue intelligibility, semantic correctness, or lip synchronization.
+    Every shot and optional audio mix is hash-bound before FFmpeg runs. Each bound shot
+    is independently media-probed so a corrupt, mislabeled, audio-bearing, or non-video
+    artifact cannot reach final assembly merely because its hash matches metadata. A
+    connected production film must contain distinct rendered artifacts backed by
+    distinct QC evidence, so one successful render cannot be relabeled to satisfy the
+    5-10-shot release gate. The final MP4 is inspected and, when audio is required, the
+    encoded AAC stream must have production sample rate, timeline coverage, and
+    measurable decoded signal. Signal presence is an integrity check only; it is not
+    evidence of dialogue intelligibility, semantic correctness, or lip synchronization.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
@@ -260,6 +322,11 @@ def assemble_production_film(
         seen_output_hashes.add(output_hash)
         seen_evidence_hashes.add(evidence_hash)
         bound.append(item)
+
+    shot_media = {
+        shot_id: _validate_bound_shot_media(shot_id, path)
+        for shot_id, path, _, _ in bound
+    }
 
     audio: dict[str, Any] | None = None
     audio_source: Path | None = None
@@ -303,6 +370,7 @@ def assemble_production_film(
                 "output_path": str(path),
                 "output_sha256": output_hash,
                 "evidence_sha256": evidence_hash,
+                "media": shot_media[shot_id],
             }
             for index, (shot_id, path, output_hash, evidence_hash) in enumerate(bound)
         ],
