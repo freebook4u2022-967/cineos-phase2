@@ -13,7 +13,7 @@ from .exceptions import AssemblyError
 from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.5"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.6"
 PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
 MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
 MIN_AUDIO_MEAN_VOLUME_DB = -80.0
@@ -288,11 +288,12 @@ def assemble_production_film(
     recorded as evidence but cannot supersede an approved external mix because assembly
     explicitly maps that mix. A connected production film must contain distinct rendered
     artifacts backed by distinct QC evidence, so one successful render cannot be
-    relabeled to satisfy the 5-10-shot release gate. The final MP4 is inspected and,
-    when audio is required, the encoded AAC stream must have production sample rate,
-    timeline coverage, and measurable decoded signal. Signal presence is an integrity
-    check only; it is not evidence of dialogue intelligibility, semantic correctness,
-    or lip synchronization.
+    relabeled to satisfy the 5-10-shot release gate. The final MP4 is inspected and its
+    duration is bound to either the explicit edit durations or the independently probed
+    source-shot timeline. When audio is required, the encoded AAC stream must have
+    production sample rate, timeline coverage, and measurable decoded signal. Signal
+    presence is an integrity check only; it is not evidence of dialogue intelligibility,
+    semantic correctness, or lip synchronization.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
@@ -350,9 +351,15 @@ def assemble_production_film(
         durations=list(durations) if durations is not None else None,
         audio_path=audio_source,
     )
-    expected_duration = (
-        sum(float(value) for value in durations) if durations is not None else None
-    )
+    if durations is not None:
+        expected_duration = sum(float(value) for value in durations)
+        timeline_source = "explicit-edit-durations"
+    else:
+        expected_duration = sum(
+            float(shot_media[shot_id]["duration_seconds"])
+            for shot_id, _, _, _ in bound
+        )
+        timeline_source = "probed-source-shots"
     final_media = _validate_final_media(
         movie,
         audio_required=audio_source is not None,
@@ -374,6 +381,10 @@ def assemble_production_film(
             }
             for index, (shot_id, path, output_hash, evidence_hash) in enumerate(bound)
         ],
+        "timeline": {
+            "source": timeline_source,
+            "expected_duration_seconds": expected_duration,
+        },
         "audio": audio,
         "final_mp4": str(movie.resolve()),
         "final_mp4_sha256": final_hash,
