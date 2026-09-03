@@ -170,7 +170,9 @@ class SigLIP2FeatureVideoScorer:
             or motion_activity_floor <= 0.0
             or motion_activity_floor > 1.0
         ):
-            raise ValueError("motion_activity_floor must be finite, greater than 0, and at most 1")
+            raise ValueError(
+                "motion_activity_floor must be finite, greater than 0, and at most 1"
+            )
 
         injected = any(value is not None for value in (model, processor, torch_module))
         try:
@@ -295,8 +297,14 @@ class SigLIP2FeatureVideoScorer:
 
         if len(features) < 2:
             return 0.0
-        if not math.isfinite(activity_floor) or activity_floor <= 0.0 or activity_floor > 1.0:
-            raise ValueError("activity_floor must be finite, greater than 0, and at most 1")
+        if (
+            not math.isfinite(activity_floor)
+            or activity_floor <= 0.0
+            or activity_floor > 1.0
+        ):
+            raise ValueError(
+                "activity_floor must be finite, greater than 0, and at most 1"
+            )
         steps = [
             max(0.0, min(1.0, 1.0 - _cosine(previous, current)))
             for previous, current in zip(features, features[1:])

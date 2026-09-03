@@ -16,9 +16,7 @@ def _unit(angle: float) -> tuple[float, float]:
 
 
 def test_two_frame_numerical_jitter_is_not_motion_evidence() -> None:
-    score = SigLIP2FeatureVideoScorer._motion_coherence(
-        [_unit(0.0), _unit(0.001)]
-    )
+    score = SigLIP2FeatureVideoScorer._motion_coherence([_unit(0.0), _unit(0.001)])
 
     assert score == 0.0
 
@@ -32,9 +30,7 @@ def test_multi_frame_tiny_jitter_is_not_motion_evidence() -> None:
 
 
 def test_nontrivial_two_frame_change_can_supply_motion_evidence() -> None:
-    score = SigLIP2FeatureVideoScorer._motion_coherence(
-        [_unit(0.0), _unit(0.1)]
-    )
+    score = SigLIP2FeatureVideoScorer._motion_coherence([_unit(0.0), _unit(0.1)])
 
     assert score == 1.0
 
