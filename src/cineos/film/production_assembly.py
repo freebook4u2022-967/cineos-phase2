@@ -13,7 +13,7 @@ from .exceptions import AssemblyError
 from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.4"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.5"
 PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
 MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
 MIN_AUDIO_MEAN_VOLUME_DB = -80.0
@@ -29,7 +29,7 @@ def _canonical_hash(value: Mapping[str, Any]) -> str:
 
 def _require_bound_shot(
     record: Mapping[str, Any], *, index: int
-) -> tuple[str, Path, str]:
+) -> tuple[str, Path, str, str]:
     shot_id = str(record.get("shot_id") or "").strip()
     if not shot_id:
         raise AssemblyError(f"production shot {index} is missing shot_id")
@@ -53,7 +53,7 @@ def _require_bound_shot(
     evidence_hash = str(record.get("evidence_sha256") or "").strip().lower()
     if len(evidence_hash) != 64:
         raise AssemblyError(f"production shot {shot_id} is missing evidence SHA-256")
-    return shot_id, output_path, evidence_hash
+    return shot_id, output_path, actual_hash, evidence_hash
 
 
 def _validate_audio_stream(
@@ -224,11 +224,13 @@ def assemble_production_film(
 ) -> dict[str, Any]:
     """Assemble and validate only exact artifacts approved by GPU/QC evidence.
 
-    Every shot and optional audio mix is hash-bound before FFmpeg runs. The final
-    MP4 is inspected and, when audio is required, the encoded AAC stream must have
-    production sample rate, timeline coverage, and measurable decoded signal.
-    Signal presence is an integrity check only; it is not evidence of dialogue
-    intelligibility, semantic correctness, or lip synchronization.
+    Every shot and optional audio mix is hash-bound before FFmpeg runs. A connected
+    production film must contain distinct rendered artifacts backed by distinct QC
+    evidence, so one successful render cannot be relabeled to satisfy the 5-10-shot
+    release gate. The final MP4 is inspected and, when audio is required, the encoded
+    AAC stream must have production sample rate, timeline coverage, and measurable
+    decoded signal. Signal presence is an integrity check only; it is not evidence of
+    dialogue intelligibility, semantic correctness, or lip synchronization.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
@@ -237,13 +239,26 @@ def assemble_production_film(
     if durations is not None and any(float(value) <= 0 for value in durations):
         raise AssemblyError("production shot durations must all be positive")
 
-    bound: list[tuple[str, Path, str]] = []
+    bound: list[tuple[str, Path, str, str]] = []
     seen_ids: set[str] = set()
+    seen_output_hashes: set[str] = set()
+    seen_evidence_hashes: set[str] = set()
     for index, record in enumerate(shot_evidence):
         item = _require_bound_shot(record, index=index)
-        if item[0] in seen_ids:
-            raise AssemblyError(f"duplicate production shot_id: {item[0]}")
-        seen_ids.add(item[0])
+        shot_id, _, output_hash, evidence_hash = item
+        if shot_id in seen_ids:
+            raise AssemblyError(f"duplicate production shot_id: {shot_id}")
+        if output_hash in seen_output_hashes:
+            raise AssemblyError(
+                f"production shot {shot_id} reuses a rendered artifact from another shot"
+            )
+        if evidence_hash in seen_evidence_hashes:
+            raise AssemblyError(
+                f"production shot {shot_id} reuses QC evidence from another shot"
+            )
+        seen_ids.add(shot_id)
+        seen_output_hashes.add(output_hash)
+        seen_evidence_hashes.add(evidence_hash)
         bound.append(item)
 
     audio: dict[str, Any] | None = None
@@ -263,7 +278,7 @@ def assemble_production_film(
 
     destination = Path(output).resolve()
     movie = assemble(
-        [path for _, path, _ in bound],
+        [path for _, path, _, _ in bound],
         destination,
         durations=list(durations) if durations is not None else None,
         audio_path=audio_source,
@@ -286,10 +301,10 @@ def assemble_production_film(
                 "index": index,
                 "shot_id": shot_id,
                 "output_path": str(path),
-                "output_sha256": file_hash(path),
+                "output_sha256": output_hash,
                 "evidence_sha256": evidence_hash,
             }
-            for index, (shot_id, path, evidence_hash) in enumerate(bound)
+            for index, (shot_id, path, output_hash, evidence_hash) in enumerate(bound)
         ],
         "audio": audio,
         "final_mp4": str(movie.resolve()),
