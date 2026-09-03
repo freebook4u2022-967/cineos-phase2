@@ -22,8 +22,9 @@ from .production_references import ProductionReferenceLoader
 SIGLIP2_QC_MODEL_ID = "google/siglip2-base-patch16-256"
 SIGLIP2_QC_REVISION = "ce3bda6b1094ecd25dabd523e58ddab69b83baf2"
 SIGLIP2_QC_LICENSE = "Apache-2.0"
-SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.5"
+SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.6"
 DEFAULT_MOTION_ACTIVITY_FLOOR = 1e-4
+DEFAULT_MOTION_SUPPORT_FRACTION = 0.25
 
 
 class SigLIP2VideoScorerError(RuntimeError):
@@ -154,6 +155,7 @@ class SigLIP2FeatureVideoScorer:
         identity_mean_weight: float = 0.7,
         multi_identity_support_fraction: float = 0.25,
         motion_activity_floor: float = DEFAULT_MOTION_ACTIVITY_FLOOR,
+        motion_support_fraction: float = DEFAULT_MOTION_SUPPORT_FRACTION,
     ) -> None:
         if not isinstance(reference_loader, ProductionReferenceLoader):
             raise TypeError("reference_loader must be ProductionReferenceLoader")
@@ -172,6 +174,14 @@ class SigLIP2FeatureVideoScorer:
         ):
             raise ValueError(
                 "motion_activity_floor must be finite, greater than 0, and at most 1"
+            )
+        if (
+            not math.isfinite(motion_support_fraction)
+            or motion_support_fraction <= 0.0
+            or motion_support_fraction > 1.0
+        ):
+            raise ValueError(
+                "motion_support_fraction must be finite, greater than 0, and at most 1"
             )
 
         injected = any(value is not None for value in (model, processor, torch_module))
@@ -223,6 +233,7 @@ class SigLIP2FeatureVideoScorer:
         self.identity_mean_weight = float(identity_mean_weight)
         self.multi_identity_support_fraction = float(multi_identity_support_fraction)
         self.motion_activity_floor = float(motion_activity_floor)
+        self.motion_support_fraction = float(motion_support_fraction)
         self.semantic_measurement_evidence = not injected
         self._reference_cache: dict[str, tuple[float, ...]] = {}
 
@@ -235,8 +246,9 @@ class SigLIP2FeatureVideoScorer:
             "license": SIGLIP2_QC_LICENSE,
             "identity_metric": "approved-reference-temporal-support-cosine",
             "multi_identity_support_fraction": self.multi_identity_support_fraction,
-            "motion_metric": "siglip2-feature-step-coherence-with-static-activity-floor",
+            "motion_metric": "siglip2-feature-step-coherence-with-sustained-activity",
             "motion_activity_floor": self.motion_activity_floor,
+            "motion_support_fraction": self.motion_support_fraction,
             "production_measurement_evidence": self.semantic_measurement_evidence,
             "reference_manifest_sha256": self.reference_loader.manifest_sha256,
         }
@@ -287,12 +299,13 @@ class SigLIP2FeatureVideoScorer:
         features: Sequence[Sequence[float]],
         *,
         activity_floor: float = DEFAULT_MOTION_ACTIVITY_FLOOR,
+        support_fraction: float = DEFAULT_MOTION_SUPPORT_FRACTION,
     ) -> float:
-        """Score feature-step stability while rejecting frozen or near-static jitter.
+        """Score stable motion while rejecting frozen, jittery, or one-spike clips.
 
-        A single non-zero numerical/codec/model feature perturbation is not motion
-        evidence. At least one normalized feature-space step must exceed the
-        explicit activity floor before temporal coherence can score positively.
+        Codec noise and a single scene-cut-like feature jump are not sufficient
+        motion evidence. A minimum fraction of normalized feature-space steps must
+        exceed the activity floor, and sparse activity caps the resulting score.
         """
 
         if len(features) < 2:
@@ -305,16 +318,31 @@ class SigLIP2FeatureVideoScorer:
             raise ValueError(
                 "activity_floor must be finite, greater than 0, and at most 1"
             )
+        if (
+            not math.isfinite(support_fraction)
+            or support_fraction <= 0.0
+            or support_fraction > 1.0
+        ):
+            raise ValueError(
+                "support_fraction must be finite, greater than 0, and at most 1"
+            )
         steps = [
             max(0.0, min(1.0, 1.0 - _cosine(previous, current)))
             for previous, current in zip(features, features[1:])
         ]
-        if max(steps) < activity_floor:
+        active_count = sum(step >= activity_floor for step in steps)
+        required_count = max(1, math.ceil(len(steps) * support_fraction))
+        if active_count < required_count:
             return 0.0
+        active_fraction = active_count / len(steps)
         if len(steps) == 1:
-            return 1.0
+            return active_fraction
         accelerations = [abs(left - right) for left, right in zip(steps, steps[1:])]
-        return max(0.0, min(1.0, 1.0 - sum(accelerations) / len(accelerations)))
+        coherence = max(
+            0.0,
+            min(1.0, 1.0 - sum(accelerations) / len(accelerations)),
+        )
+        return min(coherence, active_fraction)
 
     def __call__(
         self,
@@ -344,12 +372,14 @@ class SigLIP2FeatureVideoScorer:
             "motion_quality": self._motion_coherence(
                 frame_features,
                 activity_floor=self.motion_activity_floor,
+                support_fraction=self.motion_support_fraction,
             ),
         }
 
 
 __all__ = [
     "DEFAULT_MOTION_ACTIVITY_FLOOR",
+    "DEFAULT_MOTION_SUPPORT_FRACTION",
     "SIGLIP2_QC_LICENSE",
     "SIGLIP2_QC_MODEL_ID",
     "SIGLIP2_QC_REVISION",
