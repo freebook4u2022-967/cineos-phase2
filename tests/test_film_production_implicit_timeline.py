@@ -61,10 +61,14 @@ def test_implicit_timeline_uses_probed_shot_durations(tmp_path, monkeypatch):
 
     manifest = assemble_production_film(records, output)
 
-    assert manifest["schema"] == "cineos-production-film-evidence/0.6"
-    assert manifest["timeline"] == {
-        "source": "probed-source-shots",
-        "expected_duration_seconds": 5.0,
+    assert manifest["schema"] == "cineos-production-film-evidence/0.7"
+    assert manifest["timeline"]["source"] == "probed-source-shots"
+    assert manifest["timeline"]["expected_duration_seconds"] == 5.0
+    assert manifest["timeline"]["compatibility"] == {
+        "width": 1280,
+        "height": 720,
+        "frame_rate": None,
+        "edit_durations_seconds": None,
     }
 
 
@@ -107,7 +111,6 @@ def test_explicit_edit_durations_remain_authoritative(tmp_path, monkeypatch):
         durations=[1.0] * 5,
     )
 
-    assert manifest["timeline"] == {
-        "source": "explicit-edit-durations",
-        "expected_duration_seconds": 5.0,
-    }
+    assert manifest["timeline"]["source"] == "explicit-edit-durations"
+    assert manifest["timeline"]["expected_duration_seconds"] == 5.0
+    assert manifest["timeline"]["compatibility"]["edit_durations_seconds"] == [1.0] * 5
