@@ -99,7 +99,7 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
     assert manifest["shot_count"] == 5
     assert manifest["final_mp4_sha256"] == _sha(output)
     assert manifest["final_media"]["video_stream_count"] == 1
-    assert manifest["schema"] == "cineos-production-film-evidence/0.4"
+    assert manifest["schema"] == "cineos-production-film-evidence/0.5"
     assert len(manifest["manifest_sha256"]) == 64
     assert (tmp_path / "final.production.json").is_file()
 
@@ -145,6 +145,31 @@ def test_rejects_duplicate_or_wrong_connected_shot_count(tmp_path, monkeypatch):
     records = _records(tmp_path)
     records[4]["shot_id"] = records[3]["shot_id"]
     with pytest.raises(AssemblyError, match="duplicate production shot_id"):
+        assemble_production_film(records, tmp_path / "final.mp4")
+
+
+def test_rejects_reused_rendered_artifact_under_different_shot_id(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    records[4]["output_path"] = records[3]["output_path"]
+    records[4]["output_sha256"] = records[3]["output_sha256"]
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.assemble",
+        lambda *_args, **_kwargs: pytest.fail("assembly must not run"),
+    )
+
+    with pytest.raises(AssemblyError, match="reuses a rendered artifact"):
+        assemble_production_film(records, tmp_path / "final.mp4")
+
+
+def test_rejects_reused_qc_evidence_under_different_shot_id(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    records[4]["evidence_sha256"] = records[3]["evidence_sha256"]
+    monkeypatch.setattr(
+        "cineos.film.production_assembly.assemble",
+        lambda *_args, **_kwargs: pytest.fail("assembly must not run"),
+    )
+
+    with pytest.raises(AssemblyError, match="reuses QC evidence"):
         assemble_production_film(records, tmp_path / "final.mp4")
 
 
