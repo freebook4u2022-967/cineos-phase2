@@ -284,9 +284,7 @@ class SigLIP2FeatureVideoScorer:
             return 0.0
         if len(steps) == 1:
             return 1.0
-        accelerations = [
-            abs(left - right) for left, right in zip(steps, steps[1:])
-        ]
+        accelerations = [abs(left - right) for left, right in zip(steps, steps[1:])]
         return max(0.0, min(1.0, 1.0 - sum(accelerations) / len(accelerations)))
 
     def __call__(
