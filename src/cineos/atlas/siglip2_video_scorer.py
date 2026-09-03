@@ -22,7 +22,8 @@ from .production_references import ProductionReferenceLoader
 SIGLIP2_QC_MODEL_ID = "google/siglip2-base-patch16-256"
 SIGLIP2_QC_REVISION = "ce3bda6b1094ecd25dabd523e58ddab69b83baf2"
 SIGLIP2_QC_LICENSE = "Apache-2.0"
-SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.4"
+SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.5"
+DEFAULT_MOTION_ACTIVITY_FLOOR = 1e-4
 
 
 class SigLIP2VideoScorerError(RuntimeError):
@@ -152,6 +153,7 @@ class SigLIP2FeatureVideoScorer:
         torch_module: Any | None = None,
         identity_mean_weight: float = 0.7,
         multi_identity_support_fraction: float = 0.25,
+        motion_activity_floor: float = DEFAULT_MOTION_ACTIVITY_FLOOR,
     ) -> None:
         if not isinstance(reference_loader, ProductionReferenceLoader):
             raise TypeError("reference_loader must be ProductionReferenceLoader")
@@ -163,6 +165,12 @@ class SigLIP2FeatureVideoScorer:
             raise ValueError(
                 "multi_identity_support_fraction must be greater than 0 and at most 1"
             )
+        if (
+            not math.isfinite(motion_activity_floor)
+            or motion_activity_floor <= 0.0
+            or motion_activity_floor > 1.0
+        ):
+            raise ValueError("motion_activity_floor must be finite, greater than 0, and at most 1")
 
         injected = any(value is not None for value in (model, processor, torch_module))
         try:
@@ -212,6 +220,7 @@ class SigLIP2FeatureVideoScorer:
         self.reference_loader = reference_loader
         self.identity_mean_weight = float(identity_mean_weight)
         self.multi_identity_support_fraction = float(multi_identity_support_fraction)
+        self.motion_activity_floor = float(motion_activity_floor)
         self.semantic_measurement_evidence = not injected
         self._reference_cache: dict[str, tuple[float, ...]] = {}
 
@@ -224,7 +233,8 @@ class SigLIP2FeatureVideoScorer:
             "license": SIGLIP2_QC_LICENSE,
             "identity_metric": "approved-reference-temporal-support-cosine",
             "multi_identity_support_fraction": self.multi_identity_support_fraction,
-            "motion_metric": "siglip2-feature-step-coherence-with-freeze-rejection",
+            "motion_metric": "siglip2-feature-step-coherence-with-static-activity-floor",
+            "motion_activity_floor": self.motion_activity_floor,
             "production_measurement_evidence": self.semantic_measurement_evidence,
             "reference_manifest_sha256": self.reference_loader.manifest_sha256,
         }
@@ -271,16 +281,27 @@ class SigLIP2FeatureVideoScorer:
         return embedding
 
     @staticmethod
-    def _motion_coherence(features: Sequence[Sequence[float]]) -> float:
-        """Score feature-step stability while rejecting fully frozen sequences."""
+    def _motion_coherence(
+        features: Sequence[Sequence[float]],
+        *,
+        activity_floor: float = DEFAULT_MOTION_ACTIVITY_FLOOR,
+    ) -> float:
+        """Score feature-step stability while rejecting frozen or near-static jitter.
+
+        A single non-zero numerical/codec/model feature perturbation is not motion
+        evidence. At least one normalized feature-space step must exceed the
+        explicit activity floor before temporal coherence can score positively.
+        """
 
         if len(features) < 2:
             return 0.0
+        if not math.isfinite(activity_floor) or activity_floor <= 0.0 or activity_floor > 1.0:
+            raise ValueError("activity_floor must be finite, greater than 0, and at most 1")
         steps = [
             max(0.0, min(1.0, 1.0 - _cosine(previous, current)))
             for previous, current in zip(features, features[1:])
         ]
-        if max(steps) <= 1e-6:
+        if max(steps) < activity_floor:
             return 0.0
         if len(steps) == 1:
             return 1.0
@@ -312,11 +333,15 @@ class SigLIP2FeatureVideoScorer:
         )
         return {
             "identity_similarity": identity,
-            "motion_quality": self._motion_coherence(frame_features),
+            "motion_quality": self._motion_coherence(
+                frame_features,
+                activity_floor=self.motion_activity_floor,
+            ),
         }
 
 
 __all__ = [
+    "DEFAULT_MOTION_ACTIVITY_FLOOR",
     "SIGLIP2_QC_LICENSE",
     "SIGLIP2_QC_MODEL_ID",
     "SIGLIP2_QC_REVISION",
