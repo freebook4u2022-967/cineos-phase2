@@ -222,7 +222,7 @@ class SigLIP2FeatureVideoScorer:
             "model_id": SIGLIP2_QC_MODEL_ID,
             "revision": SIGLIP2_QC_REVISION,
             "license": SIGLIP2_QC_LICENSE,
-            "identity_metric": "approved-reference-temporal-coverage-constrained-cosine",
+            "identity_metric": "approved-reference-temporal-support-cosine",
             "multi_identity_support_fraction": self.multi_identity_support_fraction,
             "motion_metric": "siglip2-feature-step-coherence-proxy",
             "production_measurement_evidence": self.semantic_measurement_evidence,
