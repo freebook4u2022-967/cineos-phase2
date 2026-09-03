@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ from .exceptions import AssemblyError
 from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.6"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.7"
 PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
 MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
 MAX_EDIT_DURATION_OVERRUN_SECONDS = 0.05
@@ -26,6 +27,19 @@ def _canonical_hash(value: Mapping[str, Any]) -> str:
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _normalize_frame_rate(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        rate = Fraction(raw)
+    except (ValueError, ZeroDivisionError):
+        return None
+    if rate <= 0:
+        return None
+    return f"{rate.numerator}/{rate.denominator}"
 
 
 def _require_bound_shot(
@@ -105,11 +119,25 @@ def _validate_bound_shot_media(shot_id: str, movie: Path) -> dict[str, Any]:
     if duration <= 0:
         raise AssemblyError(f"production shot {shot_id} has no positive duration")
 
+    frame_rate: str | None = None
+    if "video_frame_rates" in media:
+        frame_rates = media.get("video_frame_rates") or []
+        if len(frame_rates) != 1:
+            raise AssemblyError(
+                f"production shot {shot_id} is missing valid frame-rate evidence"
+            )
+        frame_rate = _normalize_frame_rate(frame_rates[0])
+        if frame_rate is None:
+            raise AssemblyError(
+                f"production shot {shot_id} has invalid average frame-rate evidence"
+            )
+
     return {
         "format_name": str(media.get("format_name") or ""),
         "video_codec": "h264",
         "width": width,
         "height": height,
+        "frame_rate": frame_rate,
         "duration_seconds": duration,
         "audio_stream_count": audio_stream_count,
     }
@@ -125,6 +153,15 @@ def _validate_connected_shot_compatibility(
     first_shot_id = bound[0][0]
     expected_width = int(shot_media[first_shot_id]["width"])
     expected_height = int(shot_media[first_shot_id]["height"])
+    expected_frame_rate = shot_media[first_shot_id].get("frame_rate")
+    has_frame_rate_evidence = any(
+        shot_media[shot_id].get("frame_rate") is not None
+        for shot_id, _, _, _ in bound
+    )
+    if has_frame_rate_evidence and expected_frame_rate is None:
+        raise AssemblyError(
+            "production connected shots have incomplete frame-rate evidence"
+        )
 
     edit_durations: list[float] | None = None
     if durations is not None:
@@ -140,6 +177,19 @@ def _validate_connected_shot_compatibility(
                 f"shot {shot_id} is {width}x{height}, expected "
                 f"{expected_width}x{expected_height}"
             )
+
+        frame_rate = media.get("frame_rate")
+        if has_frame_rate_evidence:
+            if frame_rate is None:
+                raise AssemblyError(
+                    "production connected shots have incomplete frame-rate evidence; "
+                    f"shot {shot_id} has no valid average frame rate"
+                )
+            if frame_rate != expected_frame_rate:
+                raise AssemblyError(
+                    "production connected shots must use identical average frame rates; "
+                    f"shot {shot_id} is {frame_rate}, expected {expected_frame_rate}"
+                )
 
         if edit_durations is not None:
             requested = edit_durations[index]
@@ -158,6 +208,7 @@ def _validate_connected_shot_compatibility(
     return {
         "width": expected_width,
         "height": expected_height,
+        "frame_rate": expected_frame_rate,
         "edit_durations_seconds": edit_durations,
     }
 
@@ -333,12 +384,12 @@ def assemble_production_film(
     Every shot and optional audio mix is hash-bound before FFmpeg runs. Each bound shot
     is independently media-probed so a corrupt, mislabeled, or non-video artifact cannot
     reach final assembly merely because its hash matches metadata. Connected shots must
-    use identical frame dimensions, and explicit edit durations cannot exceed the
-    independently probed approved source footage. Source-shot audio is recorded as
-    evidence but cannot supersede an approved external mix because assembly explicitly
-    maps that mix. A connected production film must contain distinct rendered artifacts
-    backed by distinct QC evidence, so one successful render cannot be relabeled to
-    satisfy the 5-10-shot release gate. The final MP4 is inspected and its duration is
+    use identical frame dimensions and average frame rates, and explicit edit durations
+    cannot exceed the independently probed approved source footage. Source-shot audio is
+    recorded as evidence but cannot supersede an approved external mix because assembly
+    explicitly maps that mix. A connected production film must contain distinct rendered
+    artifacts backed by distinct QC evidence, so one successful render cannot be relabeled
+    to satisfy the 5-10-shot release gate. The final MP4 is inspected and its duration is
     bound to either the explicit edit durations or the independently probed source-shot
     timeline. When audio is required, the encoded AAC stream must have production sample
     rate, timeline coverage, and measurable decoded signal. Signal presence is an
@@ -411,7 +462,8 @@ def assemble_production_film(
         timeline_source = "explicit-edit-durations"
     else:
         expected_duration = sum(
-            float(shot_media[shot_id]["duration_seconds"]) for shot_id, _, _, _ in bound
+            float(shot_media[shot_id]["duration_seconds"])
+            for shot_id, _, _, _ in bound
         )
         timeline_source = "probed-source-shots"
     final_media = _validate_final_media(
