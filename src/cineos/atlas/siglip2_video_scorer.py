@@ -22,7 +22,7 @@ from .production_references import ProductionReferenceLoader
 SIGLIP2_QC_MODEL_ID = "google/siglip2-base-patch16-256"
 SIGLIP2_QC_REVISION = "ce3bda6b1094ecd25dabd523e58ddab69b83baf2"
 SIGLIP2_QC_LICENSE = "Apache-2.0"
-SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.2"
+SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.3"
 
 
 class SigLIP2VideoScorerError(RuntimeError):
@@ -52,19 +52,36 @@ def _similarity(left: Sequence[float], right: Sequence[float]) -> float:
     return max(0.0, min(1.0, (_cosine(left, right) + 1.0) / 2.0))
 
 
+def _top_fraction_mean(scores: Sequence[float], *, fraction: float) -> float:
+    """Return mean support over the strongest required fraction of observations."""
+
+    if not scores:
+        raise SigLIP2VideoScorerError("identity support requires frame scores")
+    if not 0.0 < fraction <= 1.0:
+        raise SigLIP2VideoScorerError(
+            "multi-identity support fraction must be greater than 0 and at most 1"
+        )
+    support_count = max(1, math.ceil(len(scores) * fraction))
+    strongest = sorted((float(score) for score in scores), reverse=True)[:support_count]
+    if any(not math.isfinite(score) for score in strongest):
+        raise SigLIP2VideoScorerError("identity support scores must be finite")
+    return sum(strongest) / len(strongest)
+
+
 def _identity_score(
     frame_features: Sequence[Sequence[float]],
     references: Sequence[Sequence[float]],
     *,
     mean_weight: float,
+    multi_identity_support_fraction: float = 0.25,
 ) -> float:
-    """Aggregate identity similarity without hiding missing approved identities.
+    """Aggregate identity similarity without hiding sparse approved identities.
 
     The historical single-reference behavior is preserved. For multi-character
     shots, the aggregate is additionally capped by the weakest approved
-    reference's best observed match. This is deliberately conservative: a single
-    dominant identity can no longer make a shot pass while another approved
-    identity has no supporting frame evidence.
+    reference's support across a configurable fraction of sampled frames. This is
+    deliberately conservative: one lucky frame can no longer make an otherwise
+    absent approved identity look adequately represented across the shot.
     """
 
     if not frame_features:
@@ -81,7 +98,10 @@ def _identity_score(
     aggregate = mean_weight * mean_score + (1.0 - mean_weight) * worst_score
     if len(references) > 1:
         weakest_reference_support = min(
-            max(_similarity(frame, reference) for frame in frame_features)
+            _top_fraction_mean(
+                [_similarity(frame, reference) for frame in frame_features],
+                fraction=multi_identity_support_fraction,
+            )
             for reference in references
         )
         aggregate = min(aggregate, weakest_reference_support)
@@ -131,6 +151,7 @@ class SigLIP2FeatureVideoScorer:
         processor: Any | None = None,
         torch_module: Any | None = None,
         identity_mean_weight: float = 0.7,
+        multi_identity_support_fraction: float = 0.25,
     ) -> None:
         if not isinstance(reference_loader, ProductionReferenceLoader):
             raise TypeError("reference_loader must be ProductionReferenceLoader")
@@ -138,6 +159,10 @@ class SigLIP2FeatureVideoScorer:
             raise ValueError("device must be non-empty")
         if not 0.0 <= identity_mean_weight <= 1.0:
             raise ValueError("identity_mean_weight must be between 0 and 1")
+        if not 0.0 < multi_identity_support_fraction <= 1.0:
+            raise ValueError(
+                "multi_identity_support_fraction must be greater than 0 and at most 1"
+            )
 
         injected = any(value is not None for value in (model, processor, torch_module))
         try:
@@ -186,6 +211,7 @@ class SigLIP2FeatureVideoScorer:
         self.device = device.strip()
         self.reference_loader = reference_loader
         self.identity_mean_weight = float(identity_mean_weight)
+        self.multi_identity_support_fraction = float(multi_identity_support_fraction)
         self.semantic_measurement_evidence = not injected
         self._reference_cache: dict[str, tuple[float, ...]] = {}
 
@@ -196,7 +222,8 @@ class SigLIP2FeatureVideoScorer:
             "model_id": SIGLIP2_QC_MODEL_ID,
             "revision": SIGLIP2_QC_REVISION,
             "license": SIGLIP2_QC_LICENSE,
-            "identity_metric": "approved-reference-coverage-constrained-cosine",
+            "identity_metric": "approved-reference-temporal-coverage-constrained-cosine",
+            "multi_identity_support_fraction": self.multi_identity_support_fraction,
             "motion_metric": "siglip2-feature-step-coherence-proxy",
             "production_measurement_evidence": self.semantic_measurement_evidence,
             "reference_manifest_sha256": self.reference_loader.manifest_sha256,
@@ -281,6 +308,7 @@ class SigLIP2FeatureVideoScorer:
             frame_features,
             references,
             mean_weight=self.identity_mean_weight,
+            multi_identity_support_fraction=self.multi_identity_support_fraction,
         )
         return {
             "identity_similarity": identity,
