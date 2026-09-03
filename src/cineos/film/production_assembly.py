@@ -155,8 +155,7 @@ def _validate_connected_shot_compatibility(
     expected_height = int(shot_media[first_shot_id]["height"])
     expected_frame_rate = shot_media[first_shot_id].get("frame_rate")
     has_frame_rate_evidence = any(
-        shot_media[shot_id].get("frame_rate") is not None
-        for shot_id, _, _, _ in bound
+        shot_media[shot_id].get("frame_rate") is not None for shot_id, _, _, _ in bound
     )
     if has_frame_rate_evidence and expected_frame_rate is None:
         raise AssemblyError(
@@ -462,8 +461,7 @@ def assemble_production_film(
         timeline_source = "explicit-edit-durations"
     else:
         expected_duration = sum(
-            float(shot_media[shot_id]["duration_seconds"])
-            for shot_id, _, _, _ in bound
+            float(shot_media[shot_id]["duration_seconds"]) for shot_id, _, _, _ in bound
         )
         timeline_source = "probed-source-shots"
     final_media = _validate_final_media(
