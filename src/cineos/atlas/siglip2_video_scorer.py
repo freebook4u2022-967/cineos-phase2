@@ -22,7 +22,7 @@ from .production_references import ProductionReferenceLoader
 SIGLIP2_QC_MODEL_ID = "google/siglip2-base-patch16-256"
 SIGLIP2_QC_REVISION = "ce3bda6b1094ecd25dabd523e58ddab69b83baf2"
 SIGLIP2_QC_LICENSE = "Apache-2.0"
-SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.3"
+SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.4"
 
 
 class SigLIP2VideoScorerError(RuntimeError):
@@ -224,7 +224,7 @@ class SigLIP2FeatureVideoScorer:
             "license": SIGLIP2_QC_LICENSE,
             "identity_metric": "approved-reference-temporal-support-cosine",
             "multi_identity_support_fraction": self.multi_identity_support_fraction,
-            "motion_metric": "siglip2-feature-step-coherence-proxy",
+            "motion_metric": "siglip2-feature-step-coherence-with-freeze-rejection",
             "production_measurement_evidence": self.semantic_measurement_evidence,
             "reference_manifest_sha256": self.reference_loader.manifest_sha256,
         }
@@ -272,7 +272,7 @@ class SigLIP2FeatureVideoScorer:
 
     @staticmethod
     def _motion_coherence(features: Sequence[Sequence[float]]) -> float:
-        """Score smoothness of learned feature-space step sizes, not action realism."""
+        """Score feature-step stability while rejecting fully frozen sequences."""
 
         if len(features) < 2:
             return 0.0
@@ -280,6 +280,8 @@ class SigLIP2FeatureVideoScorer:
             max(0.0, min(1.0, 1.0 - _cosine(previous, current)))
             for previous, current in zip(features, features[1:], strict=True)
         ]
+        if max(steps) <= 1e-6:
+            return 0.0
         if len(steps) == 1:
             return 1.0
         accelerations = [
