@@ -99,7 +99,7 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
     assert manifest["shot_count"] == 5
     assert manifest["final_mp4_sha256"] == _sha(output)
     assert manifest["final_media"]["video_stream_count"] == 1
-    assert manifest["schema"] == "cineos-production-film-evidence/0.5"
+    assert manifest["schema"] == "cineos-production-film-evidence/0.6"
     assert len(manifest["manifest_sha256"]) == 64
     assert (tmp_path / "final.production.json").is_file()
 
@@ -203,6 +203,7 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
     manifest = assemble_production_film(
         records,
         output,
+        durations=[1.0] * 5,
         audio_path=audio,
         audio_sha256=_sha(audio),
     )
@@ -219,6 +220,7 @@ def test_binds_and_muxes_audio_hash_and_rejects_audio_swap(tmp_path, monkeypatch
         assemble_production_film(
             records,
             tmp_path / "final-2.mp4",
+            durations=[1.0] * 5,
             audio_path=audio,
             audio_sha256=manifest["audio"]["sha256"],
         )
@@ -270,6 +272,7 @@ def test_rejects_encoded_audio_with_no_meaningful_decoded_signal(tmp_path, monke
         assemble_production_film(
             records,
             tmp_path / "final.mp4",
+            durations=[1.0] * 5,
             audio_path=audio,
             audio_sha256=_sha(audio),
         )
