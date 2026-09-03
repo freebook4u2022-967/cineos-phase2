@@ -266,6 +266,12 @@ class ArtifactVideoMetricObserver:
             "artifact_integrity": _artifact_integrity(sample),
             "temporal_consistency": _temporal_consistency(sample),
         }
+        collisions = sorted(set(metrics).intersection(semantic))
+        if collisions:
+            raise VideoArtifactObservationError(
+                "semantic video scorer cannot override observer-owned metric(s): "
+                + ", ".join(collisions)
+            )
         for name, value in semantic.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 continue
