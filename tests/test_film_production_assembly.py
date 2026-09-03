@@ -148,7 +148,9 @@ def test_rejects_duplicate_or_wrong_connected_shot_count(tmp_path, monkeypatch):
         assemble_production_film(records, tmp_path / "final.mp4")
 
 
-def test_rejects_reused_rendered_artifact_under_different_shot_id(tmp_path, monkeypatch):
+def test_rejects_reused_rendered_artifact_under_different_shot_id(
+    tmp_path, monkeypatch
+):
     records = _records(tmp_path)
     records[4]["output_path"] = records[3]["output_path"]
     records[4]["output_sha256"] = records[3]["output_sha256"]
