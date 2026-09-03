@@ -57,7 +57,6 @@ def _fail_assembly(*_args, **_kwargs):
         ({**_media(), "format_name": "matroska,webm"}, "not an MP4 container"),
         ({**_media(), "video_stream_count": 0}, "exactly one video stream"),
         ({**_media(), "video_codecs": ["hevc"]}, "exactly one H.264"),
-        ({**_media(), "audio_stream_count": 1}, "hidden audio stream"),
         (
             {**_media(), "video_dimensions": [{"width": 1279, "height": 720}]},
             "invalid H.264/yuv420p",
@@ -91,7 +90,11 @@ def test_records_independently_probed_shot_media_in_manifest(tmp_path, monkeypat
         if path.name == "final.mp4":
             return _media(duration_seconds=5.0)
         index = int(path.stem.split("-")[-1])
-        return _media(duration_seconds=1.0 + index / 10)
+        audio_count = 1 if index == 2 else 0
+        return _media(
+            duration_seconds=1.0 + index / 10,
+            audio_stream_count=audio_count,
+        )
 
     def fake_assemble(_shots, destination, **_kwargs):
         Path(destination).write_bytes(b"assembled-film")
@@ -103,5 +106,5 @@ def test_records_independently_probed_shot_media_in_manifest(tmp_path, monkeypat
     manifest = assemble_production_film(records, tmp_path / "final.mp4")
 
     assert manifest["shots"][0]["media"]["video_codec"] == "h264"
-    assert manifest["shots"][0]["media"]["audio_stream_count"] == 0
+    assert manifest["shots"][2]["media"]["audio_stream_count"] == 1
     assert manifest["shots"][4]["media"]["duration_seconds"] == 1.4
