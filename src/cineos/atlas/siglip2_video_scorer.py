@@ -22,9 +22,10 @@ from .production_references import ProductionReferenceLoader
 SIGLIP2_QC_MODEL_ID = "google/siglip2-base-patch16-256"
 SIGLIP2_QC_REVISION = "ce3bda6b1094ecd25dabd523e58ddab69b83baf2"
 SIGLIP2_QC_LICENSE = "Apache-2.0"
-SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.6"
+SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.7"
 DEFAULT_MOTION_ACTIVITY_FLOOR = 1e-4
 DEFAULT_MOTION_SUPPORT_FRACTION = 0.25
+DEFAULT_MOTION_STEP_CEILING = 0.5
 
 
 class SigLIP2VideoScorerError(RuntimeError):
@@ -56,7 +57,6 @@ def _similarity(left: Sequence[float], right: Sequence[float]) -> float:
 
 def _top_fraction_mean(scores: Sequence[float], *, fraction: float) -> float:
     """Return mean support over the strongest required fraction of observations."""
-
     if not scores:
         raise SigLIP2VideoScorerError("identity support requires frame scores")
     if not 0.0 < fraction <= 1.0:
@@ -77,20 +77,11 @@ def _identity_score(
     mean_weight: float,
     multi_identity_support_fraction: float = 0.25,
 ) -> float:
-    """Aggregate identity similarity without hiding sparse approved identities.
-
-    The historical single-reference behavior is preserved. For multi-character
-    shots, the aggregate is additionally capped by the weakest approved
-    reference's support across a configurable fraction of sampled frames. This is
-    deliberately conservative: one lucky frame can no longer make an otherwise
-    absent approved identity look adequately represented across the shot.
-    """
-
+    """Aggregate identity similarity without hiding sparse approved identities."""
     if not frame_features:
         raise SigLIP2VideoScorerError("identity QC requires decoded frame features")
     if not references:
         raise SigLIP2VideoScorerError("identity QC requires approved references")
-
     frame_scores = [
         max(_similarity(frame, reference) for reference in references)
         for frame in frame_features
@@ -112,7 +103,6 @@ def _identity_score(
 
 def _rows(value: Any) -> list[list[float]]:
     """Convert a torch-like 2D feature tensor to ordinary numeric rows."""
-
     candidate = value
     for method in ("detach", "float", "cpu"):
         operation = getattr(candidate, method, None)
@@ -129,20 +119,14 @@ def _rows(value: Any) -> list[list[float]]:
             raise SigLIP2VideoScorerError(
                 "vision encoder features must be two-dimensional"
             )
-        rows.append([float(value) for value in row])
+        rows.append([float(item) for item in row])
     if not rows:
         raise SigLIP2VideoScorerError("vision encoder returned no features")
     return rows
 
 
 class SigLIP2FeatureVideoScorer:
-    """Measure identity and feature-space motion coherence on decoded video frames.
-
-    Production evidence is enabled only when this class loads the exact pinned
-    external model and processor itself and receives the first-party hash-verified
-    ``ProductionReferenceLoader``. Injected model/processor/torch boundaries remain
-    useful for unit tests, but are explicitly non-production evidence.
-    """
+    """Measure identity and feature-space motion coherence on decoded video frames."""
 
     def __init__(
         self,
@@ -156,6 +140,7 @@ class SigLIP2FeatureVideoScorer:
         multi_identity_support_fraction: float = 0.25,
         motion_activity_floor: float = DEFAULT_MOTION_ACTIVITY_FLOOR,
         motion_support_fraction: float = DEFAULT_MOTION_SUPPORT_FRACTION,
+        motion_step_ceiling: float = DEFAULT_MOTION_STEP_CEILING,
     ) -> None:
         if not isinstance(reference_loader, ProductionReferenceLoader):
             raise TypeError("reference_loader must be ProductionReferenceLoader")
@@ -167,23 +152,11 @@ class SigLIP2FeatureVideoScorer:
             raise ValueError(
                 "multi_identity_support_fraction must be greater than 0 and at most 1"
             )
-        if (
-            not math.isfinite(motion_activity_floor)
-            or motion_activity_floor <= 0.0
-            or motion_activity_floor > 1.0
-        ):
-            raise ValueError(
-                "motion_activity_floor must be finite, greater than 0, and at most 1"
-            )
-        if (
-            not math.isfinite(motion_support_fraction)
-            or motion_support_fraction <= 0.0
-            or motion_support_fraction > 1.0
-        ):
-            raise ValueError(
-                "motion_support_fraction must be finite, greater than 0, and at most 1"
-            )
-
+        self._validate_motion_policy(
+            activity_floor=motion_activity_floor,
+            support_fraction=motion_support_fraction,
+            step_ceiling=motion_step_ceiling,
+        )
         injected = any(value is not None for value in (model, processor, torch_module))
         try:
             torch = torch_module or import_module("torch")
@@ -196,7 +169,6 @@ class SigLIP2FeatureVideoScorer:
             raise SigLIP2VideoScorerError(
                 "SigLIP2 production QC requires torch and transformers from the video extra"
             ) from exc
-
         if model is None:
             auto_model = getattr(transformers, "AutoModel", None)
             if auto_model is None:
@@ -217,7 +189,6 @@ class SigLIP2FeatureVideoScorer:
                 revision=SIGLIP2_QC_REVISION,
                 local_files_only=True,
             )
-
         to_device = getattr(model, "to", None)
         eval_mode = getattr(model, "eval", None)
         if not callable(to_device) or not callable(eval_mode):
@@ -234,8 +205,28 @@ class SigLIP2FeatureVideoScorer:
         self.multi_identity_support_fraction = float(multi_identity_support_fraction)
         self.motion_activity_floor = float(motion_activity_floor)
         self.motion_support_fraction = float(motion_support_fraction)
+        self.motion_step_ceiling = float(motion_step_ceiling)
         self.semantic_measurement_evidence = not injected
         self._reference_cache: dict[str, tuple[float, ...]] = {}
+
+    @staticmethod
+    def _validate_motion_policy(
+        *, activity_floor: float, support_fraction: float, step_ceiling: float
+    ) -> None:
+        if not math.isfinite(activity_floor) or not 0.0 < activity_floor <= 1.0:
+            raise ValueError(
+                "activity_floor must be finite, greater than 0, and at most 1"
+            )
+        if not math.isfinite(support_fraction) or not 0.0 < support_fraction <= 1.0:
+            raise ValueError(
+                "support_fraction must be finite, greater than 0, and at most 1"
+            )
+        if not math.isfinite(step_ceiling) or not 0.0 < step_ceiling <= 1.0:
+            raise ValueError(
+                "step_ceiling must be finite, greater than 0, and at most 1"
+            )
+        if step_ceiling <= activity_floor:
+            raise ValueError("step_ceiling must be greater than activity_floor")
 
     def runtime_provenance(self) -> dict[str, Any]:
         return {
@@ -246,9 +237,10 @@ class SigLIP2FeatureVideoScorer:
             "license": SIGLIP2_QC_LICENSE,
             "identity_metric": "approved-reference-temporal-support-cosine",
             "multi_identity_support_fraction": self.multi_identity_support_fraction,
-            "motion_metric": "siglip2-feature-step-coherence-with-sustained-activity",
+            "motion_metric": "siglip2-feature-step-coherence-with-cut-rejection",
             "motion_activity_floor": self.motion_activity_floor,
             "motion_support_fraction": self.motion_support_fraction,
+            "motion_step_ceiling": self.motion_step_ceiling,
             "production_measurement_evidence": self.semantic_measurement_evidence,
             "reference_manifest_sha256": self.reference_loader.manifest_sha256,
         }
@@ -300,36 +292,22 @@ class SigLIP2FeatureVideoScorer:
         *,
         activity_floor: float = DEFAULT_MOTION_ACTIVITY_FLOOR,
         support_fraction: float = DEFAULT_MOTION_SUPPORT_FRACTION,
+        step_ceiling: float = DEFAULT_MOTION_STEP_CEILING,
     ) -> float:
-        """Score stable motion while rejecting frozen, jittery, or one-spike clips.
-
-        Codec noise and a single scene-cut-like feature jump are not sufficient
-        motion evidence. A minimum fraction of normalized feature-space steps must
-        exceed the activity floor, and sparse activity caps the resulting score.
-        """
-
+        """Score sustained motion while rejecting freeze, jitter, and cut-like jumps."""
         if len(features) < 2:
             return 0.0
-        if (
-            not math.isfinite(activity_floor)
-            or activity_floor <= 0.0
-            or activity_floor > 1.0
-        ):
-            raise ValueError(
-                "activity_floor must be finite, greater than 0, and at most 1"
-            )
-        if (
-            not math.isfinite(support_fraction)
-            or support_fraction <= 0.0
-            or support_fraction > 1.0
-        ):
-            raise ValueError(
-                "support_fraction must be finite, greater than 0, and at most 1"
-            )
+        SigLIP2FeatureVideoScorer._validate_motion_policy(
+            activity_floor=activity_floor,
+            support_fraction=support_fraction,
+            step_ceiling=step_ceiling,
+        )
         steps = [
             max(0.0, min(1.0, 1.0 - _cosine(previous, current)))
             for previous, current in zip(features, features[1:])
         ]
+        if any(step > step_ceiling for step in steps):
+            return 0.0
         active_count = sum(step >= activity_floor for step in steps)
         required_count = max(1, math.ceil(len(steps) * support_fraction))
         if active_count < required_count:
@@ -373,12 +351,14 @@ class SigLIP2FeatureVideoScorer:
                 frame_features,
                 activity_floor=self.motion_activity_floor,
                 support_fraction=self.motion_support_fraction,
+                step_ceiling=self.motion_step_ceiling,
             ),
         }
 
 
 __all__ = [
     "DEFAULT_MOTION_ACTIVITY_FLOOR",
+    "DEFAULT_MOTION_STEP_CEILING",
     "DEFAULT_MOTION_SUPPORT_FRACTION",
     "SIGLIP2_QC_LICENSE",
     "SIGLIP2_QC_MODEL_ID",
