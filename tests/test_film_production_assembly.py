@@ -99,7 +99,7 @@ def test_assembles_only_bound_qc_approved_gpu_artifacts(tmp_path, monkeypatch):
     assert manifest["shot_count"] == 5
     assert manifest["final_mp4_sha256"] == _sha(output)
     assert manifest["final_media"]["video_stream_count"] == 1
-    assert manifest["schema"] == "cineos-production-film-evidence/0.6"
+    assert manifest["schema"] == "cineos-production-film-evidence/0.7"
     assert len(manifest["manifest_sha256"]) == 64
     assert (tmp_path / "final.production.json").is_file()
 
