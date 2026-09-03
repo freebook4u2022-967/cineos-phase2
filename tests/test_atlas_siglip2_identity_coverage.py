@@ -28,7 +28,9 @@ def test_multi_reference_identity_is_capped_by_missing_identity_support() -> Non
     assert score == pytest.approx(0.0)
 
 
-def test_multi_reference_identity_passes_when_every_identity_has_frame_support() -> None:
+def test_multi_reference_identity_passes_when_every_identity_has_frame_support() -> (
+    None
+):
     score = _identity_score(
         [(1.0, 0.0), (0.0, 1.0)],
         [(1.0, 0.0), (0.0, 1.0)],
