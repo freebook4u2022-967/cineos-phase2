@@ -144,7 +144,9 @@ def test_video_observer_rejects_out_of_range_semantic_metric(tmp_path):
         observer(str(artifact), shot=Shot(), attempt_index=0)
 
 
-@pytest.mark.parametrize("observer_metric", ["artifact_integrity", "temporal_consistency"])
+@pytest.mark.parametrize(
+    "observer_metric", ["artifact_integrity", "temporal_consistency"]
+)
 def test_semantic_scorer_cannot_override_observer_owned_metrics(
     tmp_path,
     observer_metric,
