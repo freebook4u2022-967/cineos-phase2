@@ -20,21 +20,34 @@ class AttestedTestObserver:
     observer_id = "test-artifact-observer/0.1"
 
     def __init__(
-        self, artifact, metrics, *, measured_sha256=None, reported_observer_id=None
+        self,
+        artifact,
+        metrics,
+        *,
+        measured_sha256=None,
+        reported_observer_id=None,
+        measurement_attested=True,
+        semantic_scorer=None,
     ):
         self.artifact = artifact
         self.metrics = metrics
         self.measured_sha256 = measured_sha256
         self.reported_observer_id = reported_observer_id
+        self.measurement_attested = measurement_attested
+        self.semantic_scorer = semantic_scorer
 
     def __call__(self, *_args, **_kwargs):
         digest = hashlib.sha256(self.artifact.read_bytes()).hexdigest()
-        return {
+        measurement = {
             "schema": PRODUCTION_MEASUREMENT_SCHEMA,
             "observer_id": self.reported_observer_id or self.observer_id,
             "artifact_sha256": self.measured_sha256 or digest,
+            "production_measurement_evidence": self.measurement_attested,
             "metrics": self.metrics,
         }
+        if self.semantic_scorer is not None:
+            measurement["semantic_scorer"] = self.semantic_scorer
+        return measurement
 
 
 def _evaluate(metrics, *, policy=None):
@@ -46,7 +59,13 @@ def _evaluate(metrics, *, policy=None):
 
 
 def _measured_evaluator(
-    artifact, metrics, *, measured_sha256=None, reported_observer_id=None
+    artifact,
+    metrics,
+    *,
+    measured_sha256=None,
+    reported_observer_id=None,
+    measurement_attested=True,
+    semantic_scorer=None,
 ):
     return ArtifactMeasuredSequenceQualityEvaluator(
         AttestedTestObserver(
@@ -54,6 +73,8 @@ def _measured_evaluator(
             metrics,
             measured_sha256=measured_sha256,
             reported_observer_id=reported_observer_id,
+            measurement_attested=measurement_attested,
+            semantic_scorer=semantic_scorer,
         )
     )
 
@@ -165,6 +186,7 @@ def test_artifact_measured_evaluator_binds_report_to_exact_rendered_bytes(tmp_pa
     assert report["production_measurement_evidence"] is True
     assert report["measurement"]["observer_id"] == "test-artifact-observer/0.1"
     assert report["measurement"]["observer_attested"] is True
+    assert report["measurement"]["measurement_attested"] is True
     assert (
         report["measurement"]["artifact_sha256"]
         == hashlib.sha256(artifact.read_bytes()).hexdigest()
@@ -192,6 +214,72 @@ def test_artifact_measured_evaluator_rejects_stale_or_foreign_digest(tmp_path):
 def test_artifact_measured_evaluator_rejects_unattested_callable():
     with pytest.raises(TypeError, match="attest production_measurement_evidence"):
         ArtifactMeasuredSequenceQualityEvaluator(lambda *_args, **_kwargs: {})
+
+
+def test_artifact_measured_evaluator_rejects_downgraded_measurement(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"current-render")
+    evaluator = _measured_evaluator(
+        artifact,
+        {
+            "identity_similarity": 0.95,
+            "temporal_consistency": 0.93,
+            "artifact_integrity": 0.99,
+            "motion_quality": 0.91,
+        },
+        measurement_attested=False,
+    )
+
+    with pytest.raises(
+        SequenceQualityError,
+        match="measurement must attest production_measurement_evidence=True",
+    ):
+        evaluator(str(artifact), shot=Shot(), attempt_index=0)
+
+
+def test_artifact_measured_evaluator_preserves_semantic_scorer_provenance(tmp_path):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"current-render")
+    provenance = {
+        "schema": "cineos-external-qc/0.1",
+        "origin": "external-pretrained-foundation",
+        "model_id": "example/qc-model",
+        "revision": "abc123",
+    }
+    evaluator = _measured_evaluator(
+        artifact,
+        {
+            "identity_similarity": 0.95,
+            "temporal_consistency": 0.93,
+            "artifact_integrity": 0.99,
+            "motion_quality": 0.91,
+        },
+        semantic_scorer=provenance,
+    )
+
+    report = evaluator(str(artifact), shot=Shot(), attempt_index=0)
+
+    assert report["measurement"]["semantic_scorer"] == provenance
+
+
+def test_artifact_measured_evaluator_rejects_invalid_semantic_scorer_provenance(
+    tmp_path,
+):
+    artifact = tmp_path / "candidate.mp4"
+    artifact.write_bytes(b"current-render")
+    evaluator = _measured_evaluator(
+        artifact,
+        {
+            "identity_similarity": 0.95,
+            "temporal_consistency": 0.93,
+            "artifact_integrity": 0.99,
+            "motion_quality": 0.91,
+        },
+        semantic_scorer={"schema": "cineos-external-qc/0.1"},
+    )
+
+    with pytest.raises(SequenceQualityError, match="non-empty origin"):
+        evaluator(str(artifact), shot=Shot(), attempt_index=0)
 
 
 def test_artifact_measured_evaluator_rejects_observer_identity_spoof(tmp_path):
