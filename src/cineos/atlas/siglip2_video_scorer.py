@@ -22,7 +22,7 @@ from .production_references import ProductionReferenceLoader
 SIGLIP2_QC_MODEL_ID = "google/siglip2-base-patch16-256"
 SIGLIP2_QC_REVISION = "ce3bda6b1094ecd25dabd523e58ddab69b83baf2"
 SIGLIP2_QC_LICENSE = "Apache-2.0"
-SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.1"
+SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.2"
 
 
 class SigLIP2VideoScorerError(RuntimeError):
@@ -50,6 +50,42 @@ def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
 
 def _similarity(left: Sequence[float], right: Sequence[float]) -> float:
     return max(0.0, min(1.0, (_cosine(left, right) + 1.0) / 2.0))
+
+
+def _identity_score(
+    frame_features: Sequence[Sequence[float]],
+    references: Sequence[Sequence[float]],
+    *,
+    mean_weight: float,
+) -> float:
+    """Aggregate identity similarity without hiding missing approved identities.
+
+    The historical single-reference behavior is preserved. For multi-character
+    shots, the aggregate is additionally capped by the weakest approved
+    reference's best observed match. This is deliberately conservative: a single
+    dominant identity can no longer make a shot pass while another approved
+    identity has no supporting frame evidence.
+    """
+
+    if not frame_features:
+        raise SigLIP2VideoScorerError("identity QC requires decoded frame features")
+    if not references:
+        raise SigLIP2VideoScorerError("identity QC requires approved references")
+
+    frame_scores = [
+        max(_similarity(frame, reference) for reference in references)
+        for frame in frame_features
+    ]
+    mean_score = sum(frame_scores) / len(frame_scores)
+    worst_score = min(frame_scores)
+    aggregate = mean_weight * mean_score + (1.0 - mean_weight) * worst_score
+    if len(references) > 1:
+        weakest_reference_support = min(
+            max(_similarity(frame, reference) for frame in frame_features)
+            for reference in references
+        )
+        aggregate = min(aggregate, weakest_reference_support)
+    return max(0.0, min(1.0, aggregate))
 
 
 def _rows(value: Any) -> list[list[float]]:
@@ -160,7 +196,7 @@ class SigLIP2FeatureVideoScorer:
             "model_id": SIGLIP2_QC_MODEL_ID,
             "revision": SIGLIP2_QC_REVISION,
             "license": SIGLIP2_QC_LICENSE,
-            "identity_metric": "best-approved-reference-cosine",
+            "identity_metric": "approved-reference-coverage-constrained-cosine",
             "motion_metric": "siglip2-feature-step-coherence-proxy",
             "production_measurement_evidence": self.semantic_measurement_evidence,
             "reference_manifest_sha256": self.reference_loader.manifest_sha256,
@@ -241,18 +277,13 @@ class SigLIP2FeatureVideoScorer:
         self.reference_loader.validate_reference_ids(reference_ids)
         references = [self._reference_embedding(item) for item in reference_ids]
         frame_features = self._encode_images(self._pil_frames(sample))
-        frame_scores = [
-            max(_similarity(frame, reference) for reference in references)
-            for frame in frame_features
-        ]
-        mean_score = sum(frame_scores) / len(frame_scores)
-        worst_score = min(frame_scores)
-        identity = (
-            self.identity_mean_weight * mean_score
-            + (1.0 - self.identity_mean_weight) * worst_score
+        identity = _identity_score(
+            frame_features,
+            references,
+            mean_weight=self.identity_mean_weight,
         )
         return {
-            "identity_similarity": max(0.0, min(1.0, identity)),
+            "identity_similarity": identity,
             "motion_quality": self._motion_coherence(frame_features),
         }
 
