@@ -1,8 +1,5 @@
 from pathlib import Path
 
-import pytest
-
-from cineos.film.exceptions import AssemblyError
 from cineos.film.production_assembly import _expected_timeline_frame_count
 
 
@@ -81,17 +78,22 @@ def test_untrimmed_timeline_uses_observed_decoded_source_counts_directly():
     }
 
 
-def test_untrimmed_timeline_fails_closed_without_source_frame_count_evidence():
+def test_untrimmed_timeline_keeps_missing_vfr_counts_explicitly_unverified():
     media = _media([24] * 5)
     media["shot-3"]["decoded_frame_count"] = None
 
-    with pytest.raises(AssemblyError, match="require decoded frame-count evidence"):
-        _expected_timeline_frame_count(
-            _bound(),
-            media,
-            frame_rate="24/1",
-            durations=None,
-        )
+    result = _expected_timeline_frame_count(
+        _bound(),
+        media,
+        frame_rate="24/1",
+        durations=None,
+    )
+
+    assert result == {
+        "mode": "unverified-source-decoded-frames",
+        "expected_decoded_frame_count": None,
+        "expected_per_shot_decoded_frame_counts": None,
+    }
 
 
 def test_missing_frame_rate_does_not_invent_frame_count_evidence():
