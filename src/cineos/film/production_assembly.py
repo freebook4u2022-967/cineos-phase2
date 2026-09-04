@@ -14,7 +14,7 @@ from .exceptions import AssemblyError
 from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.7"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.8"
 PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
 MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
 MAX_EDIT_DURATION_OVERRUN_SECONDS = 0.05
@@ -293,6 +293,9 @@ def _validate_final_media(
     *,
     audio_required: bool,
     expected_duration: float | None,
+    expected_width: int,
+    expected_height: int,
+    expected_frame_rate: str | None,
 ) -> dict[str, Any]:
     try:
         media = probe_media(movie)
@@ -331,6 +334,38 @@ def _validate_final_media(
         raise AssemblyError(
             "production final MP4 has invalid H.264/yuv420p video dimensions"
         )
+    if (width, height) != (expected_width, expected_height):
+        raise AssemblyError(
+            "production final MP4 dimensions do not match the approved connected "
+            f"timeline ({width}x{height} vs {expected_width}x{expected_height})"
+        )
+
+    final_frame_rate: str | None = None
+    if expected_frame_rate is not None:
+        frame_rates = media.get("video_frame_rates") or []
+        if len(frame_rates) != 1:
+            raise AssemblyError(
+                "production final MP4 is missing average frame-rate evidence"
+            )
+        final_frame_rate = _normalize_frame_rate(frame_rates[0])
+        if final_frame_rate is None:
+            raise AssemblyError(
+                "production final MP4 has invalid average frame-rate evidence"
+            )
+        if final_frame_rate != expected_frame_rate:
+            raise AssemblyError(
+                "production final MP4 average frame rate does not match the approved "
+                f"connected timeline ({final_frame_rate} vs {expected_frame_rate})"
+            )
+
+    media["production_video_timeline"] = {
+        "width": width,
+        "height": height,
+        "frame_rate": final_frame_rate,
+        "expected_width": expected_width,
+        "expected_height": expected_height,
+        "expected_frame_rate": expected_frame_rate,
+    }
 
     audio_count = int(media.get("audio_stream_count") or 0)
     audio_codecs = [
@@ -388,12 +423,13 @@ def assemble_production_film(
     recorded as evidence but cannot supersede an approved external mix because assembly
     explicitly maps that mix. A connected production film must contain distinct rendered
     artifacts backed by distinct QC evidence, so one successful render cannot be relabeled
-    to satisfy the 5-10-shot release gate. The final MP4 is inspected and its duration is
-    bound to either the explicit edit durations or the independently probed source-shot
-    timeline. When audio is required, the encoded AAC stream must have production sample
-    rate, timeline coverage, and measurable decoded signal. Signal presence is an
-    integrity check only; it is not evidence of dialogue intelligibility, semantic
-    correctness, or lip synchronization.
+    to satisfy the 5-10-shot release gate. The final MP4 must preserve the approved frame
+    geometry and, when source frame-rate evidence exists, the exact normalized average
+    frame rate. Its duration is bound to either explicit edit durations or independently
+    probed source-shot timing. When audio is required, the encoded AAC stream must have
+    production sample rate, timeline coverage, and measurable decoded signal. Signal
+    presence is an integrity check only; it is not evidence of dialogue intelligibility,
+    semantic correctness, or lip synchronization.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
@@ -468,6 +504,9 @@ def assemble_production_film(
         movie,
         audio_required=audio_source is not None,
         expected_duration=expected_duration,
+        expected_width=int(timeline_compatibility["width"]),
+        expected_height=int(timeline_compatibility["height"]),
+        expected_frame_rate=timeline_compatibility.get("frame_rate"),
     )
     final_hash = file_hash(movie)
 
