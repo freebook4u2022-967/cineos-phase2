@@ -197,11 +197,17 @@ def assemble(
     if audio_path is not None:
         audio_source = Path(audio_path).resolve()
         file_hash(audio_source)
-        expected_duration = _visual_timeline_duration(
-            sources,
-            normalized_durations,
-            crossfade=crossfade,
-        )
+        if crossfade > 0:
+            expected_duration = _visual_timeline_duration(
+                sources,
+                normalized_durations,
+                crossfade=crossfade,
+            )
+        else:
+            expected_duration = _visual_timeline_duration(
+                sources,
+                normalized_durations,
+            )
         _preflight_audio(audio_source, expected_duration=expected_duration)
 
     destination = Path(output)
@@ -213,13 +219,17 @@ def assemble(
             command.extend(["-i", str(source)])
         if audio_source is not None:
             command.extend(["-i", str(audio_source)])
+        if crossfade > 0:
+            trim_filter = _explicit_trim_filter(
+                normalized_durations,
+                crossfade=crossfade,
+            )
+        else:
+            trim_filter = _explicit_trim_filter(normalized_durations)
         command.extend(
             [
                 "-filter_complex",
-                _explicit_trim_filter(
-                    normalized_durations,
-                    crossfade=crossfade,
-                ),
+                trim_filter,
                 "-map",
                 "[filmv]",
             ]
