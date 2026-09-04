@@ -64,22 +64,6 @@ def preflight_production_inputs(
             reference_id: loader.reference_sha256(reference_id)
             for reference_id in requested_reference_ids
         }
-        ids_by_hash: dict[str, list[str]] = {}
-        for reference_id, digest in reference_hashes.items():
-            ids_by_hash.setdefault(digest, []).append(reference_id)
-        duplicate_content_groups = [
-            reference_ids
-            for reference_ids in ids_by_hash.values()
-            if len(reference_ids) > 1
-        ]
-        if duplicate_content_groups:
-            aliases = "; ".join(
-                ", ".join(reference_ids) for reference_ids in duplicate_content_groups
-            )
-            raise ProductionReferenceError(
-                "production reference ids must resolve to distinct approved content; "
-                f"duplicate SHA-256 payloads: {aliases}"
-            )
 
         # validate_reference_ids already verifies presence + SHA-256. Decode every
         # distinct asset too, so an approved-but-corrupt image fails before model IO.
