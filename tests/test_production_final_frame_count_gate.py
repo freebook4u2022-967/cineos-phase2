@@ -22,7 +22,9 @@ def _media(*, frame_count: int | None = 48) -> dict[str, object]:
     }
 
 
-def _validate(monkeypatch: pytest.MonkeyPatch, media: dict[str, object]) -> dict[str, object]:
+def _validate(
+    monkeypatch: pytest.MonkeyPatch, media: dict[str, object]
+) -> dict[str, object]:
     monkeypatch.setattr(production_assembly, "probe_media", lambda _movie: media)
     return production_assembly._validate_final_media(
         Path("final.mp4"),
@@ -34,7 +36,9 @@ def _validate(monkeypatch: pytest.MonkeyPatch, media: dict[str, object]) -> dict
     )
 
 
-def test_final_frame_count_matches_approved_timeline(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_final_frame_count_matches_approved_timeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     validated = _validate(monkeypatch, _media(frame_count=48))
 
     timeline = validated["production_video_timeline"]
