@@ -97,3 +97,67 @@ def test_non_finite_edit_duration_fails_closed(
             tmp_path / "film.mp4",
             durations=[float("nan")],
         )
+
+
+def test_crossfade_builds_decoded_frame_transitions_and_shortens_audio_timeline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured = _capture_ffmpeg(monkeypatch)
+    monkeypatch.setattr(
+        assembly_module,
+        "probe_media",
+        lambda _path: _audio_probe(14.0),
+    )
+
+    assembly_module.assemble(
+        [
+            tmp_path / "shot-a.mp4",
+            tmp_path / "shot-b.mp4",
+            tmp_path / "shot-c.mp4",
+        ],
+        tmp_path / "film.mp4",
+        durations=[5.0, 5.0, 5.0],
+        crossfade=0.5,
+        audio_path=tmp_path / "mix.wav",
+    )
+
+    graph = captured[captured.index("-filter_complex") + 1]
+    assert "xfade=transition=fade:duration=0.500000:offset=4.500000[xf1]" in graph
+    assert "[xf1][v2]xfade=transition=fade:duration=0.500000:offset=9.000000[filmv]" in graph
+    assert captured[captured.index("-t") + 1] == "14.000000"
+    assert captured[captured.index("-map") + 1] == "[filmv]"
+
+
+def test_crossfade_requires_explicit_durations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(assembly_module, "file_hash", lambda _path: "0" * 64)
+
+    with pytest.raises(AssemblyError, match="requires explicit shot durations"):
+        assembly_module.assemble(
+            [tmp_path / "shot-a.mp4", tmp_path / "shot-b.mp4"],
+            tmp_path / "film.mp4",
+            crossfade=0.5,
+        )
+
+
+def test_crossfade_must_be_finite_and_shorter_than_every_edit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(assembly_module, "file_hash", lambda _path: "0" * 64)
+
+    with pytest.raises(AssemblyError, match="finite and non-negative"):
+        assembly_module.assemble(
+            [tmp_path / "shot-a.mp4", tmp_path / "shot-b.mp4"],
+            tmp_path / "film.mp4",
+            durations=[5.0, 5.0],
+            crossfade=float("nan"),
+        )
+
+    with pytest.raises(AssemblyError, match="shorter than every shot duration"):
+        assembly_module.assemble(
+            [tmp_path / "shot-a.mp4", tmp_path / "shot-b.mp4"],
+            tmp_path / "film.mp4",
+            durations=[0.5, 5.0],
+            crossfade=0.5,
+        )
