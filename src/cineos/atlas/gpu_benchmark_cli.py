@@ -112,6 +112,25 @@ def _production_reference_loader(
     try:
         loader = ProductionReferenceLoader(reference_manifest)
         loader.validate_reference_ids(requested_ids)
+        unique_requested_ids = tuple(dict.fromkeys(requested_ids))
+        ids_by_hash: dict[str, list[str]] = {}
+        for reference_id in unique_requested_ids:
+            digest = loader.reference_sha256(reference_id)
+            ids_by_hash.setdefault(digest, []).append(reference_id)
+        duplicate_content_groups = [
+            reference_ids
+            for reference_ids in ids_by_hash.values()
+            if len(reference_ids) > 1
+        ]
+        if duplicate_content_groups:
+            aliases = "; ".join(
+                ", ".join(reference_ids)
+                for reference_ids in duplicate_content_groups
+            )
+            raise ProductionReferenceError(
+                "production reference ids must resolve to distinct approved content; "
+                f"duplicate SHA-256 payloads: {aliases}"
+            )
     except ProductionReferenceError as exc:
         raise GPUProductionBenchmarkCLIError(str(exc)) from exc
     return loader
