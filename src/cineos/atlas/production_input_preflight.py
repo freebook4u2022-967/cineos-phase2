@@ -60,6 +60,28 @@ def preflight_production_inputs(
                 for reference_id in request.approved_reference_ids
             )
         )
+        reference_hashes = {
+            reference_id: loader.reference_sha256(reference_id)
+            for reference_id in requested_reference_ids
+        }
+        ids_by_hash: dict[str, list[str]] = {}
+        for reference_id, digest in reference_hashes.items():
+            ids_by_hash.setdefault(digest, []).append(reference_id)
+        duplicate_content_groups = [
+            reference_ids
+            for reference_ids in ids_by_hash.values()
+            if len(reference_ids) > 1
+        ]
+        if duplicate_content_groups:
+            aliases = "; ".join(
+                ", ".join(reference_ids)
+                for reference_ids in duplicate_content_groups
+            )
+            raise ProductionReferenceError(
+                "production reference ids must resolve to distinct approved content; "
+                f"duplicate SHA-256 payloads: {aliases}"
+            )
+
         # validate_reference_ids already verifies presence + SHA-256. Decode every
         # distinct asset too, so an approved-but-corrupt image fails before model IO.
         for reference_id in requested_reference_ids:
@@ -72,13 +94,14 @@ def preflight_production_inputs(
         raise ProductionInputPreflightError(str(exc)) from exc
 
     return {
-        "schema": "cineos-production-input-preflight/0.2",
+        "schema": "cineos-production-input-preflight/0.3",
         "shot_count": len(request_sequence),
         "request_bundle_sha256": _request_bundle_sha256(request_sequence),
         "request_content_hashes": [
             request.content_hash for request in request_sequence
         ],
         "reference_count": len(requested_reference_ids),
+        "distinct_reference_content_count": len(set(reference_hashes.values())),
         "reference_manifest_sha256": loader.manifest_sha256,
         "validated": True,
     }
