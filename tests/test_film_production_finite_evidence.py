@@ -19,7 +19,9 @@ def _video_probe(*, duration: float = 5.0) -> dict[str, object]:
     }
 
 
-def test_rejects_nonfinite_source_shot_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rejects_nonfinite_source_shot_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         production,
         "probe_media",
