@@ -222,11 +222,13 @@ def run_production_benchmark(
         )
     if not receipt.production_quality_evidence:
         raise GPUProductionBenchmarkCLIError(
-            "connected benchmark completed without artifact-bound production QC evidence"
+            "connected benchmark completed without artifact-bound production QC "
+            "evidence"
         )
     if receipt.evidence_tier != "production-gpu-quality-gated":
         raise GPUProductionBenchmarkCLIError(
-            "connected benchmark did not reach production-gpu-quality-gated evidence tier"
+            "connected benchmark did not reach production-gpu-quality-gated "
+            "evidence tier"
         )
     return receipt
 
