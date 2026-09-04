@@ -75,6 +75,23 @@ def _preflight_audio(
     }
 
 
+def _explicit_trim_filter(durations: list[float]) -> str:
+    """Build a decoded-frame trim/concat graph for an explicit production timeline."""
+    chains: list[str] = []
+    inputs: list[str] = []
+    for index, duration in enumerate(durations):
+        label = f"v{index}"
+        chains.append(
+            f"[{index}:v:0]trim=start=0:duration={duration:.6f},"
+            f"setpts=PTS-STARTPTS[{label}]"
+        )
+        inputs.append(f"[{label}]")
+    chains.append(
+        "".join(inputs) + f"concat=n={len(durations)}:v=1:a=0[filmv]"
+    )
+    return ";".join(chains)
+
+
 def assemble(
     shots: list[str | Path],
     output: str | Path,
@@ -86,13 +103,17 @@ def assemble(
     """Concatenate ordered shots and optionally mux an approved audio mix.
 
     The default remains video-only for backwards compatibility. When ``audio_path``
-    is supplied, the exact referenced audio artifact is preflighted and added as a
-    second FFmpeg input, then explicitly mapped as the final audio stream. Source-shot
-    audio can therefore never supersede the approved mix through FFmpeg's automatic
-    stream selection. When explicit edit durations are supplied, audio coverage is
-    verified before encoding so ``-shortest`` cannot silently truncate the requested
-    visual timeline. Production audio is normalized to the 48 kHz film/video delivery
-    rate so downstream evidence is deterministic across source mixes.
+    is supplied, the exact referenced audio artifact is preflighted and explicitly
+    mapped as the final audio stream. Source-shot audio can therefore never supersede
+    the approved mix through FFmpeg's automatic stream selection.
+
+    When explicit edit durations are supplied, every source becomes an independent
+    FFmpeg input and the decoded video is hard-trimmed with ``trim`` before concat.
+    This is intentionally stronger than concat-demuxer ``duration`` metadata, which
+    can alter timestamp planning without guaranteeing that overlong decoded frames are
+    excluded from each approved edit. Audio coverage is verified before encoding so
+    ``-shortest`` cannot silently truncate the requested visual timeline. Production
+    audio is normalized to the 48 kHz film/video delivery rate.
     """
     if not shots:
         raise AssemblyError("cannot assemble an empty timeline")
@@ -101,6 +122,8 @@ def assemble(
         file_hash(source)
     if durations is not None and len(durations) != len(sources):
         raise AssemblyError("duration count does not match shot count")
+    if durations is not None and any(float(value) <= 0 for value in durations):
+        raise AssemblyError("shot durations must all be positive")
     if crossfade < 0:
         raise AssemblyError("crossfade must not be negative")
 
@@ -115,39 +138,56 @@ def assemble(
 
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    manifest = destination.with_suffix(".concat.txt")
-    lines: list[str] = []
-    for index, source in enumerate(sources):
-        escaped = str(source).replace("'", "'\\''")
-        lines.append(f"file '{escaped}'")
-        if durations:
-            lines.append(f"duration {durations[index]:.6f}")
-    manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    command = [
-        _ffmpeg(),
-        "-nostdin",
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(manifest),
-    ]
-    if audio_source is not None:
+    command = [_ffmpeg(), "-nostdin", "-y"]
+    if durations is not None:
+        normalized_durations = [float(value) for value in durations]
+        for source in sources:
+            command.extend(["-i", str(source)])
+        if audio_source is not None:
+            command.extend(["-i", str(audio_source)])
         command.extend(
             [
-                "-i",
-                str(audio_source),
+                "-filter_complex",
+                _explicit_trim_filter(normalized_durations),
                 "-map",
-                "0:v:0",
-                "-map",
-                "1:a:0",
+                "[filmv]",
             ]
         )
+        if audio_source is not None:
+            command.extend(["-map", f"{len(sources)}:a:0"])
+        else:
+            command.append("-an")
     else:
-        command.append("-an")
+        manifest = destination.with_suffix(".concat.txt")
+        lines: list[str] = []
+        for source in sources:
+            escaped = str(source).replace("'", "'\\''")
+            lines.append(f"file '{escaped}'")
+        manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        command.extend(
+            [
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(manifest),
+            ]
+        )
+        if audio_source is not None:
+            command.extend(
+                [
+                    "-i",
+                    str(audio_source),
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "1:a:0",
+                ]
+            )
+        else:
+            command.append("-an")
 
     command.extend(
         [
