@@ -74,9 +74,10 @@ class ProductionReferenceLoader:
             raise ProductionReferenceError(
                 "approved reference manifest must be an object"
             )
-        if payload.get("schema") != REFERENCE_MANIFEST_SCHEMA:
+        schema = payload.get("schema")
+        if schema != REFERENCE_MANIFEST_SCHEMA:
             raise ProductionReferenceError(
-                f"unsupported approved reference manifest schema: {payload.get('schema')!r}"
+                "unsupported approved reference manifest schema: " f"{schema!r}"
             )
         raw_references = payload.get("references")
         if not isinstance(raw_references, Sequence) or isinstance(
@@ -117,7 +118,8 @@ class ProductionReferenceLoader:
                 )
             ):
                 raise ProductionReferenceError(
-                    f"approved reference {reference_id!r} requires a 64-character SHA-256"
+                    f"approved reference {reference_id!r} requires a "
+                    "64-character SHA-256"
                 )
             path = Path(raw_path)
             if not path.is_absolute():
@@ -141,7 +143,8 @@ class ProductionReferenceLoader:
             return self._references[reference_id][1]
         except KeyError as exc:
             raise ProductionReferenceError(
-                f"reference_id is not approved by the production manifest: {reference_id!r}"
+                "reference_id is not approved by the production manifest: "
+                f"{reference_id!r}"
             ) from exc
 
     def _validated_reference_path(self, reference_id: str) -> Path:
@@ -149,7 +152,8 @@ class ProductionReferenceLoader:
             path, expected_sha256 = self._references[reference_id]
         except KeyError as exc:
             raise ProductionReferenceError(
-                f"reference_id is not approved by the production manifest: {reference_id!r}"
+                "reference_id is not approved by the production manifest: "
+                f"{reference_id!r}"
             ) from exc
         if not path.is_file():
             raise ProductionReferenceError(
