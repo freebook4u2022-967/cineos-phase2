@@ -13,6 +13,15 @@ def test_approved_audio_is_explicitly_mapped_over_source_audio(tmp_path, monkeyp
     captured: list[str] = []
 
     monkeypatch.setattr(assembly, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        assembly,
+        "probe_media",
+        lambda _path: {
+            "audio_stream_count": 1,
+            "audio_streams": [{"duration_seconds": 1.0}],
+            "duration_seconds": 1.0,
+        },
+    )
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
