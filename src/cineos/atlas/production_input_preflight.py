@@ -41,6 +41,28 @@ def _request_bundle_sha256(requests: Sequence[NativeShotRequest]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _reject_aliased_reference_content(reference_hashes: dict[str, str]) -> None:
+    """Reject distinct approved IDs that resolve to identical identity content.
+
+    A production multi-reference run must not be able to claim multiple approved
+    identities by assigning different reference IDs to the same underlying asset.
+    This check intentionally happens before image decode or heavyweight model IO.
+    """
+
+    ids_by_hash: dict[str, list[str]] = {}
+    for reference_id, digest in reference_hashes.items():
+        ids_by_hash.setdefault(digest, []).append(reference_id)
+    aliases = [ids for ids in ids_by_hash.values() if len(ids) > 1]
+    if not aliases:
+        return
+
+    alias_text = "; ".join(", ".join(sorted(ids)) for ids in aliases)
+    raise ProductionInputPreflightError(
+        "production reference IDs must resolve to distinct approved content; "
+        f"duplicate-content aliases: {alias_text}"
+    )
+
+
 def preflight_production_inputs(
     requests: Sequence[NativeShotRequest],
     reference_manifest: str | Path,
@@ -64,6 +86,7 @@ def preflight_production_inputs(
             reference_id: loader.reference_sha256(reference_id)
             for reference_id in requested_reference_ids
         }
+        _reject_aliased_reference_content(reference_hashes)
 
         # validate_reference_ids already verifies presence + SHA-256. Decode every
         # distinct asset too, so an approved-but-corrupt image fails before model IO.
