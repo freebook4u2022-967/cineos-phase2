@@ -123,7 +123,10 @@ def test_crossfade_builds_decoded_frame_transitions_and_shortens_audio_timeline(
 
     graph = captured[captured.index("-filter_complex") + 1]
     assert "xfade=transition=fade:duration=0.500000:offset=4.500000[xf1]" in graph
-    assert "[xf1][v2]xfade=transition=fade:duration=0.500000:offset=9.000000[filmv]" in graph
+    assert (
+        "[xf1][v2]xfade=transition=fade:duration=0.500000:offset=9.000000[filmv]"
+        in graph
+    )
     assert captured[captured.index("-t") + 1] == "14.000000"
     assert captured[captured.index("-map") + 1] == "[filmv]"
 
