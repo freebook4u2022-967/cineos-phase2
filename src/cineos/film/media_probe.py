@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import subprocess
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +39,7 @@ def _positive_float(value: Any) -> float | None:
         parsed = float(value)
     except (TypeError, ValueError):
         return None
-    return parsed if parsed > 0 else None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 
 def _positive_int(value: Any) -> int | None:
@@ -46,6 +48,42 @@ def _positive_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _positive_frame_rate(value: Any) -> float | None:
+    raw = str(value or "").strip()
+    if not raw or raw.upper() == "N/A" or raw == "0/0":
+        return None
+    try:
+        parsed = float(Fraction(raw))
+    except (ValueError, ZeroDivisionError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
+
+
+def _validate_video_frame_evidence(stream: dict[str, Any]) -> None:
+    """Reject decoded-frame counts that contradict the stream's own timeline.
+
+    ``nb_read_frames`` comes from decoding while ``avg_frame_rate`` and stream duration
+    describe the same video timeline. A gross disagreement between those independent
+    FFprobe observations is stronger evidence of corruption, sparse-frame output, or
+    unreliable probe metadata than a merely positive frame count. Small differences are
+    tolerated for timestamp and duration rounding, including ordinary VFR material.
+    """
+    frame_count = _positive_int(stream.get("nb_read_frames"))
+    frame_rate = _positive_frame_rate(stream.get("avg_frame_rate"))
+    duration = _positive_float(stream.get("duration"))
+    if frame_count is None or frame_rate is None or duration is None:
+        return
+
+    expected = duration * frame_rate
+    tolerance = max(2.0, math.ceil(expected * 0.02))
+    if abs(frame_count - expected) > tolerance:
+        raise MediaProbeError(
+            "decoded video frame count conflicts with the stream timeline: "
+            f"count={frame_count}, duration={duration:.6f}s, "
+            f"avg_frame_rate={frame_rate:.6f}fps, expected≈{expected:.2f}"
+        )
 
 
 def _duration(payload: dict[str, Any]) -> float:
@@ -104,6 +142,8 @@ def probe_media(path: str | Path) -> dict[str, Any]:
         raise MediaProbeError("FFprobe response is missing stream metadata")
     video = [item for item in streams if item.get("codec_type") == "video"]
     audio = [item for item in streams if item.get("codec_type") == "audio"]
+    for stream in video:
+        _validate_video_frame_evidence(stream)
     return {
         "duration_seconds": _duration(payload),
         "format_name": str((payload.get("format") or {}).get("format_name") or ""),
