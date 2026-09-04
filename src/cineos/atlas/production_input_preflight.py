@@ -45,7 +45,7 @@ def preflight_production_inputs(
     requests: Sequence[NativeShotRequest],
     reference_manifest: str | Path,
 ) -> dict[str, object]:
-    """Validate the complete connected request/reference boundary without model loads."""
+    """Validate connected production inputs without loading models."""
 
     request_sequence = tuple(requests)
     try:
