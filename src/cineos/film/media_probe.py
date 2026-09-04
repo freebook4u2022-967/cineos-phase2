@@ -65,7 +65,13 @@ def _duration(payload: dict[str, Any]) -> float:
 
 
 def probe_media(path: str | Path) -> dict[str, Any]:
-    """Return normalized stream evidence for an encoded media artifact."""
+    """Return normalized stream evidence for an encoded media artifact.
+
+    Production inspection asks FFprobe to decode/count video frames rather than trusting
+    container timestamps alone. The resulting frame counts let higher-level film gates
+    detect dropped/duplicated-frame or retiming drift that can otherwise hide behind a
+    plausible duration and average frame rate.
+    """
     source = Path(path).resolve()
     if not source.is_file() or source.stat().st_size == 0:
         raise MediaProbeError(f"missing or empty media artifact: {source}")
@@ -74,11 +80,12 @@ def probe_media(path: str | Path) -> dict[str, Any]:
         _ffprobe(),
         "-v",
         "error",
+        "-count_frames",
         "-show_entries",
         (
             "format=duration,format_name:"
             "stream=index,codec_type,codec_name,duration,width,height,avg_frame_rate,"
-            "sample_rate,channels"
+            "nb_read_frames,sample_rate,channels"
         ),
         "-of",
         "json",
@@ -109,6 +116,9 @@ def probe_media(path: str | Path) -> dict[str, Any]:
         ],
         "video_frame_rates": [
             str(item.get("avg_frame_rate") or "").strip() for item in video
+        ],
+        "video_frame_counts": [
+            _positive_int(item.get("nb_read_frames")) for item in video
         ],
         "audio_streams": [
             {
