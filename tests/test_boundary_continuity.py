@@ -42,6 +42,10 @@ def test_measures_declared_continuous_boundary_at_approved_edit_endpoint(
     assert boundary["timing_source"] == "approved-edit-endpoint"
     assert samples == [("shot-0.mp4", 0.95), ("shot-1.mp4", 0.0)]
     assert len(boundary["from_frame_sha256"]) == 64
+    assert len(boundary["from_artifact_sha256"]) == 64
+    assert boundary["from_artifact_sha256"] == evidence["shot_artifacts"][0]["sha256"]
+    assert boundary["to_artifact_sha256"] == evidence["shot_artifacts"][1]["sha256"]
+    assert evidence["schema"] == "cineos-boundary-continuity-evidence/0.2"
     assert evidence["limitations"].startswith("not semantic identity")
 
 
@@ -84,6 +88,38 @@ def test_intentional_cuts_are_explicitly_recorded_not_mislabeled_as_continuity(
         item["reason"] == "intentional-cut-explicitly-declared"
         for item in evidence["boundaries"]
     )
+    assert len(evidence["shot_artifacts"]) == len(movies)
+    assert all(len(item["sha256"]) == 64 for item in evidence["shot_artifacts"])
+
+
+def test_cut_only_evidence_still_requires_every_exact_shot_artifact(tmp_path, monkeypatch):
+    movies = _movies(tmp_path)
+    movies[2].unlink()
+    monkeypatch.setattr(
+        "cineos.film.boundary_continuity._decode_luma_frame",
+        lambda *_args, **_kwargs: pytest.fail("cuts must not trigger frame decode"),
+    )
+
+    with pytest.raises(AssemblyError, match="missing or empty continuity artifact"):
+        measure_connected_boundaries(
+            movies,
+            transitions=["cut", "cut", "cut", "cut"],
+        )
+
+
+def test_cut_only_evidence_rejects_empty_shot_artifact(tmp_path, monkeypatch):
+    movies = _movies(tmp_path)
+    movies[3].write_bytes(b"")
+    monkeypatch.setattr(
+        "cineos.film.boundary_continuity._decode_luma_frame",
+        lambda *_args, **_kwargs: pytest.fail("cuts must not trigger frame decode"),
+    )
+
+    with pytest.raises(AssemblyError, match="missing or empty continuity artifact"):
+        measure_connected_boundaries(
+            movies,
+            transitions=["cut", "cut", "cut", "cut"],
+        )
 
 
 def test_rejects_undeclared_or_unsupported_transition_modes(tmp_path):
