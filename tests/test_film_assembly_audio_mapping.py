@@ -128,4 +128,6 @@ def test_explicit_durations_map_approved_audio_after_all_shot_inputs(
     map_positions = [index for index, value in enumerate(captured) if value == "-map"]
     assert captured[map_positions[0] : map_positions[0] + 2] == ["-map", "[filmv]"]
     assert captured[map_positions[1] : map_positions[1] + 2] == ["-map", "2:a:0"]
-    assert "-shortest" in captured
+    assert "-shortest" not in captured
+    assert captured[captured.index("-af") + 1] == "apad"
+    assert captured[captured.index("-t") + 1] == "3.000000"
