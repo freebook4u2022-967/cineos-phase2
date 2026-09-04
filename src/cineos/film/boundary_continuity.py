@@ -105,7 +105,9 @@ def measure_connected_boundaries(
     if not 2 <= len(paths) <= 10:
         raise AssemblyError("boundary continuity measurement requires 2 to 10 shots")
     if len(transitions) != len(paths) - 1:
-        raise AssemblyError("transition count must equal connected shot count minus one")
+        raise AssemblyError(
+            "transition count must equal connected shot count minus one"
+        )
     if durations is not None and len(durations) != len(paths):
         raise AssemblyError("duration count does not match continuity shot count")
     if not 0.0 <= float(minimum_similarity) <= 1.0:
