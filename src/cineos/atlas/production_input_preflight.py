@@ -75,7 +75,9 @@ def preflight_production_inputs(
         "schema": "cineos-production-input-preflight/0.2",
         "shot_count": len(request_sequence),
         "request_bundle_sha256": _request_bundle_sha256(request_sequence),
-        "request_content_hashes": [request.content_hash for request in request_sequence],
+        "request_content_hashes": [
+            request.content_hash for request in request_sequence
+        ],
         "reference_count": len(requested_reference_ids),
         "reference_manifest_sha256": loader.manifest_sha256,
         "validated": True,
