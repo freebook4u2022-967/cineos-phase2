@@ -160,6 +160,7 @@ def test_allows_equivalent_rational_frame_rates(tmp_path, monkeypatch):
         "expected_height": 720,
         "expected_frame_rate": "24/1",
         "expected_decoded_frame_count": 240,
+        "expected_decoded_frame_count_mode": "legacy-duration-rate",
         "decoded_frame_count_tolerance": 1,
     }
 
