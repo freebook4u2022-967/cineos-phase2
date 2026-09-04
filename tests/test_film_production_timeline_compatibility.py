@@ -142,6 +142,54 @@ def test_allows_equivalent_rational_frame_rates(tmp_path, monkeypatch):
     compatibility = manifest["timeline"]["compatibility"]
     assert compatibility["frame_rate"] == "24/1"
     assert all(shot["media"]["frame_rate"] == "24/1" for shot in manifest["shots"])
+    assert manifest["final_media"]["production_video_timeline"] == {
+        "width": 1280,
+        "height": 720,
+        "frame_rate": "24/1",
+        "expected_width": 1280,
+        "expected_height": 720,
+        "expected_frame_rate": "24/1",
+    }
+
+
+def test_rejects_final_geometry_drift_after_assembly(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    output = tmp_path / "final.mp4"
+
+    def fake_probe(path):
+        if Path(path).name == "final.mp4":
+            return _media(width=1920, height=1080, duration=10.0, frame_rate="24/1")
+        return _media(duration=2.0, frame_rate="24/1")
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.probe_media", fake_probe)
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+
+    with pytest.raises(AssemblyError, match="dimensions do not match"):
+        assemble_production_film(records, output)
+
+
+def test_rejects_final_frame_rate_drift_after_assembly(tmp_path, monkeypatch):
+    records = _records(tmp_path)
+    output = tmp_path / "final.mp4"
+
+    def fake_probe(path):
+        if Path(path).name == "final.mp4":
+            return _media(duration=10.0, frame_rate="30/1")
+        return _media(duration=2.0, frame_rate="24/1")
+
+    def fake_assemble(_shots, destination, **_kwargs):
+        Path(destination).write_bytes(b"film")
+        return Path(destination)
+
+    monkeypatch.setattr("cineos.film.production_assembly.probe_media", fake_probe)
+    monkeypatch.setattr("cineos.film.production_assembly.assemble", fake_assemble)
+
+    with pytest.raises(AssemblyError, match="average frame rate does not match"):
+        assemble_production_film(records, output)
 
 
 def test_allows_small_probe_rounding_tolerance(tmp_path, monkeypatch):
