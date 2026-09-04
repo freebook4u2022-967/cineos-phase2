@@ -14,10 +14,11 @@ from .exceptions import AssemblyError
 from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
-PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.8"
+PRODUCTION_EVIDENCE_SCHEMA = "cineos-production-film-evidence/0.9"
 PRODUCTION_AUDIO_SAMPLE_RATE_HZ = 48_000
 MAX_AUDIO_DURATION_DELTA_SECONDS = 0.75
 MAX_EDIT_DURATION_OVERRUN_SECONDS = 0.05
+MAX_FINAL_FRAME_COUNT_DELTA = 1
 MIN_AUDIO_MEAN_VOLUME_DB = -80.0
 MIN_AUDIO_MAX_VOLUME_DB = -60.0
 
@@ -341,6 +342,8 @@ def _validate_final_media(
         )
 
     final_frame_rate: str | None = None
+    final_frame_count: int | None = None
+    expected_frame_count: int | None = None
     if expected_frame_rate is not None:
         frame_rates = media.get("video_frame_rates") or []
         if len(frame_rates) != 1:
@@ -358,13 +361,47 @@ def _validate_final_media(
                 f"connected timeline ({final_frame_rate} vs {expected_frame_rate})"
             )
 
+        if expected_duration is not None:
+            frame_counts = media.get("video_frame_counts") or []
+            if len(frame_counts) != 1:
+                raise AssemblyError(
+                    "production final MP4 is missing decoded frame-count evidence"
+                )
+            try:
+                final_frame_count = int(frame_counts[0])
+            except (TypeError, ValueError):
+                final_frame_count = 0
+            if final_frame_count <= 0:
+                raise AssemblyError(
+                    "production final MP4 has invalid decoded frame-count evidence"
+                )
+
+            expected_frames = Fraction(str(expected_duration)) * Fraction(
+                expected_frame_rate
+            )
+            expected_frame_count = int(expected_frames + Fraction(1, 2))
+            if expected_frame_count <= 0:
+                raise AssemblyError(
+                    "approved production timeline implies no positive decoded frame count"
+                )
+            delta = abs(final_frame_count - expected_frame_count)
+            if delta > MAX_FINAL_FRAME_COUNT_DELTA:
+                raise AssemblyError(
+                    "production final MP4 decoded frame count does not match the approved "
+                    f"connected timeline ({final_frame_count} vs {expected_frame_count}; "
+                    f"tolerance {MAX_FINAL_FRAME_COUNT_DELTA} frame)"
+                )
+
     media["production_video_timeline"] = {
         "width": width,
         "height": height,
         "frame_rate": final_frame_rate,
+        "decoded_frame_count": final_frame_count,
         "expected_width": expected_width,
         "expected_height": expected_height,
         "expected_frame_rate": expected_frame_rate,
+        "expected_decoded_frame_count": expected_frame_count,
+        "decoded_frame_count_tolerance": MAX_FINAL_FRAME_COUNT_DELTA,
     }
 
     audio_count = int(media.get("audio_stream_count") or 0)
@@ -424,12 +461,14 @@ def assemble_production_film(
     explicitly maps that mix. A connected production film must contain distinct rendered
     artifacts backed by distinct QC evidence, so one successful render cannot be relabeled
     to satisfy the 5-10-shot release gate. The final MP4 must preserve the approved frame
-    geometry and, when source frame-rate evidence exists, the exact normalized average
-    frame rate. Its duration is bound to either explicit edit durations or independently
-    probed source-shot timing. When audio is required, the encoded AAC stream must have
-    production sample rate, timeline coverage, and measurable decoded signal. Signal
-    presence is an integrity check only; it is not evidence of dialogue intelligibility,
-    semantic correctness, or lip synchronization.
+    geometry, normalized average frame rate, and decoded frame count within one frame of
+    the approved timeline. Source-shot decoded frame counts remain observational rather
+    than CFR assumptions so legitimate VFR input remains compatible. Its duration is bound
+    to either explicit edit durations or independently probed source-shot timing. When
+    audio is required, the encoded AAC stream must have production sample rate, timeline
+    coverage, and measurable decoded signal. Signal presence is an integrity check only;
+    it is not evidence of dialogue intelligibility, semantic correctness, or lip
+    synchronization.
     """
     if not 5 <= len(shot_evidence) <= 10:
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
@@ -497,7 +536,8 @@ def assemble_production_film(
         timeline_source = "explicit-edit-durations"
     else:
         expected_duration = sum(
-            float(shot_media[shot_id]["duration_seconds"]) for shot_id, _, _, _ in bound
+            float(shot_media[shot_id]["duration_seconds"])
+            for shot_id, _, _, _ in bound
         )
         timeline_source = "probed-source-shots"
     final_media = _validate_final_media(
