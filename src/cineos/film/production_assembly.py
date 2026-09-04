@@ -210,7 +210,7 @@ def _validate_connected_shot_compatibility(
         edit_durations = [
             _require_finite_positive(
                 value,
-                message="production shot durations must all be finite and positive",
+                message="production shot durations must all be positive finite numbers",
             )
             for value in durations
         ]
@@ -608,7 +608,7 @@ def assemble_production_film(
         durations = [
             _require_finite_positive(
                 value,
-                message="production shot durations must all be finite and positive",
+                message="production shot durations must all be positive finite numbers",
             )
             for value in durations
         ]
