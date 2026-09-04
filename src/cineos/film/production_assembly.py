@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping, Sequence
 from fractions import Fraction
 from pathlib import Path
@@ -28,6 +29,23 @@ def _canonical_hash(value: Mapping[str, Any]) -> str:
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _require_finite_number(value: Any, *, message: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise AssemblyError(message) from exc
+    if not math.isfinite(number):
+        raise AssemblyError(message)
+    return number
+
+
+def _require_finite_positive(value: Any, *, message: str) -> float:
+    number = _require_finite_number(value, message=message)
+    if number <= 0:
+        raise AssemblyError(message)
+    return number
 
 
 def _normalize_frame_rate(value: Any) -> str | None:
@@ -114,18 +132,18 @@ def _validate_bound_shot_media(shot_id: str, movie: Path) -> dict[str, Any]:
     try:
         width = int(dimensions[0].get("width") or 0)
         height = int(dimensions[0].get("height") or 0)
-        duration = float(media.get("duration_seconds") or 0.0)
         audio_stream_count = int(media.get("audio_stream_count") or 0)
     except (TypeError, ValueError):
         width = height = 0
-        duration = 0.0
         audio_stream_count = 0
     if width <= 0 or height <= 0 or width % 2 or height % 2:
         raise AssemblyError(
             f"production shot {shot_id} has invalid H.264/yuv420p video dimensions"
         )
-    if duration <= 0:
-        raise AssemblyError(f"production shot {shot_id} has no positive duration")
+    duration = _require_finite_positive(
+        media.get("duration_seconds"),
+        message=f"production shot {shot_id} has no finite positive duration",
+    )
 
     frame_rate: str | None = None
     if "video_frame_rates" in media:
@@ -189,7 +207,13 @@ def _validate_connected_shot_compatibility(
 
     edit_durations: list[float] | None = None
     if durations is not None:
-        edit_durations = [float(value) for value in durations]
+        edit_durations = [
+            _require_finite_positive(
+                value,
+                message="production shot durations must all be finite and positive",
+            )
+            for value in durations
+        ]
 
     for index, (shot_id, _, _, _) in enumerate(bound):
         media = shot_media[shot_id]
@@ -217,7 +241,13 @@ def _validate_connected_shot_compatibility(
 
         if edit_durations is not None:
             requested = edit_durations[index]
-            available = float(media["duration_seconds"])
+            available = _require_finite_positive(
+                media["duration_seconds"],
+                message=(
+                    f"production shot {shot_id} has no finite positive approved source "
+                    "duration"
+                ),
+            )
             tolerance = max(
                 MAX_EDIT_DURATION_OVERRUN_SECONDS,
                 available * 0.01,
@@ -299,10 +329,8 @@ def _validate_audio_stream(
     try:
         sample_rate = int(stream.get("sample_rate_hz") or 0)
         channels = int(stream.get("channels") or 0)
-        duration = float(stream.get("duration_seconds") or 0.0)
     except (TypeError, ValueError):
         sample_rate = channels = 0
-        duration = 0.0
 
     if sample_rate != PRODUCTION_AUDIO_SAMPLE_RATE_HZ:
         raise AssemblyError(
@@ -313,13 +341,19 @@ def _validate_audio_stream(
         raise AssemblyError(
             "production final MP4 audio must have a valid channel count"
         )
-    if duration <= 0:
-        raise AssemblyError(
-            "production final MP4 audio must expose a positive stream duration"
-        )
+    duration = _require_finite_positive(
+        stream.get("duration_seconds"),
+        message=(
+            "production final MP4 audio must expose a finite positive stream duration"
+        ),
+    )
 
     duration_delta: float | None = None
     if expected_duration is not None:
+        expected_duration = _require_finite_positive(
+            expected_duration,
+            message="approved visual timeline must expose a finite positive duration",
+        )
         duration_delta = abs(duration - expected_duration)
         tolerance = max(
             MAX_AUDIO_DURATION_DELTA_SECONDS,
@@ -349,8 +383,14 @@ def _validate_audio_signal(movie: Path) -> dict[str, float]:
             f"production final audio signal validation failed: {exc}"
         ) from exc
 
-    mean_volume = float(signal.get("mean_volume_db", -120.0))
-    max_volume = float(signal.get("max_volume_db", -120.0))
+    mean_volume = _require_finite_number(
+        signal.get("mean_volume_db", -120.0),
+        message="production final audio mean-volume evidence must be finite",
+    )
+    max_volume = _require_finite_number(
+        signal.get("max_volume_db", -120.0),
+        message="production final audio max-volume evidence must be finite",
+    )
     if mean_volume < MIN_AUDIO_MEAN_VOLUME_DB or max_volume < MIN_AUDIO_MAX_VOLUME_DB:
         raise AssemblyError(
             "production final audio is effectively silent or below the minimum "
@@ -440,6 +480,10 @@ def _validate_final_media(
             )
 
         if effective_expected_frame_count is None and expected_duration is not None:
+            expected_duration = _require_finite_positive(
+                expected_duration,
+                message="approved visual timeline must expose a finite positive duration",
+            )
             expected_frames = Fraction(str(expected_duration)) * Fraction(
                 expected_frame_rate
             )
@@ -509,10 +553,15 @@ def _validate_final_media(
             "was supplied"
         )
 
-    duration = float(media.get("duration_seconds") or 0.0)
-    if duration <= 0:
-        raise AssemblyError("production final MP4 has no positive duration")
+    duration = _require_finite_positive(
+        media.get("duration_seconds"),
+        message="production final MP4 has no finite positive duration",
+    )
     if expected_duration is not None:
+        expected_duration = _require_finite_positive(
+            expected_duration,
+            message="approved visual timeline must expose a finite positive duration",
+        )
         tolerance = max(0.5, expected_duration * 0.02)
         if abs(duration - expected_duration) > tolerance:
             raise AssemblyError(
@@ -555,8 +604,14 @@ def assemble_production_film(
         raise AssemblyError("production connected-film assembly requires 5 to 10 shots")
     if durations is not None and len(durations) != len(shot_evidence):
         raise AssemblyError("duration count does not match production shot count")
-    if durations is not None and any(float(value) <= 0 for value in durations):
-        raise AssemblyError("production shot durations must all be positive")
+    if durations is not None:
+        durations = [
+            _require_finite_positive(
+                value,
+                message="production shot durations must all be finite and positive",
+            )
+            for value in durations
+        ]
 
     bound: list[tuple[str, Path, str, str]] = []
     seen_ids: set[str] = set()
@@ -619,11 +674,18 @@ def assemble_production_film(
         audio_path=audio_source,
     )
     if durations is not None:
-        expected_duration = sum(float(value) for value in durations)
+        expected_duration = sum(durations)
         timeline_source = "explicit-edit-durations"
     else:
         expected_duration = sum(
-            float(shot_media[shot_id]["duration_seconds"]) for shot_id, _, _, _ in bound
+            _require_finite_positive(
+                shot_media[shot_id]["duration_seconds"],
+                message=(
+                    f"production shot {shot_id} has no finite positive approved source "
+                    "duration"
+                ),
+            )
+            for shot_id, _, _, _ in bound
         )
         timeline_source = "probed-source-shots"
     final_media = _validate_final_media(
