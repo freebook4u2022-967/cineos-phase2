@@ -7,10 +7,7 @@ from cineos.film.exceptions import AssemblyError
 
 
 def _audio_media(*, stream_count=1, duration=10.0):
-    streams = [
-        {"duration_seconds": duration}
-        for _ in range(stream_count)
-    ]
+    streams = [{"duration_seconds": duration} for _ in range(stream_count)]
     return {
         "audio_stream_count": stream_count,
         "audio_streams": streams,
@@ -47,7 +44,9 @@ def test_preflight_rejects_audio_that_cannot_cover_explicit_timeline(monkeypatch
         lambda _path: _audio_media(duration=8.0),
     )
 
-    with pytest.raises(AssemblyError, match="cannot cover the requested visual timeline"):
+    with pytest.raises(
+        AssemblyError, match="cannot cover the requested visual timeline"
+    ):
         assembly._preflight_audio(Path("approved.wav"), expected_duration=10.0)
 
 
