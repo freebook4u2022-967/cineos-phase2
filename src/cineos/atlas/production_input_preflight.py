@@ -9,6 +9,7 @@ identity assets cannot consume scarce model-download/load time.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from collections.abc import Sequence
 from pathlib import Path
@@ -26,6 +27,18 @@ from .production_references import ProductionReferenceError
 
 class ProductionInputPreflightError(RuntimeError):
     """Raised when connected-production inputs cannot produce trustworthy evidence."""
+
+
+def _request_bundle_sha256(requests: Sequence[NativeShotRequest]) -> str:
+    """Hash the exact ordered request bundle accepted by production preflight."""
+
+    payload = json.dumps(
+        [request.to_dict() for request in requests],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def preflight_production_inputs(
@@ -59,8 +72,10 @@ def preflight_production_inputs(
         raise ProductionInputPreflightError(str(exc)) from exc
 
     return {
-        "schema": "cineos-production-input-preflight/0.1",
+        "schema": "cineos-production-input-preflight/0.2",
         "shot_count": len(request_sequence),
+        "request_bundle_sha256": _request_bundle_sha256(request_sequence),
+        "request_content_hashes": [request.content_hash for request in request_sequence],
         "reference_count": len(requested_reference_ids),
         "reference_manifest_sha256": loader.manifest_sha256,
         "validated": True,
