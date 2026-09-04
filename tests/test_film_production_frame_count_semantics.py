@@ -8,7 +8,12 @@ from cineos.film.production_assembly import _expected_timeline_frame_count
 
 def _bound(count: int = 5):
     return [
-        (f"shot-{index}", Path(f"shot-{index}.mp4"), f"output-{index}", f"evidence-{index}")
+        (
+            f"shot-{index}",
+            Path(f"shot-{index}.mp4"),
+            f"output-{index}",
+            f"evidence-{index}",
+        )
         for index in range(count)
     ]
 
