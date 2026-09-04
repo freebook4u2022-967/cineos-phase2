@@ -41,7 +41,7 @@ def test_rejects_nonfinite_requested_duration_before_artifact_io(
         lambda *_args, **_kwargs: pytest.fail("assembly must not run"),
     )
 
-    with pytest.raises(AssemblyError, match="finite and positive"):
+    with pytest.raises(AssemblyError, match="durations must all be positive"):
         production.assemble_production_film(
             [{} for _ in range(5)],
             "unused.mp4",
