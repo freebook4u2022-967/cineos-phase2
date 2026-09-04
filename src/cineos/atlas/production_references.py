@@ -134,6 +134,16 @@ class ProductionReferenceLoader:
     def reference_ids(self) -> tuple[str, ...]:
         return tuple(self._references)
 
+    def reference_sha256(self, reference_id: str) -> str:
+        """Return the immutable approved digest for one manifest reference id."""
+
+        try:
+            return self._references[reference_id][1]
+        except KeyError as exc:
+            raise ProductionReferenceError(
+                f"reference_id is not approved by the production manifest: {reference_id!r}"
+            ) from exc
+
     def _validated_reference_path(self, reference_id: str) -> Path:
         try:
             path, expected_sha256 = self._references[reference_id]
