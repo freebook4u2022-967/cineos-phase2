@@ -14,7 +14,12 @@ from cineos.atlas.production_input_preflight import (
 from cineos.atlas.production_references import ProductionReferenceLoader
 
 
-def _requests(count: int = 5, *, seed_offset: int = 0) -> tuple[NativeShotRequest, ...]:
+def _requests(
+    count: int = 5,
+    *,
+    seed_offset: int = 0,
+    approved_reference_ids: tuple[str, ...] = ("hero-front",),
+) -> tuple[NativeShotRequest, ...]:
     requests: list[NativeShotRequest] = []
     for index in range(count):
         shot_id = f"shot-{index + 1}"
@@ -29,7 +34,7 @@ def _requests(count: int = 5, *, seed_offset: int = 0) -> tuple[NativeShotReques
             props=[],
             continuity={"previous_shot": previous},
             performance={},
-            approved_reference_ids=["hero-front"],
+            approved_reference_ids=list(approved_reference_ids),
             deterministic_seed=100 + index + seed_offset,
             renderer_requirements={},
         )
@@ -71,6 +76,34 @@ def _manifest(tmp_path: Path, *, approved_hash: str | None = None) -> Path:
     return manifest
 
 
+def _aliased_manifest(tmp_path: Path) -> Path:
+    asset = tmp_path / "hero.ref"
+    asset.write_bytes(b"approved-identity-payload")
+    digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+    manifest = tmp_path / "references.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "cineos-approved-reference-manifest/0.1",
+                "references": [
+                    {
+                        "reference_id": "hero-front",
+                        "path": asset.name,
+                        "sha256": digest,
+                    },
+                    {
+                        "reference_id": "hero-alias",
+                        "path": asset.name,
+                        "sha256": digest,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def test_preflight_validates_connected_graph_and_reference_before_model_io(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -84,13 +117,14 @@ def test_preflight_validates_connected_graph_and_reference_before_model_io(
     requests = _requests()
     result = preflight_production_inputs(requests, _manifest(tmp_path))
 
-    assert result["schema"] == "cineos-production-input-preflight/0.2"
+    assert result["schema"] == "cineos-production-input-preflight/0.3"
     assert result["shot_count"] == 5
     assert result["request_bundle_sha256"] == _bundle_sha256(requests)
     assert result["request_content_hashes"] == [
         request.content_hash for request in requests
     ]
     assert result["reference_count"] == 1
+    assert result["distinct_reference_content_count"] == 1
     assert result["validated"] is True
     assert decoded == ["hero-front"]
 
@@ -113,6 +147,27 @@ def test_preflight_receipt_changes_when_valid_request_bundle_changes(
     assert original["reference_manifest_sha256"] == changed["reference_manifest_sha256"]
     assert original["request_bundle_sha256"] != changed["request_bundle_sha256"]
     assert original["request_content_hashes"] != changed["request_content_hashes"]
+
+
+def test_preflight_rejects_aliased_reference_ids_before_reference_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    decoded = False
+
+    def unexpected_decode(self: ProductionReferenceLoader, reference_id: str) -> object:
+        nonlocal decoded
+        decoded = True
+        return object()
+
+    monkeypatch.setattr(ProductionReferenceLoader, "__call__", unexpected_decode)
+    requests = _requests(approved_reference_ids=("hero-front", "hero-alias"))
+
+    with pytest.raises(
+        ProductionInputPreflightError,
+        match="must resolve to distinct approved content",
+    ):
+        preflight_production_inputs(requests, _aliased_manifest(tmp_path))
+    assert decoded is False
 
 
 def test_preflight_rejects_non_production_shot_count_before_reference_decode(
