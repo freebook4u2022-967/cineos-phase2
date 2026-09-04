@@ -74,8 +74,7 @@ def preflight_production_inputs(
         ]
         if duplicate_content_groups:
             aliases = "; ".join(
-                ", ".join(reference_ids)
-                for reference_ids in duplicate_content_groups
+                ", ".join(reference_ids) for reference_ids in duplicate_content_groups
             )
             raise ProductionReferenceError(
                 "production reference ids must resolve to distinct approved content; "
