@@ -86,9 +86,7 @@ def _explicit_trim_filter(durations: list[float]) -> str:
             f"setpts=PTS-STARTPTS[{label}]"
         )
         inputs.append(f"[{label}]")
-    chains.append(
-        "".join(inputs) + f"concat=n={len(durations)}:v=1:a=0[filmv]"
-    )
+    chains.append("".join(inputs) + f"concat=n={len(durations)}:v=1:a=0[filmv]")
     return ";".join(chains)
 
 
