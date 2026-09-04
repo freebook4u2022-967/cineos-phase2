@@ -99,6 +99,30 @@ def test_non_finite_edit_duration_fails_closed(
         )
 
 
+def test_non_finite_approved_audio_duration_fails_closed_before_encode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(assembly_module, "file_hash", lambda _path: "0" * 64)
+    monkeypatch.setattr(
+        assembly_module,
+        "probe_media",
+        lambda _path: _audio_probe(float("nan")),
+    )
+
+    def fail_if_encoded(*_args, **_kwargs):
+        raise AssertionError("FFmpeg must not run for invalid approved audio evidence")
+
+    monkeypatch.setattr(assembly_module.subprocess, "run", fail_if_encoded)
+
+    with pytest.raises(AssemblyError, match="finite positive duration"):
+        assembly_module.assemble(
+            [tmp_path / "shot.mp4"],
+            tmp_path / "film.mp4",
+            durations=[5.0],
+            audio_path=tmp_path / "mix.wav",
+        )
+
+
 def test_crossfade_builds_decoded_frame_transitions_and_shortens_audio_timeline(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
