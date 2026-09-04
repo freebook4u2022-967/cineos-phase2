@@ -154,7 +154,9 @@ def assemble(
     normalized_durations: list[float] | None = None
     if durations is not None:
         normalized_durations = [float(value) for value in durations]
-        if any(not math.isfinite(value) or value <= 0 for value in normalized_durations):
+        if any(
+            not math.isfinite(value) or value <= 0 for value in normalized_durations
+        ):
             raise AssemblyError("shot durations must all be finite and positive")
     if crossfade < 0:
         raise AssemblyError("crossfade must not be negative")
