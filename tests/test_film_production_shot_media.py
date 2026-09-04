@@ -61,7 +61,7 @@ def _fail_assembly(*_args, **_kwargs):
             {**_media(), "video_dimensions": [{"width": 1279, "height": 720}]},
             "invalid H.264/yuv420p",
         ),
-        ({**_media(), "duration_seconds": 0.0}, "no positive duration"),
+        ({**_media(), "duration_seconds": 0.0}, "no finite positive duration"),
     ],
 )
 def test_rejects_invalid_bound_shot_media_before_assembly(
