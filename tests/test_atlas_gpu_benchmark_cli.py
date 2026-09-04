@@ -58,6 +58,34 @@ def _reference_manifest(tmp_path, reference_ids=("lead-approved-reference",)):
     return manifest
 
 
+def _aliased_reference_manifest(tmp_path):
+    image = tmp_path / "reference-shared.png"
+    image.write_bytes(b"approved-shared-image")
+    digest = hashlib.sha256(image.read_bytes()).hexdigest()
+    manifest = tmp_path / "references.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema": "cineos-approved-reference-manifest/0.1",
+                "references": [
+                    {
+                        "reference_id": "lead-approved-reference",
+                        "path": image.name,
+                        "sha256": digest,
+                    },
+                    {
+                        "reference_id": "partner-approved-reference",
+                        "path": image.name,
+                        "sha256": digest,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def _quality_receipt(*, gpu=True, quality=True):
     return SimpleNamespace(
         production_gpu_evidence=gpu,
@@ -124,6 +152,32 @@ def test_production_runner_rejects_manifest_missing_requested_identity(tmp_path)
             output_dir=tmp_path / "renders",
             reference_manifest=manifest,
         )
+
+
+def test_production_runner_rejects_aliased_identity_payloads_before_qc_model_load(
+    tmp_path, monkeypatch
+):
+    scorer_loaded = False
+
+    def unexpected_scorer(*args, **kwargs):
+        nonlocal scorer_loaded
+        scorer_loaded = True
+        return object()
+
+    monkeypatch.setattr(cli, "SigLIP2FeatureVideoScorer", unexpected_scorer)
+    reference_ids = ("lead-approved-reference", "partner-approved-reference")
+
+    with pytest.raises(
+        GPUProductionBenchmarkCLIError,
+        match="must resolve to distinct approved content",
+    ):
+        run_production_benchmark(
+            "production-evidence",
+            [_request(index, reference_ids) for index in range(5)],
+            output_dir=tmp_path / "renders",
+            reference_manifest=_aliased_reference_manifest(tmp_path),
+        )
+    assert scorer_loaded is False
 
 
 def test_production_runner_routes_through_quality_retry_boundary(monkeypatch, tmp_path):
