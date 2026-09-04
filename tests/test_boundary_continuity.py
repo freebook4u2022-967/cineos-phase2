@@ -92,7 +92,9 @@ def test_intentional_cuts_are_explicitly_recorded_not_mislabeled_as_continuity(
     assert all(len(item["sha256"]) == 64 for item in evidence["shot_artifacts"])
 
 
-def test_cut_only_evidence_still_requires_every_exact_shot_artifact(tmp_path, monkeypatch):
+def test_cut_only_evidence_still_requires_every_exact_shot_artifact(
+    tmp_path, monkeypatch
+):
     movies = _movies(tmp_path)
     movies[2].unlink()
     monkeypatch.setattr(
