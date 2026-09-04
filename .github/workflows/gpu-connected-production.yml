@@ -46,6 +46,12 @@ jobs:
           test -f "${{ inputs.requests_path }}"
           test -f "${{ inputs.reference_manifest_path }}"
 
+      - name: Preflight connected production inputs before model acquisition
+        run: |
+          python -m cineos.atlas.production_input_preflight \
+            --requests "${{ inputs.requests_path }}" \
+            --reference-manifest "${{ inputs.reference_manifest_path }}"
+
       - name: Verify real CUDA runner and safe execution plan
         run: |
           nvidia-smi
