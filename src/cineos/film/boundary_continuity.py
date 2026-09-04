@@ -16,7 +16,7 @@ from typing import Any
 
 from .exceptions import AssemblyError
 
-CONTINUITY_EVIDENCE_SCHEMA = "cineos-boundary-continuity-evidence/0.1"
+CONTINUITY_EVIDENCE_SCHEMA = "cineos-boundary-continuity-evidence/0.2"
 DEFAULT_BOUNDARY_SIMILARITY_THRESHOLD = 0.82
 _BOUNDARY_SAMPLE_WIDTH = 64
 _BOUNDARY_SAMPLE_HEIGHT = 36
@@ -31,6 +31,17 @@ def _ffmpeg() -> str:
             "FFmpeg is unavailable; production boundary continuity cannot be measured"
         )
     return executable
+
+
+def _artifact_sha256(movie: Path) -> str:
+    """Bind continuity evidence to the exact complete encoded shot artifact."""
+    if not movie.is_file() or movie.stat().st_size == 0:
+        raise AssemblyError(f"missing or empty continuity artifact: {movie}")
+    digest = hashlib.sha256()
+    with movie.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _decode_luma_frame(movie: Path, *, timestamp_seconds: float) -> bytes:
@@ -97,6 +108,11 @@ def measure_connected_boundaries(
     boundaries are measured from decoded pixels in the exact source artifacts. ``cut``
     boundaries are explicitly exempt and recorded as unmeasured intentional edits.
 
+    Every shot is validated and SHA-256 bound before transition handling, including shots
+    adjacent only to intentional cuts. This prevents a missing or substituted artifact
+    from receiving apparently valid continuity evidence merely because no pixel comparison
+    was requested at that boundary.
+
     Continuous production boundaries require approved edit durations so the previous
     shot is sampled immediately before its actual edit endpoint, never from unused tail
     footage or an unrelated first frame.
@@ -130,6 +146,16 @@ def measure_connected_boundaries(
         if any(value <= 0 for value in edit_durations):
             raise AssemblyError("continuity edit durations must all be positive")
 
+    artifact_hashes = [_artifact_sha256(path) for path in paths]
+    shot_artifacts = [
+        {
+            "index": index,
+            "path": str(path),
+            "sha256": artifact_hashes[index],
+        }
+        for index, path in enumerate(paths)
+    ]
+
     boundaries: list[dict[str, Any]] = []
     for index, mode in enumerate(normalized):
         left_path = paths[index]
@@ -138,6 +164,8 @@ def measure_connected_boundaries(
             "boundary_index": index,
             "from_path": str(left_path),
             "to_path": str(right_path),
+            "from_artifact_sha256": artifact_hashes[index],
+            "to_artifact_sha256": artifact_hashes[index + 1],
             "transition": mode,
         }
         if mode == "cut":
@@ -194,6 +222,7 @@ def measure_connected_boundaries(
         "limitations": (
             "not semantic identity, anatomy, action, physics, or dialogue evidence"
         ),
+        "shot_artifacts": shot_artifacts,
         "boundaries": boundaries,
     }
 
