@@ -52,8 +52,8 @@ def _preflight_audio(
         )
     except (TypeError, ValueError):
         duration = 0.0
-    if duration <= 0:
-        raise AssemblyError("approved audio artifact has no positive duration")
+    if not math.isfinite(duration) or duration <= 0:
+        raise AssemblyError("approved audio artifact has no finite positive duration")
 
     duration_shortfall: float | None = None
     if expected_duration is not None:
