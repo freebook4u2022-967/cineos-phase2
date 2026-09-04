@@ -32,7 +32,14 @@ def _records(tmp_path: Path):
     return records
 
 
-def _media(*, width=1280, height=720, duration=2.0, frame_rate=None):
+def _media(
+    *,
+    width=1280,
+    height=720,
+    duration=2.0,
+    frame_rate=None,
+    frame_count=None,
+):
     result = {
         "duration_seconds": duration,
         "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
@@ -45,6 +52,8 @@ def _media(*, width=1280, height=720, duration=2.0, frame_rate=None):
     }
     if frame_rate is not None:
         result["video_frame_rates"] = [frame_rate]
+    if frame_count is not None:
+        result["video_frame_counts"] = [frame_count]
     return result
 
 
@@ -125,7 +134,7 @@ def test_allows_equivalent_rational_frame_rates(tmp_path, monkeypatch):
     def fake_probe(path):
         path = Path(path)
         if path.name == "final.mp4":
-            return _media(duration=10.0, frame_rate="24/1")
+            return _media(duration=10.0, frame_rate="24/1", frame_count=240)
         index = int(path.stem.split("-")[-1])
         rate = "48/2" if index % 2 else "24/1"
         return _media(duration=2.0, frame_rate=rate)
@@ -146,9 +155,12 @@ def test_allows_equivalent_rational_frame_rates(tmp_path, monkeypatch):
         "width": 1280,
         "height": 720,
         "frame_rate": "24/1",
+        "decoded_frame_count": 240,
         "expected_width": 1280,
         "expected_height": 720,
         "expected_frame_rate": "24/1",
+        "expected_decoded_frame_count": 240,
+        "decoded_frame_count_tolerance": 1,
     }
 
 
@@ -158,7 +170,13 @@ def test_rejects_final_geometry_drift_after_assembly(tmp_path, monkeypatch):
 
     def fake_probe(path):
         if Path(path).name == "final.mp4":
-            return _media(width=1920, height=1080, duration=10.0, frame_rate="24/1")
+            return _media(
+                width=1920,
+                height=1080,
+                duration=10.0,
+                frame_rate="24/1",
+                frame_count=240,
+            )
         return _media(duration=2.0, frame_rate="24/1")
 
     def fake_assemble(_shots, destination, **_kwargs):
@@ -178,7 +196,11 @@ def test_rejects_final_frame_rate_drift_after_assembly(tmp_path, monkeypatch):
 
     def fake_probe(path):
         if Path(path).name == "final.mp4":
-            return _media(duration=10.0, frame_rate="30/1")
+            return _media(
+                duration=10.0,
+                frame_rate="30/1",
+                frame_count=300,
+            )
         return _media(duration=2.0, frame_rate="24/1")
 
     def fake_assemble(_shots, destination, **_kwargs):
