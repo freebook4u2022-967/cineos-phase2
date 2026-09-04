@@ -98,7 +98,9 @@ def test_preflight_rejects_non_production_shot_count_before_reference_decode(
 
 def test_preflight_rejects_changed_approved_reference_hash(tmp_path: Path) -> None:
     stale_hash = "0" * 64
-    with pytest.raises(ProductionInputPreflightError, match="hash changed after approval"):
+    with pytest.raises(
+        ProductionInputPreflightError, match="hash changed after approval"
+    ):
         preflight_production_inputs(
             _requests(),
             _manifest(tmp_path, approved_hash=stale_hash),
@@ -112,7 +114,9 @@ def test_gpu_workflow_preflights_before_foundation_snapshot_download() -> None:
     preflight = workflow.index(
         "Preflight connected production inputs before model acquisition"
     )
-    snapshot = workflow.index("Prefetch and verify immutable foundation and QC snapshots")
+    snapshot = workflow.index(
+        "Prefetch and verify immutable foundation and QC snapshots"
+    )
     benchmark = workflow.index(
         "Run real connected GPU benchmark with production visual QC"
     )
