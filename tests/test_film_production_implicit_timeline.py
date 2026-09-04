@@ -61,7 +61,7 @@ def test_implicit_timeline_uses_probed_shot_durations(tmp_path, monkeypatch):
 
     manifest = assemble_production_film(records, output)
 
-    assert manifest["schema"] == "cineos-production-film-evidence/0.8"
+    assert manifest["schema"] == "cineos-production-film-evidence/0.9"
     assert manifest["timeline"]["source"] == "probed-source-shots"
     assert manifest["timeline"]["expected_duration_seconds"] == 5.0
     assert manifest["timeline"]["compatibility"] == {
