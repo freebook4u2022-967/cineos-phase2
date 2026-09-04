@@ -198,7 +198,9 @@ def test_binds_optional_audio_artifact(tmp_path, monkeypatch):
     audio.write_bytes(b"approved-audio")
     output = tmp_path / "final.mp4"
 
-    def fake_assemble(shots, destination, *, durations=None, audio_path=None, **_kwargs):
+    def fake_assemble(
+        shots, destination, *, durations=None, audio_path=None, **_kwargs
+    ):
         assert len(shots) == 5
         assert audio_path == audio.resolve()
         Path(destination).write_bytes(b"film-with-audio")
@@ -209,9 +211,7 @@ def test_binds_optional_audio_artifact(tmp_path, monkeypatch):
         "cineos.film.production_assembly.probe_media",
         lambda _path: _probe(audio=1),
     )
-    monkeypatch.setattr(
-        "cineos.film.production_assembly.probe_audio_signal", _audible
-    )
+    monkeypatch.setattr("cineos.film.production_assembly.probe_audio_signal", _audible)
     manifest = assemble_production_film(
         records,
         output,
@@ -362,9 +362,7 @@ def test_rejects_truncated_audio_stream(tmp_path, monkeypatch):
         "cineos.film.production_assembly.probe_media",
         lambda _path: _probe(audio=1, audio_duration=1.0),
     )
-    monkeypatch.setattr(
-        "cineos.film.production_assembly.probe_audio_signal", _audible
-    )
+    monkeypatch.setattr("cineos.film.production_assembly.probe_audio_signal", _audible)
     with pytest.raises(AssemblyError, match="audio duration deviates"):
         assemble_production_film(
             records,
