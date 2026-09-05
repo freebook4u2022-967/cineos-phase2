@@ -61,6 +61,31 @@ def _positive_frame_rate(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 
+def _reject_nonfinite_duration_evidence(payload: dict[str, Any]) -> None:
+    """Reject explicit NaN/Inf timing metadata instead of silently falling back.
+
+    FFprobe may provide several independent duration fields. A missing or ``N/A``
+    field can legitimately require another timing source, but an explicitly
+    non-finite value is corrupt evidence and must not be hidden by decoded-frame
+    fallback arithmetic.
+    """
+
+    containers = [payload.get("format") or {}, *(payload.get("streams") or [])]
+    for item in containers:
+        if not isinstance(item, dict) or "duration" not in item:
+            continue
+        raw = item.get("duration")
+        normalized = str(raw or "").strip()
+        if not normalized or normalized.upper() == "N/A":
+            continue
+        try:
+            parsed = float(normalized)
+        except ValueError:
+            continue
+        if not math.isfinite(parsed):
+            raise MediaProbeError("FFprobe did not report a positive media duration")
+
+
 def _validate_video_frame_evidence(stream: dict[str, Any]) -> None:
     """Reject decoded-frame counts that contradict the stream's own timeline.
 
@@ -172,6 +197,7 @@ def probe_media(path: str | Path) -> dict[str, Any]:
     streams = payload.get("streams")
     if not isinstance(streams, list):
         raise MediaProbeError("FFprobe response is missing stream metadata")
+    _reject_nonfinite_duration_evidence(payload)
     video = [item for item in streams if item.get("codec_type") == "video"]
     audio = [item for item in streams if item.get("codec_type") == "audio"]
     for stream in video:
