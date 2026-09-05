@@ -1,0 +1,157 @@
+name: GPU connected production benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      requests_path:
+        description: Path to a committed 5-10 shot native request JSON manifest
+        required: true
+      reference_manifest_path:
+        description: Path to committed hash-pinned approved reference JSON manifest
+        required: true
+      benchmark_id:
+        description: Stable benchmark evidence identifier
+        required: true
+        default: cineos-connected-production
+      continuity_identity_refresh:
+        description: Run experimental predecessor-frame plus fresh-reference candidate
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  connected-production:
+    runs-on: [self-hosted, linux, x64, gpu]
+    timeout-minutes: 360
+    steps:
+      - name: Check out requested revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CINEOS video runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[video]"
+
+      - name: Verify benchmark inputs exist
+        run: |
+          test -f "${{ inputs.requests_path }}"
+          test -f "${{ inputs.reference_manifest_path }}"
+
+      - name: Preflight connected production inputs before model acquisition
+        run: |
+          python -m cineos.atlas.production_input_preflight \
+            --requests "${{ inputs.requests_path }}" \
+            --reference-manifest "${{ inputs.reference_manifest_path }}"
+
+      - name: Verify real CUDA runner and safe execution plan
+        run: |
+          nvidia-smi
+          python - <<'PY'
+          from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
+          from cineos.atlas.gpu_preflight import (
+              inspect_cuda_environment,
+              select_gpu_execution,
+          )
+
+          devices = inspect_cuda_environment()
+          plan = select_gpu_execution(
+              devices,
+              estimated_model_vram_gb=WAN22_TI2V_5B_PROFILE.minimum_gpu_vram_gb,
+          )
+          print(f"selected_device={plan.device}")
+          print(f"memory_strategy={plan.memory_strategy}")
+          print(f"dtype={plan.dtype}")
+          print(f"observed_total_vram_gb={plan.observed_total_vram_gb:.2f}")
+          if plan.observed_free_vram_gb is not None:
+              print(f"observed_free_vram_gb={plan.observed_free_vram_gb:.2f}")
+          print(f"estimated_model_vram_gb={plan.estimated_model_vram_gb:.2f}")
+          print(f"fit_margin_gb={plan.fit_margin_gb:.2f}")
+          PY
+
+      - name: Prefetch and verify immutable foundation and QC snapshots
+        env:
+          HF_HOME: ${{ runner.temp }}/cineos-hf-cache
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          from huggingface_hub import snapshot_download
+
+          from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
+          from cineos.atlas.siglip2_video_scorer import (
+              SIGLIP2_QC_MODEL_ID,
+              SIGLIP2_QC_REVISION,
+          )
+
+          provenance = WAN22_TI2V_5B_PROFILE.provenance
+          revision = provenance.revision
+          if revision is None:
+              raise SystemExit("production foundation profile is not revision-pinned")
+
+          snapshot_path = Path(
+              snapshot_download(
+                  repo_id=provenance.model_id,
+                  revision=revision,
+              )
+          ).resolve()
+          resolved_revision = snapshot_path.name
+          if resolved_revision != revision:
+              raise SystemExit(
+                  "foundation snapshot resolved to unexpected revision: "
+                  f"expected={revision} resolved={resolved_revision}"
+              )
+
+          qc_snapshot_path = Path(
+              snapshot_download(
+                  repo_id=SIGLIP2_QC_MODEL_ID,
+                  revision=SIGLIP2_QC_REVISION,
+              )
+          ).resolve()
+          resolved_qc_revision = qc_snapshot_path.name
+          if resolved_qc_revision != SIGLIP2_QC_REVISION:
+              raise SystemExit(
+                  "QC snapshot resolved to unexpected revision: "
+                  f"expected={SIGLIP2_QC_REVISION} resolved={resolved_qc_revision}"
+              )
+
+          print(f"foundation_model_id={provenance.model_id}")
+          print(f"foundation_revision={revision}")
+          print(f"foundation_snapshot={snapshot_path}")
+          print(f"qc_model_id={SIGLIP2_QC_MODEL_ID}")
+          print(f"qc_revision={SIGLIP2_QC_REVISION}")
+          print(f"qc_snapshot={qc_snapshot_path}")
+          PY
+
+      - name: Run real connected GPU benchmark with production visual QC
+        env:
+          HF_HOME: ${{ runner.temp }}/cineos-hf-cache
+          CONTINUITY_IDENTITY_REFRESH: ${{ inputs.continuity_identity_refresh }}
+        run: |
+          refresh_args=()
+          if [[ "$CONTINUITY_IDENTITY_REFRESH" == "true" ]]; then
+            refresh_args+=(--continuity-identity-refresh)
+          fi
+          python -m cineos.atlas.gpu_benchmark_cli \
+            --requests "${{ inputs.requests_path }}" \
+            --reference-manifest "${{ inputs.reference_manifest_path }}" \
+            --output-dir "${{ runner.temp }}/cineos-connected-production" \
+            --benchmark-id "${{ inputs.benchmark_id }}" \
+            "${refresh_args[@]}"
+
+      - name: Upload production GPU evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cineos-connected-production-${{ github.run_id }}
+          path: ${{ runner.temp }}/cineos-connected-production
+          if-no-files-found: error
+          retention-days: 30
