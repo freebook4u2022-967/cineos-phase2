@@ -49,7 +49,9 @@ def test_probe_media_rejects_malformed_explicit_stream_duration(tmp_path, monkey
         _run_probe(tmp_path, monkeypatch, payload)
 
 
-def test_probe_media_rejects_malformed_explicit_container_duration(tmp_path, monkeypatch):
+def test_probe_media_rejects_malformed_explicit_container_duration(
+    tmp_path, monkeypatch
+):
     payload = {
         "format": {"duration": "corrupt", "format_name": "mp4"},
         "streams": [_video_stream()],
@@ -59,7 +61,9 @@ def test_probe_media_rejects_malformed_explicit_container_duration(tmp_path, mon
         _run_probe(tmp_path, monkeypatch, payload)
 
 
-def test_probe_media_allows_na_duration_when_decoded_timing_is_valid(tmp_path, monkeypatch):
+def test_probe_media_allows_na_duration_when_decoded_timing_is_valid(
+    tmp_path, monkeypatch
+):
     payload = {
         "format": {"duration": "N/A", "format_name": "mp4"},
         "streams": [_video_stream(duration="N/A")],
