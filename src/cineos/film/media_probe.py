@@ -87,6 +87,22 @@ def _validate_video_frame_evidence(stream: dict[str, Any]) -> None:
 
 
 def _duration(payload: dict[str, Any]) -> float:
+    """Resolve authoritative media duration, preferring actual video when present.
+
+    Production film assembly discards source-shot audio. For audiovisual source shots,
+    container duration can therefore overstate usable picture duration when an embedded
+    audio stream outlasts the video. Prefer positive video-stream duration whenever the
+    artifact contains video; audio-only artifacts retain the container/stream fallback.
+    """
+    video_durations = [
+        item
+        for stream in payload.get("streams") or []
+        if stream.get("codec_type") == "video"
+        if (item := _positive_float(stream.get("duration"))) is not None
+    ]
+    if video_durations:
+        return max(video_durations)
+
     raw = (payload.get("format") or {}).get("duration")
     value = _positive_float(raw)
     if value is not None:
