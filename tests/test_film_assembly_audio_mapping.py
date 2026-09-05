@@ -4,6 +4,21 @@ from types import SimpleNamespace
 from cineos.film import assembly
 
 
+def _audio_probe(duration: float) -> dict[str, object]:
+    return {
+        "audio_stream_count": 1,
+        "audio_streams": [
+            {
+                "codec_name": "pcm_s16le",
+                "sample_rate_hz": 48000,
+                "channels": 2,
+                "duration_seconds": duration,
+            }
+        ],
+        "duration_seconds": duration,
+    }
+
+
 def test_approved_audio_is_explicitly_mapped_over_source_audio(tmp_path, monkeypatch):
     shot = tmp_path / "shot.mp4"
     audio = tmp_path / "approved.wav"
@@ -13,15 +28,7 @@ def test_approved_audio_is_explicitly_mapped_over_source_audio(tmp_path, monkeyp
     captured: list[str] = []
 
     monkeypatch.setattr(assembly, "_ffmpeg", lambda: "ffmpeg")
-    monkeypatch.setattr(
-        assembly,
-        "probe_media",
-        lambda _path: {
-            "audio_stream_count": 1,
-            "audio_streams": [{"duration_seconds": 1.0}],
-            "duration_seconds": 1.0,
-        },
-    )
+    monkeypatch.setattr(assembly, "probe_media", lambda _path: _audio_probe(1.0))
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
@@ -85,8 +92,14 @@ def test_explicit_durations_hard_trim_each_decoded_shot_before_concat(
     assembly.assemble(shots, output, durations=[1.25, 2.5])
 
     graph = captured[captured.index("-filter_complex") + 1]
-    assert "[0:v:0]trim=start=0:duration=1.250000,setpts=PTS-STARTPTS[v0]" in graph
-    assert "[1:v:0]trim=start=0:duration=2.500000,setpts=PTS-STARTPTS[v1]" in graph
+    assert (
+        "[0:v:0]trim=start=0:duration=1.250000,settb=AVTB,"
+        "setpts=PTS-STARTPTS[v0]" in graph
+    )
+    assert (
+        "[1:v:0]trim=start=0:duration=2.500000,settb=AVTB,"
+        "setpts=PTS-STARTPTS[v1]" in graph
+    )
     assert "[v0][v1]concat=n=2:v=1:a=0[filmv]" in graph
     first_map = captured.index("-map")
     assert captured[first_map : first_map + 2] == ["-map", "[filmv]"]
@@ -106,15 +119,7 @@ def test_explicit_durations_map_approved_audio_after_all_shot_inputs(
     captured: list[str] = []
 
     monkeypatch.setattr(assembly, "_ffmpeg", lambda: "ffmpeg")
-    monkeypatch.setattr(
-        assembly,
-        "probe_media",
-        lambda _path: {
-            "audio_stream_count": 1,
-            "audio_streams": [{"duration_seconds": 4.0}],
-            "duration_seconds": 4.0,
-        },
-    )
+    monkeypatch.setattr(assembly, "probe_media", lambda _path: _audio_probe(4.0))
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
