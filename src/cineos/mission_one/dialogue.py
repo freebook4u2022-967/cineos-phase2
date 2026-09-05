@@ -60,7 +60,9 @@ class LipSyncEvidence:
             "external_pretrained_foundation",
             "cineos_native",
         }:
-            raise ValueError("verifier_origin must declare native or external provenance")
+            raise ValueError(
+                "verifier_origin must declare native or external provenance"
+            )
         for name in ("audio_sha256", "video_sha256"):
             value = getattr(self, name)
             if (
