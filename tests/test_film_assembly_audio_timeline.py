@@ -11,7 +11,14 @@ from cineos.film.exceptions import AssemblyError
 def _audio_probe(duration: float) -> dict[str, object]:
     return {
         "audio_stream_count": 1,
-        "audio_streams": [{"duration_seconds": duration}],
+        "audio_streams": [
+            {
+                "codec_name": "pcm_s16le",
+                "sample_rate_hz": 48000,
+                "channels": 2,
+                "duration_seconds": duration,
+            }
+        ],
         "duration_seconds": duration,
     }
 
