@@ -22,6 +22,23 @@ def _ffmpeg() -> str:
     return executable
 
 
+def _reject_output_collision(
+    destination: Path,
+    *,
+    sources: list[Path],
+    audio_source: Path | None = None,
+) -> None:
+    """Protect evidence-bound inputs from destructive in-place assembly."""
+    protected_inputs = set(sources)
+    if audio_source is not None:
+        protected_inputs.add(audio_source)
+    if destination in protected_inputs:
+        raise AssemblyError(
+            "assembly output must be distinct from every source video and approved audio "
+            "artifact"
+        )
+
+
 def _preflight_audio(
     source: Path,
     *,
@@ -164,13 +181,18 @@ def assemble(
     The visual timeline duration is resolved before encoding and remains authoritative
     when audio is present: short approved audio is padded, long audio is trimmed, and
     audio can never terminate the video timeline. Production audio is normalized to
-    the 48 kHz film/video delivery rate.
+    the 48 kHz film/video delivery rate. The output path must never alias an input
+    video or approved audio artifact, protecting evidence-bound assets from FFmpeg's
+    destructive ``-y`` overwrite behavior.
     """
     if not shots:
         raise AssemblyError("cannot assemble an empty timeline")
     sources = [Path(item).resolve() for item in shots]
     for source in sources:
         file_hash(source)
+    destination = Path(output).resolve()
+    _reject_output_collision(destination, sources=sources)
+
     if durations is not None and len(durations) != len(sources):
         raise AssemblyError("duration count does not match shot count")
     normalized_durations: list[float] | None = None
@@ -197,6 +219,11 @@ def assemble(
     if audio_path is not None:
         audio_source = Path(audio_path).resolve()
         file_hash(audio_source)
+        _reject_output_collision(
+            destination,
+            sources=sources,
+            audio_source=audio_source,
+        )
         if crossfade > 0:
             expected_duration = _visual_timeline_duration(
                 sources,
@@ -210,7 +237,6 @@ def assemble(
             )
         _preflight_audio(audio_source, expected_duration=expected_duration)
 
-    destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     command = [_ffmpeg(), "-nostdin", "-y"]
