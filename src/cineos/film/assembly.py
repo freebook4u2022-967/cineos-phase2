@@ -86,7 +86,9 @@ def _preflight_audio(
     if sample_rate <= 0:
         raise AssemblyError("approved audio artifact has no valid sample-rate evidence")
     if channels <= 0:
-        raise AssemblyError("approved audio artifact has no valid channel-count evidence")
+        raise AssemblyError(
+            "approved audio artifact has no valid channel-count evidence"
+        )
 
     try:
         duration = float(
@@ -100,7 +102,9 @@ def _preflight_audio(
     duration_shortfall: float | None = None
     if expected_duration is not None:
         if not math.isfinite(expected_duration) or expected_duration <= 0:
-            raise AssemblyError("approved visual timeline has no finite positive duration")
+            raise AssemblyError(
+                "approved visual timeline has no finite positive duration"
+            )
         duration_shortfall = expected_duration - duration
         tolerance = max(
             MAX_APPROVED_AUDIO_SHORTFALL_SECONDS,
