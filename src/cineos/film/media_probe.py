@@ -113,7 +113,8 @@ def _duration(payload: dict[str, Any]) -> float:
         frame_count / frame_rate
         for stream in video
         if (frame_count := _positive_int(stream.get("nb_read_frames"))) is not None
-        if (frame_rate := _positive_frame_rate(stream.get("avg_frame_rate"))) is not None
+        if (frame_rate := _positive_frame_rate(stream.get("avg_frame_rate")))
+        is not None
     ]
     if decoded_video_durations:
         return max(decoded_video_durations)
