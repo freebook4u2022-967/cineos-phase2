@@ -85,7 +85,9 @@ def _reject_invalid_duration_evidence(payload: dict[str, Any]) -> None:
                 "FFprobe reported malformed explicit duration evidence"
             ) from exc
         if not math.isfinite(parsed):
-            raise MediaProbeError("FFprobe did not report a finite media duration")
+            raise MediaProbeError(
+                "FFprobe did not report a positive media duration (non-finite evidence)"
+            )
 
 
 def _validate_video_frame_evidence(stream: dict[str, Any]) -> None:
