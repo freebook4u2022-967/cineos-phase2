@@ -61,13 +61,13 @@ def _positive_frame_rate(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 
-def _reject_nonfinite_duration_evidence(payload: dict[str, Any]) -> None:
-    """Reject explicit NaN/Inf timing metadata instead of silently falling back.
+def _reject_invalid_duration_evidence(payload: dict[str, Any]) -> None:
+    """Reject corrupt explicit timing metadata instead of silently falling back.
 
     FFprobe may provide several independent duration fields. A missing or ``N/A``
-    field can legitimately require another timing source, but an explicitly
-    non-finite value is corrupt evidence and must not be hidden by decoded-frame
-    fallback arithmetic.
+    field can legitimately require another timing source, but an explicitly malformed
+    or non-finite value is corrupt evidence and must not be hidden by decoded-frame or
+    container fallback arithmetic.
     """
 
     containers = [payload.get("format") or {}, *(payload.get("streams") or [])]
@@ -80,10 +80,12 @@ def _reject_nonfinite_duration_evidence(payload: dict[str, Any]) -> None:
             continue
         try:
             parsed = float(normalized)
-        except ValueError:
-            continue
+        except (TypeError, ValueError) as exc:
+            raise MediaProbeError(
+                "FFprobe reported malformed explicit duration evidence"
+            ) from exc
         if not math.isfinite(parsed):
-            raise MediaProbeError("FFprobe did not report a positive media duration")
+            raise MediaProbeError("FFprobe did not report a finite media duration")
 
 
 def _validate_video_frame_evidence(stream: dict[str, Any]) -> None:
@@ -193,11 +195,19 @@ def probe_media(path: str | Path) -> dict[str, Any]:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise MediaProbeError("FFprobe returned malformed JSON") from exc
+    if not isinstance(payload, dict):
+        raise MediaProbeError("FFprobe response must be a JSON object")
 
     streams = payload.get("streams")
     if not isinstance(streams, list):
         raise MediaProbeError("FFprobe response is missing stream metadata")
-    _reject_nonfinite_duration_evidence(payload)
+    if any(not isinstance(item, dict) for item in streams):
+        raise MediaProbeError("FFprobe response contains malformed stream metadata")
+    format_metadata = payload.get("format")
+    if format_metadata is not None and not isinstance(format_metadata, dict):
+        raise MediaProbeError("FFprobe response contains malformed format metadata")
+
+    _reject_invalid_duration_evidence(payload)
     video = [item for item in streams if item.get("codec_type") == "video"]
     audio = [item for item in streams if item.get("codec_type") == "audio"]
     for stream in video:
@@ -267,7 +277,7 @@ def probe_audio_signal(path: str | Path) -> dict[str, float]:
     if result.returncode:
         raise MediaProbeError(
             f"FFmpeg audio signal inspection failed: {result.stderr.strip()}"
-        )
+        ) from exc
 
     values: dict[str, float] = {}
     for match in _VOLUME_RE.finditer(result.stderr):
