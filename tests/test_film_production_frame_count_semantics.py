@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from cineos.film.exceptions import AssemblyError
 from cineos.film.production_assembly import _expected_timeline_frame_count
 
 
@@ -51,16 +54,17 @@ def test_exact_frame_boundary_does_not_gain_an_extra_frame():
     assert result["expected_per_shot_decoded_frame_counts"] == [3] * 5
 
 
-def test_trim_expectation_is_capped_by_observed_source_frames():
-    result = _expected_timeline_frame_count(
-        _bound(),
-        _media([1, 2, 3, 4, 5]),
-        frame_rate="24/1",
-        durations=[1.0] * 5,
-    )
-
-    assert result["expected_decoded_frame_count"] == 15
-    assert result["expected_per_shot_decoded_frame_counts"] == [1, 2, 3, 4, 5]
+def test_trim_expectation_rejects_source_that_cannot_supply_approved_frames():
+    with pytest.raises(
+        AssemblyError,
+        match="decoded frame count does not support approved edit duration",
+    ):
+        _expected_timeline_frame_count(
+            _bound(),
+            _media([1, 2, 3, 4, 5]),
+            frame_rate="24/1",
+            durations=[1.0] * 5,
+        )
 
 
 def test_untrimmed_timeline_uses_observed_decoded_source_counts_directly():
