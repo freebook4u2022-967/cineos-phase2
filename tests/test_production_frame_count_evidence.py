@@ -42,17 +42,16 @@ def test_explicit_edit_allows_one_frame_probe_tolerance_without_lowering_expecta
     assert result["expected_per_shot_decoded_frame_counts"] == [48]
 
 
-def test_explicit_edit_keeps_approved_expectation_when_source_count_is_unavailable() -> (
-    None
-):
+def test_explicit_edit_rejects_unverified_source_frame_count() -> None:
     shot_media = {"shot-1": {"decoded_frame_count": None}}
 
-    result = _expected_timeline_frame_count(
-        _bound(),
-        shot_media,
-        frame_rate="24/1",
-        durations=[2.0],
-    )
-
-    assert result["expected_decoded_frame_count"] == 48
-    assert result["expected_per_shot_decoded_frame_counts"] == [48]
+    with pytest.raises(
+        AssemblyError,
+        match="lacks decoded frame-count evidence required for an explicit CFR edit",
+    ):
+        _expected_timeline_frame_count(
+            _bound(),
+            shot_media,
+            frame_rate="24/1",
+            durations=[2.0],
+        )
