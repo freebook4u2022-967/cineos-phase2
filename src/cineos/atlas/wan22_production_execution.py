@@ -19,7 +19,8 @@ from .wan22_execution import (
     run_wan22_gpu_validation,
 )
 
-PRODUCTION_EXECUTION_EVIDENCE_SCHEMA = "cineos-wan22-production-execution/1.0"
+PRODUCTION_EXECUTION_EVIDENCE_SCHEMA = "cineos-wan22-production-execution/1.1"
+_HEX_DIGITS = frozenset("0123456789abcdef")
 
 
 def _require_cuda_device(device: str) -> None:
@@ -29,6 +30,19 @@ def _require_cuda_device(device: str) -> None:
             "production Wan2.2 validation requires a CUDA device; "
             f"received {device!r}"
         )
+
+
+def _require_hex_digest(value: Any, *, length: int, label: str) -> str:
+    if not isinstance(value, str):
+        raise Wan22ExecutionError(f"production execution receipt is missing {label}")
+    normalized = value.lower()
+    if len(normalized) != length or any(
+        character not in _HEX_DIGITS for character in normalized
+    ):
+        raise Wan22ExecutionError(
+            f"production execution receipt contains an invalid {label}"
+        )
+    return normalized
 
 
 def _validate_foundation_receipt(receipt: dict[str, Any], *, device: str) -> None:
@@ -48,21 +62,37 @@ def _validate_foundation_receipt(receipt: dict[str, Any], *, device: str) -> Non
         raise Wan22ExecutionError(
             "production execution receipt is missing foundation profile"
         )
-    if foundation_profile.get("origin") != WAN22_TI2V_5B_PROFILE.origin:
+
+    expected_profile = WAN22_TI2V_5B_PROFILE.snapshot()
+    if foundation_profile.get("origin") != expected_profile["origin"]:
         raise Wan22ExecutionError(
             "production execution receipt foundation origin does not match the pinned profile"
         )
+    if foundation_profile.get("profile_id") != expected_profile["profile_id"]:
+        raise Wan22ExecutionError(
+            "production execution receipt foundation profile id does not match the pinned profile"
+        )
+
+    provenance = foundation_profile.get("provenance")
+    expected_provenance = expected_profile["provenance"]
+    if not isinstance(provenance, dict):
+        raise Wan22ExecutionError(
+            "production execution receipt is missing foundation provenance"
+        )
+    for field in ("model_id", "revision", "license_id", "source_url"):
+        if provenance.get(field) != expected_provenance.get(field):
+            raise Wan22ExecutionError(
+                "production execution receipt foundation provenance does not match "
+                f"the pinned profile: {field}"
+            )
 
     artifact = receipt.get("artifact")
     if not isinstance(artifact, dict):
         raise Wan22ExecutionError(
             "production execution receipt is missing artifact evidence"
         )
-    digest = artifact.get("sha256")
-    if not isinstance(digest, str) or len(digest) != 64:
-        raise Wan22ExecutionError(
-            "production execution receipt is missing a SHA-256 artifact binding"
-        )
+    _require_hex_digest(artifact.get("sha256"), length=64, label="SHA-256 artifact binding")
+    _require_hex_digest(receipt.get("request_hash"), length=64, label="request hash binding")
 
 
 def run_wan22_production_validation(
@@ -102,6 +132,9 @@ def run_wan22_production_validation(
         "classification": "external_pretrained_foundation",
         "foundation_profile_id": WAN22_TI2V_5B_PROFILE.profile_id,
         "foundation_origin": WAN22_TI2V_5B_PROFILE.origin,
+        "foundation_model_id": WAN22_TI2V_5B_PROFILE.provenance.model_id,
+        "foundation_revision": WAN22_TI2V_5B_PROFILE.provenance.revision,
+        "foundation_license_id": WAN22_TI2V_5B_PROFILE.provenance.license_id,
         "injected_pipeline_factory": False,
         "injected_video_exporter": False,
         "cuda_required": True,
