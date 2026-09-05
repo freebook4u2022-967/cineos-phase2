@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import shutil
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -71,8 +72,22 @@ def _preflight_audio(
         )
 
     stream = streams[0]
-    if not isinstance(stream, dict):
+    if not isinstance(stream, Mapping):
         raise AssemblyError("approved audio artifact is missing valid stream evidence")
+
+    codec_name = str(stream.get("codec_name") or "").strip().lower()
+    if not codec_name:
+        raise AssemblyError("approved audio artifact is missing codec evidence")
+    try:
+        sample_rate = int(stream.get("sample_rate_hz") or 0)
+        channels = int(stream.get("channels") or 0)
+    except (TypeError, ValueError):
+        sample_rate = channels = 0
+    if sample_rate <= 0:
+        raise AssemblyError("approved audio artifact has no valid sample-rate evidence")
+    if channels <= 0:
+        raise AssemblyError("approved audio artifact has no valid channel-count evidence")
+
     try:
         duration = float(
             stream.get("duration_seconds") or media.get("duration_seconds") or 0.0
@@ -84,6 +99,8 @@ def _preflight_audio(
 
     duration_shortfall: float | None = None
     if expected_duration is not None:
+        if not math.isfinite(expected_duration) or expected_duration <= 0:
+            raise AssemblyError("approved visual timeline has no finite positive duration")
         duration_shortfall = expected_duration - duration
         tolerance = max(
             MAX_APPROVED_AUDIO_SHORTFALL_SECONDS,
@@ -98,6 +115,9 @@ def _preflight_audio(
 
     return {
         "audio_stream_count": audio_stream_count,
+        "codec_name": codec_name,
+        "sample_rate_hz": sample_rate,
+        "channels": channels,
         "duration_seconds": duration,
         "duration_shortfall_seconds": duration_shortfall,
     }

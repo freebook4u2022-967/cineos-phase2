@@ -1,67 +1,67 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest
 
-from cineos.film import assembly
+from cineos.film.assembly import _preflight_audio
 from cineos.film.exceptions import AssemblyError
 
 
-def _audio_media(*, stream_count=1, duration=10.0):
-    streams = [{"duration_seconds": duration} for _ in range(stream_count)]
+def _media(**stream_overrides):
+    stream = {
+        "codec_name": "pcm_s16le",
+        "sample_rate_hz": 48_000,
+        "channels": 2,
+        "duration_seconds": 10.0,
+    }
+    stream.update(stream_overrides)
     return {
-        "audio_stream_count": stream_count,
-        "audio_streams": streams,
-        "duration_seconds": duration,
+        "audio_stream_count": 1,
+        "audio_streams": [stream],
+        "duration_seconds": 10.0,
     }
 
 
-def test_preflight_rejects_missing_audio_stream(monkeypatch):
+def test_audio_preflight_records_decodable_stream_evidence(monkeypatch):
+    monkeypatch.setattr("cineos.film.assembly.probe_media", lambda _: _media())
+
+    evidence = _preflight_audio(Path("approved.wav"), expected_duration=9.5)
+
+    assert evidence["codec_name"] == "pcm_s16le"
+    assert evidence["sample_rate_hz"] == 48_000
+    assert evidence["channels"] == 2
+    assert evidence["duration_seconds"] == 10.0
+    assert evidence["duration_shortfall_seconds"] == pytest.approx(-0.5)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"codec_name": ""}, "missing codec evidence"),
+        ({"sample_rate_hz": None}, "no valid sample-rate evidence"),
+        ({"sample_rate_hz": 0}, "no valid sample-rate evidence"),
+        ({"channels": None}, "no valid channel-count evidence"),
+        ({"channels": 0}, "no valid channel-count evidence"),
+    ],
+)
+def test_audio_preflight_rejects_incomplete_decode_evidence(
+    monkeypatch, overrides, message
+):
     monkeypatch.setattr(
-        assembly,
-        "probe_media",
-        lambda _path: _audio_media(stream_count=0),
+        "cineos.film.assembly.probe_media",
+        lambda _: _media(**overrides),
     )
 
-    with pytest.raises(AssemblyError, match="exactly one audio stream"):
-        assembly._preflight_audio(Path("approved.wav"), expected_duration=None)
+    with pytest.raises(AssemblyError, match=message):
+        _preflight_audio(Path("approved.wav"), expected_duration=9.5)
 
 
-def test_preflight_rejects_multiple_audio_streams(monkeypatch):
-    monkeypatch.setattr(
-        assembly,
-        "probe_media",
-        lambda _path: _audio_media(stream_count=2),
-    )
-
-    with pytest.raises(AssemblyError, match="exactly one audio stream"):
-        assembly._preflight_audio(Path("approved.wav"), expected_duration=None)
-
-
-def test_preflight_rejects_audio_that_cannot_cover_explicit_timeline(monkeypatch):
-    monkeypatch.setattr(
-        assembly,
-        "probe_media",
-        lambda _path: _audio_media(duration=8.0),
-    )
+def test_audio_preflight_rejects_nonfinite_visual_duration(monkeypatch):
+    monkeypatch.setattr("cineos.film.assembly.probe_media", lambda _: _media())
 
     with pytest.raises(
-        AssemblyError, match="cannot cover the requested visual timeline"
+        AssemblyError,
+        match="approved visual timeline has no finite positive duration",
     ):
-        assembly._preflight_audio(Path("approved.wav"), expected_duration=10.0)
-
-
-def test_preflight_accepts_audio_within_shortfall_tolerance(monkeypatch):
-    monkeypatch.setattr(
-        assembly,
-        "probe_media",
-        lambda _path: _audio_media(duration=9.4),
-    )
-
-    evidence = assembly._preflight_audio(
-        Path("approved.wav"),
-        expected_duration=10.0,
-    )
-
-    assert evidence["audio_stream_count"] == 1
-    assert evidence["duration_seconds"] == 9.4
-    assert evidence["duration_shortfall_seconds"] == pytest.approx(0.6)
+        _preflight_audio(Path("approved.wav"), expected_duration=float("nan"))
