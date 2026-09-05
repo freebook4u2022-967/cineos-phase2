@@ -92,16 +92,31 @@ def _duration(payload: dict[str, Any]) -> float:
     Production film assembly discards source-shot audio. For audiovisual source shots,
     container duration can therefore overstate usable picture duration when an embedded
     audio stream outlasts the video. Prefer positive video-stream duration whenever the
-    artifact contains video; audio-only artifacts retain the container/stream fallback.
+    artifact contains video. When stream duration is unavailable, decoded frame count
+    divided by average frame rate is the next-strongest visual timing evidence. Audio-only
+    artifacts retain the container/stream fallback.
     """
-    video_durations = [
-        item
+    video = [
+        stream
         for stream in payload.get("streams") or []
         if stream.get("codec_type") == "video"
+    ]
+    video_durations = [
+        item
+        for stream in video
         if (item := _positive_float(stream.get("duration"))) is not None
     ]
     if video_durations:
         return max(video_durations)
+
+    decoded_video_durations = [
+        frame_count / frame_rate
+        for stream in video
+        if (frame_count := _positive_int(stream.get("nb_read_frames"))) is not None
+        if (frame_rate := _positive_frame_rate(stream.get("avg_frame_rate"))) is not None
+    ]
+    if decoded_video_durations:
+        return max(decoded_video_durations)
 
     raw = (payload.get("format") or {}).get("duration")
     value = _positive_float(raw)
