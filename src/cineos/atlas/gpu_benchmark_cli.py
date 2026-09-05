@@ -33,6 +33,17 @@ class GPUProductionBenchmarkCLIError(RuntimeError):
     """Raised when production benchmark input or execution is not trustworthy."""
 
 
+def _validate_connected_shot_count(requests: Sequence[NativeShotRequest]) -> None:
+    """Fail closed unless the production benchmark contains exactly 5-10 shots."""
+
+    shot_count = len(requests)
+    if not 5 <= shot_count <= 10:
+        raise GPUProductionBenchmarkCLIError(
+            "production connected benchmark requires 5-10 shots; "
+            f"received {shot_count}"
+        )
+
+
 def _request_from_mapping(raw: Mapping[str, Any], *, index: int) -> NativeShotRequest:
     payload = dict(raw)
     supplied_hash = payload.pop("content_hash", "")
@@ -89,7 +100,9 @@ def load_native_requests(path: str | Path) -> tuple[NativeShotRequest, ...]:
                 f"shot {index} in request manifest must be a JSON object"
             )
         requests.append(_request_from_mapping(raw, index=index))
-    return tuple(requests)
+    loaded = tuple(requests)
+    _validate_connected_shot_count(loaded)
+    return loaded
 
 
 def _production_reference_loader(
@@ -201,6 +214,7 @@ def run_production_benchmark(
 
     if not isinstance(continuity_identity_refresh, bool):
         raise TypeError("continuity_identity_refresh must be a bool")
+    _validate_connected_shot_count(requests)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     quality_evaluator = _production_quality_evaluator(requests, reference_manifest)
