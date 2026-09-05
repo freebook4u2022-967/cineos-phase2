@@ -293,14 +293,18 @@ def _expected_timeline_frame_count(
                     f"production shot {shot_id} edit implies no positive decoded frames"
                 )
             source_count = shot_media[shot_id].get("decoded_frame_count")
-            if source_count is not None:
-                available = int(source_count)
-                if available + MAX_FINAL_FRAME_COUNT_DELTA < expected:
-                    raise AssemblyError(
-                        f"production shot {shot_id} decoded frame count does not support "
-                        f"approved edit duration ({available} available vs {expected} "
-                        f"required; tolerance {MAX_FINAL_FRAME_COUNT_DELTA} frame)"
-                    )
+            if source_count is None:
+                raise AssemblyError(
+                    f"production shot {shot_id} lacks decoded frame-count evidence "
+                    "required for an explicit CFR edit"
+                )
+            available = int(source_count)
+            if available + MAX_FINAL_FRAME_COUNT_DELTA < expected:
+                raise AssemblyError(
+                    f"production shot {shot_id} decoded frame count does not support "
+                    f"approved edit duration ({available} available vs {expected} "
+                    f"required; tolerance {MAX_FINAL_FRAME_COUNT_DELTA} frame)"
+                )
             per_shot.append(expected)
         return {
             "mode": "per-shot-cfr-hard-trim",

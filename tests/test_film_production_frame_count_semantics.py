@@ -67,6 +67,22 @@ def test_trim_expectation_rejects_source_that_cannot_supply_approved_frames():
         )
 
 
+def test_explicit_trim_rejects_missing_source_frame_count_evidence():
+    media = _media([24] * 5)
+    media["shot-2"]["decoded_frame_count"] = None
+
+    with pytest.raises(
+        AssemblyError,
+        match="lacks decoded frame-count evidence required for an explicit CFR edit",
+    ):
+        _expected_timeline_frame_count(
+            _bound(),
+            media,
+            frame_rate="24/1",
+            durations=[0.5] * 5,
+        )
+
+
 def test_untrimmed_timeline_uses_observed_decoded_source_counts_directly():
     result = _expected_timeline_frame_count(
         _bound(),
