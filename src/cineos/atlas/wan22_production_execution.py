@@ -33,7 +33,9 @@ def _require_cuda_device(device: str) -> None:
 
 def _validate_foundation_receipt(receipt: dict[str, Any], *, device: str) -> None:
     if receipt.get("status") != "rendered":
-        raise Wan22ExecutionError("production execution did not report a rendered artifact")
+        raise Wan22ExecutionError(
+            "production execution did not report a rendered artifact"
+        )
 
     runtime = receipt.get("runtime")
     if not isinstance(runtime, dict) or runtime.get("device") != device:
@@ -43,7 +45,9 @@ def _validate_foundation_receipt(receipt: dict[str, Any], *, device: str) -> Non
 
     foundation_profile = receipt.get("foundation_profile")
     if not isinstance(foundation_profile, dict):
-        raise Wan22ExecutionError("production execution receipt is missing foundation profile")
+        raise Wan22ExecutionError(
+            "production execution receipt is missing foundation profile"
+        )
     if foundation_profile.get("origin") != WAN22_TI2V_5B_PROFILE.origin:
         raise Wan22ExecutionError(
             "production execution receipt foundation origin does not match the pinned profile"
@@ -51,7 +55,9 @@ def _validate_foundation_receipt(receipt: dict[str, Any], *, device: str) -> Non
 
     artifact = receipt.get("artifact")
     if not isinstance(artifact, dict):
-        raise Wan22ExecutionError("production execution receipt is missing artifact evidence")
+        raise Wan22ExecutionError(
+            "production execution receipt is missing artifact evidence"
+        )
     digest = artifact.get("sha256")
     if not isinstance(digest, str) or len(digest) != 64:
         raise Wan22ExecutionError(

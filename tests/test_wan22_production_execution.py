@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from cineos.atlas import wan22_production_execution as production
 from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
 from cineos.atlas.wan22_execution import Wan22ExecutionConfig, Wan22ExecutionError
-from cineos.atlas import wan22_production_execution as production
 
 
 def _receipt(*, device: str = "cuda") -> dict:
@@ -41,12 +41,16 @@ def test_production_gate_rejects_non_cuda_before_execution(monkeypatch, tmp_path
 def test_production_gate_has_no_renderer_injection_surface():
     import inspect
 
-    parameters = inspect.signature(production.run_wan22_production_validation).parameters
+    parameters = inspect.signature(
+        production.run_wan22_production_validation
+    ).parameters
     assert "pipeline_factory" not in parameters
     assert "video_exporter" not in parameters
 
 
-def test_production_receipt_explicitly_classifies_external_foundation(monkeypatch, tmp_path):
+def test_production_receipt_explicitly_classifies_external_foundation(
+    monkeypatch, tmp_path
+):
     def fake_run(config, **kwargs):
         assert kwargs["device"] == "cuda:0"
         assert "pipeline_factory" not in kwargs
