@@ -277,7 +277,7 @@ def probe_audio_signal(path: str | Path) -> dict[str, float]:
     if result.returncode:
         raise MediaProbeError(
             f"FFmpeg audio signal inspection failed: {result.stderr.strip()}"
-        ) from exc
+        )
 
     values: dict[str, float] = {}
     for match in _VOLUME_RE.finditer(result.stderr):
