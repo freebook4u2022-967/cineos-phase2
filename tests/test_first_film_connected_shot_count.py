@@ -51,8 +51,7 @@ def test_director_can_generate_seedance_style_five_connected_shots(
         "scene-001:hero:partner"
     }
     assert all(
-        shot["character_ids"] == ("hero", "partner")
-        for shot in package.shot_manifest
+        shot["character_ids"] == ("hero", "partner") for shot in package.shot_manifest
     )
 
 

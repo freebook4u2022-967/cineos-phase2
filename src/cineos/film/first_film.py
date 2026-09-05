@@ -58,14 +58,29 @@ class FastTrackAutoDirector:
 
     _BEATS = (
         ("setup", "Establish the world, protagonist and immediate objective."),
-        ("inciting_action", "Trigger a visible event that forces the protagonist to act."),
+        (
+            "inciting_action",
+            "Trigger a visible event that forces the protagonist to act.",
+        ),
         ("escalation", "Introduce a visible obstacle and raise urgency."),
-        ("interaction", "Force a character or object interaction that changes the situation."),
+        (
+            "interaction",
+            "Force a character or object interaction that changes the situation.",
+        ),
         ("movement", "Advance the action through purposeful walking or running."),
-        ("reversal", "Reveal a setback or reversal while preserving spatial continuity."),
-        ("pressure", "Increase pressure with stronger movement, blocking or camera energy."),
+        (
+            "reversal",
+            "Reveal a setback or reversal while preserving spatial continuity.",
+        ),
+        (
+            "pressure",
+            "Increase pressure with stronger movement, blocking or camera energy.",
+        ),
         ("choice", "Make the protagonist perform a clear consequential choice."),
-        ("resolution", "Resolve the immediate dramatic conflict through visible action."),
+        (
+            "resolution",
+            "Resolve the immediate dramatic conflict through visible action.",
+        ),
         ("payoff", "End on a strong final image that preserves character identity."),
     )
 
@@ -147,7 +162,9 @@ class FastTrackAutoDirector:
             selected = (interior[len(interior) // 2],)
         else:
             last = len(interior) - 1
-            indices = tuple(round(index * last / (needed - 1)) for index in range(needed))
+            indices = tuple(
+                round(index * last / (needed - 1)) for index in range(needed)
+            )
             selected = tuple(interior[index] for index in indices)
         return (self._BEATS[0], *selected, self._BEATS[-1])
 
