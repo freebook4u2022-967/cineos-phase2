@@ -83,9 +83,7 @@ def _probe_video_artifact(output_path: str | Path) -> dict[str, Any]:
 
     if completed.returncode != 0:
         detail = completed.stderr.strip() or "unknown ffprobe error"
-        raise Wan22ExecutionError(
-            f"production artifact media probe failed: {detail}"
-        )
+        raise Wan22ExecutionError(f"production artifact media probe failed: {detail}")
 
     try:
         payload = json.loads(completed.stdout)
@@ -122,9 +120,7 @@ def _probe_video_artifact(output_path: str | Path) -> dict[str, Any]:
         ) from exc
 
     if width <= 0 or height <= 0 or decoded_frame_count <= 0:
-        raise Wan22ExecutionError(
-            "production artifact media evidence must be positive"
-        )
+        raise Wan22ExecutionError("production artifact media evidence must be positive")
     if not math.isfinite(fps) or fps <= 0:
         raise Wan22ExecutionError(
             "production artifact media evidence contains an invalid frame rate"
