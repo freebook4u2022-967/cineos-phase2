@@ -14,7 +14,25 @@ def _receipt(*, device: str = "cuda") -> dict:
         "foundation_profile": WAN22_TI2V_5B_PROFILE.snapshot(),
         "artifact": {"sha256": "a" * 64},
         "request_hash": "b" * 64,
+        "output_path": "/tmp/fake-wan22-production.mp4",
     }
+
+
+@pytest.fixture(autouse=True)
+def _stub_artifact_media_probe(monkeypatch):
+    monkeypatch.setattr(
+        production,
+        "_probe_video_artifact",
+        lambda output_path: {
+            "probe": "ffprobe-count-frames",
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 704,
+            "avg_frame_rate": "24",
+            "fps": 24.0,
+            "decoded_frame_count": 121,
+        },
+    )
 
 
 def test_production_gate_rejects_non_cuda_before_execution(monkeypatch, tmp_path):
@@ -65,6 +83,7 @@ def test_production_receipt_explicitly_classifies_external_foundation(
     )
 
     evidence = receipt["execution_evidence"]
+    assert evidence["schema"] == "cineos-wan22-production-execution/1.2"
     assert evidence["classification"] == "external_pretrained_foundation"
     assert evidence["foundation_profile_id"] == WAN22_TI2V_5B_PROFILE.profile_id
     assert evidence["foundation_model_id"] == WAN22_TI2V_5B_PROFILE.provenance.model_id
@@ -75,6 +94,10 @@ def test_production_receipt_explicitly_classifies_external_foundation(
     assert evidence["injected_pipeline_factory"] is False
     assert evidence["injected_video_exporter"] is False
     assert evidence["cuda_required"] is True
+    assert evidence["artifact_media"]["decoded_frame_count"] == 121
+    assert evidence["artifact_media"]["width"] == 1280
+    assert evidence["artifact_media"]["height"] == 704
+    assert evidence["artifact_media"]["fps"] == 24.0
 
 
 def test_production_gate_rejects_foundation_origin_drift(monkeypatch, tmp_path):
@@ -172,5 +195,102 @@ def test_production_gate_rejects_invalid_request_hash_binding(monkeypatch, tmp_p
     with pytest.raises(Wan22ExecutionError, match="request hash"):
         production.run_wan22_production_validation(
             Wan22ExecutionConfig(prompt="cinematic close-up"),
+            output_dir=tmp_path,
+        )
+
+
+def test_production_gate_rejects_missing_rendered_output_path(monkeypatch, tmp_path):
+    receipt = _receipt()
+    receipt.pop("output_path")
+    monkeypatch.setattr(
+        production,
+        "run_wan22_gpu_validation",
+        lambda *args, **kwargs: receipt,
+    )
+
+    with pytest.raises(Wan22ExecutionError, match="rendered output path"):
+        production.run_wan22_production_validation(
+            Wan22ExecutionConfig(prompt="cinematic close-up"),
+            output_dir=tmp_path,
+        )
+
+
+def test_production_gate_rejects_encoded_geometry_drift(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        production,
+        "run_wan22_gpu_validation",
+        lambda *args, **kwargs: _receipt(),
+    )
+    monkeypatch.setattr(
+        production,
+        "_probe_video_artifact",
+        lambda output_path: {
+            "probe": "ffprobe-count-frames",
+            "codec_name": "h264",
+            "width": 960,
+            "height": 544,
+            "avg_frame_rate": "24",
+            "fps": 24.0,
+            "decoded_frame_count": 121,
+        },
+    )
+
+    with pytest.raises(Wan22ExecutionError, match="geometry"):
+        production.run_wan22_production_validation(
+            Wan22ExecutionConfig(prompt="fast tracking shot"),
+            output_dir=tmp_path,
+        )
+
+
+def test_production_gate_rejects_encoded_frame_rate_drift(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        production,
+        "run_wan22_gpu_validation",
+        lambda *args, **kwargs: _receipt(),
+    )
+    monkeypatch.setattr(
+        production,
+        "_probe_video_artifact",
+        lambda output_path: {
+            "probe": "ffprobe-count-frames",
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 704,
+            "avg_frame_rate": "25",
+            "fps": 25.0,
+            "decoded_frame_count": 121,
+        },
+    )
+
+    with pytest.raises(Wan22ExecutionError, match="frame rate"):
+        production.run_wan22_production_validation(
+            Wan22ExecutionConfig(prompt="fast tracking shot"),
+            output_dir=tmp_path,
+        )
+
+
+def test_production_gate_rejects_decoded_frame_count_drift(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        production,
+        "run_wan22_gpu_validation",
+        lambda *args, **kwargs: _receipt(),
+    )
+    monkeypatch.setattr(
+        production,
+        "_probe_video_artifact",
+        lambda output_path: {
+            "probe": "ffprobe-count-frames",
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 704,
+            "avg_frame_rate": "24",
+            "fps": 24.0,
+            "decoded_frame_count": 120,
+        },
+    )
+
+    with pytest.raises(Wan22ExecutionError, match="decoded frame count"):
+        production.run_wan22_production_validation(
+            Wan22ExecutionConfig(prompt="fast tracking shot"),
             output_dir=tmp_path,
         )
