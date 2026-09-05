@@ -169,7 +169,7 @@ def _explicit_trim_filter(durations: list[float], *, crossfade: float = 0.0) -> 
         label = f"v{index}"
         chains.append(
             f"[{index}:v:0]trim=start=0:duration={duration:.6f},"
-            f"setpts=PTS-STARTPTS[{label}]"
+            f"settb=AVTB,setpts=PTS-STARTPTS[{label}]"
         )
         labels.append(label)
 
