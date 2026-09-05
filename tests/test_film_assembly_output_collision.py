@@ -63,7 +63,9 @@ def test_rejects_output_hard_link_to_approved_audio(tmp_path: Path, monkeypatch)
     output.hardlink_to(audio)
     monkeypatch.setattr(
         "cineos.film.assembly._ffmpeg",
-        lambda: pytest.fail("FFmpeg must not run when output hard-links approved audio"),
+        lambda: pytest.fail(
+            "FFmpeg must not run when output hard-links approved audio"
+        ),
     )
 
     with pytest.raises(AssemblyError, match="output must be distinct"):
