@@ -47,17 +47,37 @@ class FirstFilmPackage:
 
 
 class FastTrackAutoDirector:
-    """Deterministic minimum viable director for FIRST FILM validation.
+    """Deterministic short-drama director for connected-film validation.
 
-    It creates a three-beat short-drama grammar (setup, escalation, payoff)
-    while preserving stable character identifiers across every shot. A future
-    story model can replace this director without changing the renderer/QC path.
+    The default three-shot grammar is preserved for backwards compatibility, while
+    production benchmark callers can request 5-10 connected shots. Every generated
+    shot preserves the same stable character identifiers and continuity key so the
+    renderer/QC path can exercise temporal and identity persistence across a longer
+    film instead of validating only isolated clips.
     """
 
-    def __init__(self, *, shot_duration: float = 4.0) -> None:
+    _BEATS = (
+        ("setup", "Establish the world, protagonist and immediate objective."),
+        ("inciting_action", "Trigger a visible event that forces the protagonist to act."),
+        ("escalation", "Introduce a visible obstacle and raise urgency."),
+        ("interaction", "Force a character or object interaction that changes the situation."),
+        ("movement", "Advance the action through purposeful walking or running."),
+        ("reversal", "Reveal a setback or reversal while preserving spatial continuity."),
+        ("pressure", "Increase pressure with stronger movement, blocking or camera energy."),
+        ("choice", "Make the protagonist perform a clear consequential choice."),
+        ("resolution", "Resolve the immediate dramatic conflict through visible action."),
+        ("payoff", "End on a strong final image that preserves character identity."),
+    )
+
+    def __init__(self, *, shot_duration: float = 4.0, shot_count: int = 3) -> None:
         if shot_duration <= 0:
             raise ValueError("shot_duration must be positive")
+        if isinstance(shot_count, bool) or not isinstance(shot_count, int):
+            raise ValueError("shot_count must be an integer")
+        if shot_count < 3 or shot_count > len(self._BEATS):
+            raise ValueError("shot_count must be between 3 and 10")
         self.shot_duration = float(shot_duration)
+        self.shot_count = shot_count
 
     def direct(
         self,
@@ -76,16 +96,10 @@ class FastTrackAutoDirector:
         if any(not item for item in ids) or len(set(ids)) != len(ids):
             raise ValueError("character IDs must be non-empty and unique")
 
-        beats = (
-            ("setup", "Establish the world, protagonist and immediate objective."),
-            ("escalation", "Introduce a visible obstacle and raise urgency."),
-            (
-                "payoff",
-                "Resolve the immediate dramatic question with a strong final image.",
-            ),
-        )
+        beats = self._selected_beats()
         shots: list[dict[str, Any]] = []
         order: list[str] = []
+        continuity_key = "scene-001:" + ":".join(ids)
         for index, (beat, instruction) in enumerate(beats, start=1):
             shot_id = f"shot-{index:03d}"
             order.append(shot_id)
@@ -97,7 +111,7 @@ class FastTrackAutoDirector:
                     "beat": beat,
                     "prompt": f"{text} {instruction}",
                     "character_ids": tuple(ids),
-                    "continuity_key": "scene-001:" + ":".join(ids),
+                    "continuity_key": continuity_key,
                 }
             )
         return FirstFilmPackage(
@@ -117,6 +131,25 @@ class FastTrackAutoDirector:
                 for item in cast
             ),
         )
+
+    def _selected_beats(self) -> tuple[tuple[str, str], ...]:
+        """Return a coherent arc while preserving the historical 3-shot grammar."""
+        if self.shot_count == 3:
+            return (self._BEATS[0], self._BEATS[2], self._BEATS[-1])
+        if self.shot_count == len(self._BEATS):
+            return self._BEATS
+
+        # Keep setup/payoff fixed and distribute intermediate dramatic challenges
+        # over the available grammar without duplicate beats.
+        interior = self._BEATS[1:-1]
+        needed = self.shot_count - 2
+        if needed == 1:
+            selected = (interior[len(interior) // 2],)
+        else:
+            last = len(interior) - 1
+            indices = tuple(round(index * last / (needed - 1)) for index in range(needed))
+            selected = tuple(interior[index] for index in indices)
+        return (self._BEATS[0], *selected, self._BEATS[-1])
 
 
 def _resume_contract(
@@ -204,14 +237,16 @@ class FirstFilmRunner:
         project_id: str = "cineos-first-film",
         package_id: str = "first-film",
         shot_duration: float = 4.0,
+        shot_count: int = 3,
         audio_tracks: list[AudioTrack] | None = None,
         dry_run: bool = False,
         resume: bool = False,
         checkpoint_path: str | Path | None = None,
     ) -> FilmBuild:
-        package = FastTrackAutoDirector(shot_duration=shot_duration).direct(
-            premise, characters, package_id=package_id
-        )
+        package = FastTrackAutoDirector(
+            shot_duration=shot_duration,
+            shot_count=shot_count,
+        ).direct(premise, characters, package_id=package_id)
         build = FilmBuild(
             project_id=project_id,
             film_package_id=package.package_id,
@@ -227,6 +262,7 @@ class FirstFilmRunner:
             "character_ids": [
                 item["character_id"] for item in package.character_manifest
             ],
+            "shot_count": len(package.shot_manifest),
             "critical_path": [
                 "auto_director",
                 "continuity_lock",
