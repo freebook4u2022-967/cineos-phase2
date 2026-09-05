@@ -69,7 +69,9 @@ def test_production_receipt_explicitly_classifies_external_foundation(
     assert evidence["foundation_profile_id"] == WAN22_TI2V_5B_PROFILE.profile_id
     assert evidence["foundation_model_id"] == WAN22_TI2V_5B_PROFILE.provenance.model_id
     assert evidence["foundation_revision"] == WAN22_TI2V_5B_PROFILE.provenance.revision
-    assert evidence["foundation_license_id"] == WAN22_TI2V_5B_PROFILE.provenance.license_id
+    assert (
+        evidence["foundation_license_id"] == WAN22_TI2V_5B_PROFILE.provenance.license_id
+    )
     assert evidence["injected_pipeline_factory"] is False
     assert evidence["injected_video_exporter"] is False
     assert evidence["cuda_required"] is True

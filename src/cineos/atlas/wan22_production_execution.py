@@ -91,8 +91,12 @@ def _validate_foundation_receipt(receipt: dict[str, Any], *, device: str) -> Non
         raise Wan22ExecutionError(
             "production execution receipt is missing artifact evidence"
         )
-    _require_hex_digest(artifact.get("sha256"), length=64, label="SHA-256 artifact binding")
-    _require_hex_digest(receipt.get("request_hash"), length=64, label="request hash binding")
+    _require_hex_digest(
+        artifact.get("sha256"), length=64, label="SHA-256 artifact binding"
+    )
+    _require_hex_digest(
+        receipt.get("request_hash"), length=64, label="request hash binding"
+    )
 
 
 def run_wan22_production_validation(
