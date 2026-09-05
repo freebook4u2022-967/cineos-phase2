@@ -33,7 +33,9 @@ def _request(index: int) -> NativeShotRequest:
 def _write_manifest(tmp_path, shot_count: int):
     source = tmp_path / f"requests-{shot_count}.json"
     source.write_text(
-        json.dumps({"shots": [_request(index).to_dict() for index in range(shot_count)]}),
+        json.dumps(
+            {"shots": [_request(index).to_dict() for index in range(shot_count)]}
+        ),
         encoding="utf-8",
     )
     return source
@@ -70,7 +72,9 @@ def test_direct_production_runner_rejects_invalid_count_before_qc_model_load(
         qc_loaded = True
         return object()
 
-    monkeypatch.setattr(cli, "_production_quality_evaluator", unexpected_quality_evaluator)
+    monkeypatch.setattr(
+        cli, "_production_quality_evaluator", unexpected_quality_evaluator
+    )
 
     with pytest.raises(
         GPUProductionBenchmarkCLIError,
