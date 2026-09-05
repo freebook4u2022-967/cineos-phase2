@@ -25,7 +25,9 @@ def test_explicit_edit_rejects_known_frame_starvation() -> None:
         )
 
 
-def test_explicit_edit_allows_one_frame_probe_tolerance_without_lowering_expectation() -> None:
+def test_explicit_edit_allows_one_frame_probe_tolerance_without_lowering_expectation() -> (
+    None
+):
     shot_media = {"shot-1": {"decoded_frame_count": 47}}
 
     result = _expected_timeline_frame_count(
@@ -40,7 +42,9 @@ def test_explicit_edit_allows_one_frame_probe_tolerance_without_lowering_expecta
     assert result["expected_per_shot_decoded_frame_counts"] == [48]
 
 
-def test_explicit_edit_keeps_approved_expectation_when_source_count_is_unavailable() -> None:
+def test_explicit_edit_keeps_approved_expectation_when_source_count_is_unavailable() -> (
+    None
+):
     shot_media = {"shot-1": {"decoded_frame_count": None}}
 
     result = _expected_timeline_frame_count(
