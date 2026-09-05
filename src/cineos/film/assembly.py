@@ -22,6 +22,16 @@ def _ffmpeg() -> str:
     return executable
 
 
+def _paths_alias(left: Path, right: Path) -> bool:
+    """Return true when two paths name the same filesystem object."""
+    if left == right:
+        return True
+    try:
+        return left.exists() and right.exists() and left.samefile(right)
+    except OSError:
+        return False
+
+
 def _reject_output_collision(
     destination: Path,
     *,
@@ -32,7 +42,7 @@ def _reject_output_collision(
     protected_inputs = set(sources)
     if audio_source is not None:
         protected_inputs.add(audio_source)
-    if destination in protected_inputs:
+    if any(_paths_alias(destination, source) for source in protected_inputs):
         raise AssemblyError(
             "assembly output must be distinct from every source video and approved audio "
             "artifact"
@@ -183,7 +193,8 @@ def assemble(
     audio can never terminate the video timeline. Production audio is normalized to
     the 48 kHz film/video delivery rate. The output path must never alias an input
     video or approved audio artifact, protecting evidence-bound assets from FFmpeg's
-    destructive ``-y`` overwrite behavior.
+    destructive ``-y`` overwrite behavior. Filesystem aliases such as hard links are
+    treated as collisions even when their path strings differ.
     """
     if not shots:
         raise AssemblyError("cannot assemble an empty timeline")
