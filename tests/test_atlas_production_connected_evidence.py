@@ -169,7 +169,7 @@ def test_accepts_only_unified_runtime_quality_and_continuity_evidence(tmp_path) 
     assert evidence.transition_quality_valid is True
     assert evidence.shot_count == 5
     assert len(evidence.continuity_provenance) == 5
-    assert evidence.to_dict()["schema"] == "cineos-production-connected-evidence/0.3"
+    assert evidence.to_dict()["schema"] == "cineos-production-connected-evidence/0.4"
     assert evidence.to_dict()["accepted"] is True
     assert evidence.to_dict()["transition_quality_valid"] is True
     assert production_connected_evidence(benchmark) is True
@@ -312,6 +312,46 @@ def test_rejects_non_finite_or_out_of_range_transition_metrics(value, tmp_path) 
         validate_production_connected_evidence(benchmark)
 
 
+@pytest.mark.parametrize(
+    ("metric", "value", "message"),
+    [
+        ("visual_seam_similarity", 0.779, "visual_seam_similarity"),
+        ("motion_boundary_consistency", 0.719, "motion_boundary_consistency"),
+    ],
+)
+def test_rejects_accepted_transition_below_production_floor(
+    metric: str,
+    value: float,
+    message: str,
+    tmp_path,
+) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    transition = _transitions(payload)[0]
+    metrics = transition["metrics"]
+    assert isinstance(metrics, dict)
+    metrics[metric] = value
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(ProductionConnectedEvidenceError, match=message):
+        validate_production_connected_evidence(benchmark)
+
+    assert production_connected_evidence(benchmark) is False
+
+
+def test_accepts_transition_exactly_at_production_floors(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    transition = _transitions(payload)[0]
+    metrics = transition["metrics"]
+    assert isinstance(metrics, dict)
+    metrics["visual_seam_similarity"] = 0.78
+    metrics["motion_boundary_consistency"] = 0.72
+    _write_manifest(benchmark, payload)
+
+    assert validate_production_connected_evidence(benchmark).accepted is True
+
+
 def test_rejects_accepted_transition_that_still_lists_failed_metrics(tmp_path) -> None:
     benchmark = _benchmark(tmp_path)
     payload = _manifest_payload(benchmark)
@@ -321,6 +361,21 @@ def test_rejects_accepted_transition_that_still_lists_failed_metrics(tmp_path) -
     with pytest.raises(
         ProductionConnectedEvidenceError,
         match="accepted report contains failed metrics",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_accepted_transition_with_unresolved_rerender_directives(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    _transitions(payload)[0]["directives"] = [
+        "preserve physically coherent motion across the shot boundary"
+    ]
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="unresolved rerender directives",
     ):
         validate_production_connected_evidence(benchmark)
 
