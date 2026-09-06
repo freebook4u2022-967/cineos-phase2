@@ -62,6 +62,9 @@ extend-exclude = ["colab/CINEOS-Mission-One.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+# Black owns structural line wrapping. E501 also flags long strings/comments that Black
+# intentionally leaves unchanged, so enforcing it here makes the two format gates conflict.
+ignore = ["E501"]
 
 [tool.black]
 target-version = ["py312"]
