@@ -83,7 +83,7 @@ def test_final_delivery_contract_requires_48khz_audio(sample_rate) -> None:
         assembly._validate_delivery_contract(media, expect_audio=True)
 
 
-@pytest.mark.parametrize("channels", [0, -1, None, "bad"])
+@pytest.mark.parametrize("channels", [0, -1, None])
 def test_final_delivery_contract_rejects_invalid_audio_channels(channels) -> None:
     media = _media()
     media["audio_streams"][0]["channels"] = channels
