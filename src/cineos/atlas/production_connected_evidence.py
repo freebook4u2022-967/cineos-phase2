@@ -9,6 +9,7 @@ measured cross-shot transition QC all refer to the same accepted render receipts
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ from .connected_continuity_evidence import (
     validate_connected_visual_continuity,
 )
 from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
+from .transition_quality import TRANSITION_QUALITY_SCHEMA
 
 
 class ProductionConnectedEvidenceError(RuntimeError):
@@ -51,7 +53,7 @@ class ProductionConnectedEvidence:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-production-connected-evidence/0.2",
+            "schema": "cineos-production-connected-evidence/0.3",
             "benchmark_id": self.benchmark_id,
             "profile_id": self.profile_id,
             "origin": self.origin,
@@ -72,6 +74,20 @@ def _required_text(value: Any, *, field: str) -> str:
             f"production transition evidence requires {field}"
         )
     return value.strip()
+
+
+def _required_unit_metric(value: Any, *, field: str, index: int) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ProductionConnectedEvidenceError(
+            f"production transition evidence {index} metric {field} must be numeric"
+        )
+    normalized = float(value)
+    if not math.isfinite(normalized) or not 0.0 <= normalized <= 1.0:
+        raise ProductionConnectedEvidenceError(
+            f"production transition evidence {index} metric {field} must be finite "
+            "and between 0 and 1"
+        )
+    return normalized
 
 
 def _validate_transition_quality_manifest(
@@ -121,6 +137,10 @@ def _validate_transition_quality_manifest(
             raise ProductionConnectedEvidenceError(
                 f"production transition evidence {index} must be a mapping"
             )
+        if report.get("schema") != TRANSITION_QUALITY_SCHEMA:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} has unsupported schema"
+            )
         if report.get("production_measurement_evidence") is not True:
             raise ProductionConnectedEvidenceError(
                 f"production transition evidence {index} is not measured evidence"
@@ -138,6 +158,28 @@ def _validate_transition_quality_manifest(
         ):
             raise ProductionConnectedEvidenceError(
                 f"production transition evidence {index} has no measured samples"
+            )
+
+        metrics = report.get("metrics")
+        if not isinstance(metrics, Mapping):
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} requires measured metrics"
+            )
+        _required_unit_metric(
+            metrics.get("visual_seam_similarity"),
+            field="visual_seam_similarity",
+            index=index,
+        )
+        _required_unit_metric(
+            metrics.get("motion_boundary_consistency"),
+            field="motion_boundary_consistency",
+            index=index,
+        )
+        failed_metrics = report.get("failed_metrics")
+        if not isinstance(failed_metrics, list) or failed_metrics:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} accepted report contains "
+                "failed metrics"
             )
 
         previous_receipt = benchmark.shot_receipts[index]
