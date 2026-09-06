@@ -38,7 +38,9 @@ def test_postflight_rejects_truncated_timeline(monkeypatch: pytest.MonkeyPatch) 
         )
 
 
-def test_postflight_rejects_missing_approved_audio(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postflight_rejects_missing_approved_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(assembly, "probe_media", lambda _path: _media(audio=0))
 
     with pytest.raises(AssemblyError, match="audio topology"):
@@ -56,7 +58,9 @@ def test_postflight_rejects_unexpected_audio(monkeypatch: pytest.MonkeyPatch) ->
         )
 
 
-def test_postflight_rejects_multiple_video_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postflight_rejects_multiple_video_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(assembly, "probe_media", lambda _path: _media(video=2))
 
     with pytest.raises(AssemblyError, match="exactly one video stream"):
