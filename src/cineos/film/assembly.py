@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from .exceptions import AssemblyError
-from .media_probe import MediaProbeError, probe_media
+from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
 
 MAX_APPROVED_AUDIO_SHORTFALL_SECONDS = 0.75
 MAX_ASSEMBLED_DURATION_DRIFT_SECONDS = 0.25
+MIN_ASSEMBLED_AUDIO_PEAK_DB = -110.0
 
 
 def _ffmpeg() -> str:
@@ -173,9 +174,10 @@ def _postflight_output(
     FFmpeg process success is not sufficient evidence that the destination contains the
     requested film. Independently decode/probe the resulting artifact and bind acceptance
     to one video stream, positive decoded-frame evidence, the expected audio topology,
-    and the authoritative visual timeline. This catches truncated, mis-muxed,
-    stream-selection, and zero-picture failures that can otherwise leave a plausible
-    non-empty container behind.
+    the authoritative visual timeline, and (when audio is requested) measurable decoded
+    soundtrack signal. This catches truncated, mis-muxed, silent-audio, stream-selection,
+    and zero-picture failures that can otherwise leave a plausible non-empty container
+    behind.
     """
     try:
         media = probe_media(destination)
@@ -222,6 +224,28 @@ def _postflight_output(
             f"({actual_duration:.3f}s encoded vs {expected_duration:.3f}s expected; "
             f"tolerance {tolerance:.3f}s)"
         )
+
+    if expect_audio:
+        try:
+            signal = probe_audio_signal(destination)
+        except MediaProbeError as exc:
+            raise AssemblyError(
+                f"assembled output audio-signal postflight failed: {exc}"
+            ) from exc
+        try:
+            mean_volume_db = float(signal.get("mean_volume_db"))
+            max_volume_db = float(signal.get("max_volume_db"))
+        except (TypeError, ValueError):
+            raise AssemblyError("assembled output has malformed audio-signal evidence")
+        if not math.isfinite(mean_volume_db) or not math.isfinite(max_volume_db):
+            raise AssemblyError("assembled output has non-finite audio-signal evidence")
+        if max_volume_db <= MIN_ASSEMBLED_AUDIO_PEAK_DB:
+            raise AssemblyError(
+                "assembled output soundtrack contains no measurable signal "
+                f"(peak {max_volume_db:.1f} dB; required > "
+                f"{MIN_ASSEMBLED_AUDIO_PEAK_DB:.1f} dB)"
+            )
+
     return media
 
 
