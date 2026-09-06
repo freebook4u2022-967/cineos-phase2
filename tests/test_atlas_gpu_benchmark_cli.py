@@ -13,7 +13,6 @@ from cineos.atlas.gpu_benchmark_cli import (
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.production_multi_reference import ProductionReferenceBoardAdapter
 
-
 _DEFAULT_REFERENCE_IDS = (
     "lead-approved-reference",
     "partner-approved-reference",
