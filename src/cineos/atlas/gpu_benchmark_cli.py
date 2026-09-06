@@ -360,7 +360,9 @@ def _validate_challenge_structure(
                 "hand/gesture performance conditioning"
             )
 
-        if "lighting_changes" in tags and not _has_lighting_change_conditioning(request):
+        if "lighting_changes" in tags and not _has_lighting_change_conditioning(
+            request
+        ):
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} declares lighting_changes but contains no explicit "
                 "lighting-transition conditioning"
