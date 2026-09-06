@@ -18,7 +18,9 @@ def _valid_media(*, audio_stream_count: int) -> dict[str, object]:
     }
 
 
-def test_postflight_audio_requires_measurable_decoded_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postflight_audio_requires_measurable_decoded_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     destination = Path("film.mp4")
     monkeypatch.setattr(
         assembly,
@@ -40,7 +42,9 @@ def test_postflight_audio_requires_measurable_decoded_signal(monkeypatch: pytest
     assert media["audio_stream_count"] == 1
 
 
-def test_postflight_rejects_digitally_silent_soundtrack(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postflight_rejects_digitally_silent_soundtrack(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     destination = Path("film.mp4")
     monkeypatch.setattr(
         assembly,
@@ -61,7 +65,9 @@ def test_postflight_rejects_digitally_silent_soundtrack(monkeypatch: pytest.Monk
         )
 
 
-def test_postflight_rejects_non_finite_audio_signal_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postflight_rejects_non_finite_audio_signal_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     destination = Path("film.mp4")
     monkeypatch.setattr(
         assembly,
@@ -82,7 +88,9 @@ def test_postflight_rejects_non_finite_audio_signal_evidence(monkeypatch: pytest
         )
 
 
-def test_postflight_fails_closed_when_audio_signal_probe_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postflight_fails_closed_when_audio_signal_probe_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     destination = Path("film.mp4")
     monkeypatch.setattr(
         assembly,
@@ -103,7 +111,9 @@ def test_postflight_fails_closed_when_audio_signal_probe_fails(monkeypatch: pyte
         )
 
 
-def test_video_only_postflight_does_not_probe_audio_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_video_only_postflight_does_not_probe_audio_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     destination = Path("film.mp4")
     monkeypatch.setattr(
         assembly,
@@ -112,7 +122,9 @@ def test_video_only_postflight_does_not_probe_audio_signal(monkeypatch: pytest.M
     )
 
     def unexpected_probe(_path: Path) -> dict[str, float]:
-        raise AssertionError("video-only output must not invoke audio signal inspection")
+        raise AssertionError(
+            "video-only output must not invoke audio signal inspection"
+        )
 
     monkeypatch.setattr(assembly, "probe_audio_signal", unexpected_probe)
 
