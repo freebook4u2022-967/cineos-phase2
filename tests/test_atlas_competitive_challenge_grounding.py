@@ -11,12 +11,15 @@ def _request(index: int) -> NativeShotRequest:
         scene_id="scene-motion-grounding",
         camera={"movement": "tracking"},
         characters=[{"character_id": "lead"}, {"character_id": "partner"}],
-        environment={"location": "street"},
+        environment={"location": "street", "lighting": "day_to_night transition"},
         wardrobe=[],
-        props=[{"prop_id": "case"}],
+        props=[{"prop_id": "case", "action": "throwing"}],
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
         performance={
-            "action": "walk",
+            "action": "walk while throwing case",
+            "gesture_tracks": [
+                {"character_id": "lead", "action": "gripping with both hands"}
+            ],
             "dialogue_timing": [
                 {"speaker_id": "lead", "start_seconds": 0.2, "end_seconds": 1.0}
             ],
@@ -38,13 +41,13 @@ def _requests() -> list[NativeShotRequest]:
     return [_request(index) for index in range(5)]
 
 
-def test_connected_challenge_grounding_accepts_explicit_walk_and_tracking_motion():
+def test_connected_challenge_grounding_accepts_explicit_difficult_conditioning():
     cli._validate_connected_sequence(_requests())
 
 
 def test_walking_running_challenge_rejects_non_locomotion_action():
     requests = _requests()
-    requests[0].performance["action"] = "stand and talk"
+    requests[0].performance["action"] = "stand and throw case"
     requests[0].refresh_hash()
 
     with pytest.raises(GPUProductionBenchmarkCLIError, match="no explicit walk/run"):
@@ -53,7 +56,7 @@ def test_walking_running_challenge_rejects_non_locomotion_action():
 
 def test_walking_running_challenge_accepts_native_body_performance_track():
     requests = _requests()
-    requests[0].performance["action"] = "dialogue"
+    requests[0].performance["action"] = "throw case"
     requests[0].performance["body_performance_tracks"] = [
         {"character_id": "lead", "action": "sprinting"}
     ]
@@ -69,3 +72,60 @@ def test_fast_camera_challenge_rejects_static_camera_conditioning():
 
     with pytest.raises(GPUProductionBenchmarkCLIError, match="non-static camera"):
         cli._validate_connected_sequence(requests)
+
+
+def test_hands_anatomy_challenge_rejects_missing_hand_or_gesture_conditioning():
+    requests = _requests()
+    requests[0].performance["gesture_tracks"] = []
+    requests[0].performance["action"] = "walk while throwing case"
+    requests[0].props = [{"prop_id": "case", "action": "throwing"}]
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="hand/gesture"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_hands_anatomy_challenge_accepts_explicit_reaching_action():
+    requests = _requests()
+    requests[0].performance["gesture_tracks"] = []
+    requests[0].performance["action"] = "walk, reach, and throw case"
+    requests[0].refresh_hash()
+
+    cli._validate_connected_sequence(requests)
+
+
+def test_lighting_changes_challenge_rejects_static_lighting_description():
+    requests = _requests()
+    requests[0].environment = {"location": "street", "lighting": "daylight"}
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="lighting-transition"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_lighting_changes_challenge_accepts_metadata_transition():
+    requests = _requests()
+    requests[0].environment = {"location": "street", "lighting": "daylight"}
+    requests[0].metadata["lighting_transition"] = "sunset"
+    requests[0].refresh_hash()
+
+    cli._validate_connected_sequence(requests)
+
+
+def test_physics_challenge_rejects_static_prop_presence():
+    requests = _requests()
+    requests[0].performance["action"] = "walk while holding case"
+    requests[0].props = [{"prop_id": "case"}]
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="physical-interaction"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_physics_challenge_accepts_explicit_dynamic_prop_action():
+    requests = _requests()
+    requests[0].performance["action"] = "walk while holding case"
+    requests[0].props = [{"prop_id": "case", "action": "dropping"}]
+    requests[0].refresh_hash()
+
+    cli._validate_connected_sequence(requests)
