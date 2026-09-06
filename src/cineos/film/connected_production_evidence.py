@@ -27,7 +27,7 @@ from .production_assembly import PRODUCTION_EVIDENCE_SCHEMA
 from .validator import file_hash
 
 CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA = (
-    "cineos-connected-production-film-evidence/0.1"
+    "cineos-connected-production-film-evidence/0.2"
 )
 
 
@@ -136,6 +136,7 @@ def _validate_shot_binding(
             "production assembly shot list does not match connected benchmark"
         )
 
+    seen_evidence_hashes: set[str] = set()
     for index, (shot, receipt) in enumerate(zip(shots, benchmark.shot_receipts)):
         result = getattr(receipt, "result", None)
         if result is None:
@@ -165,6 +166,17 @@ def _validate_shot_binding(
             raise ConnectedProductionFilmEvidenceError(
                 f"production assembly shot {index} artifact does not match connected benchmark"
             )
+
+        evidence_sha = _required_sha256(
+            shot.get("evidence_sha256"),
+            field=f"assembly shot {index} evidence SHA-256",
+        )
+        if evidence_sha in seen_evidence_hashes:
+            raise ConnectedProductionFilmEvidenceError(
+                f"production assembly shot {index} reuses QC evidence from another shot"
+            )
+        seen_evidence_hashes.add(evidence_sha)
+
         if shot.get("index") != index:
             raise ConnectedProductionFilmEvidenceError(
                 f"production assembly shot {index} has invalid timeline index"
