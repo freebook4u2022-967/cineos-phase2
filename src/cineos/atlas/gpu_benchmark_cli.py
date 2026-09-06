@@ -50,6 +50,30 @@ REQUIRED_COMPETITIVE_CHALLENGES = frozenset(
 )
 COMPETITIVE_CHALLENGE_METADATA_KEY = "competitive_challenges"
 
+_LOCOMOTION_TERMS = frozenset(
+    {
+        "walk",
+        "walking",
+        "run",
+        "running",
+        "jog",
+        "jogging",
+        "sprint",
+        "sprinting",
+    }
+)
+_STATIC_CAMERA_TERMS = frozenset(
+    {
+        "static",
+        "locked",
+        "locked_off",
+        "locked-off",
+        "tripod",
+        "still",
+        "none",
+    }
+)
+
 
 def _validate_connected_shot_count(requests: Sequence[NativeShotRequest]) -> None:
     """Fail closed unless the production benchmark contains exactly 5-10 shots."""
@@ -131,6 +155,42 @@ def _challenge_tags(request: NativeShotRequest, *, index: int) -> frozenset[str]
     return frozenset(tags)
 
 
+def _normalized_terms(value: Any) -> set[str]:
+    """Extract conservative lower-case action tokens from benchmark conditioning."""
+
+    terms: set[str] = set()
+    if isinstance(value, str):
+        normalized = value.strip().lower().replace("-", "_")
+        if normalized:
+            terms.add(normalized)
+            terms.update(normalized.replace("_", " ").split())
+    elif isinstance(value, Mapping):
+        for nested in value.values():
+            terms.update(_normalized_terms(nested))
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        for nested in value:
+            terms.update(_normalized_terms(nested))
+    return terms
+
+
+def _has_locomotion_conditioning(request: NativeShotRequest) -> bool:
+    """Return true only when native performance conditioning asks for walk/run motion."""
+
+    action_terms = _normalized_terms(request.performance.get("action"))
+    body_terms = _normalized_terms(request.performance.get("body_performance_tracks", []))
+    return bool((action_terms | body_terms) & _LOCOMOTION_TERMS)
+
+
+def _has_camera_motion_conditioning(request: NativeShotRequest) -> bool:
+    """Require an explicit non-static camera movement for the camera stressor."""
+
+    raw_movement = request.camera.get("movement")
+    movement_terms = _normalized_terms(raw_movement)
+    if not movement_terms:
+        return False
+    return not movement_terms.issubset(_STATIC_CAMERA_TERMS)
+
+
 def _validate_challenge_structure(
     requests: Sequence[NativeShotRequest], challenge_tags: Sequence[frozenset[str]]
 ) -> None:
@@ -176,6 +236,18 @@ def _validate_challenge_structure(
                     f"shot {index} declares dialogue_lip_sync but contains no "
                     "dialogue_timing performance evidence"
                 )
+
+        if "walking_running" in tags and not _has_locomotion_conditioning(request):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} declares walking_running but contains no explicit "
+                "walk/run body-performance conditioning"
+            )
+
+        if "fast_camera_movement" in tags and not _has_camera_motion_conditioning(request):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} declares fast_camera_movement but contains no explicit "
+                "non-static camera-movement conditioning"
+            )
 
         if "identity_consistency" in tags:
             persistent_ids = {
