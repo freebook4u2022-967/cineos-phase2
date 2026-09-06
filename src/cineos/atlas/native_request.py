@@ -4,12 +4,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from cineos.conditioning import ConditioningPackage
 
 NATIVE_SHOT_SCHEMA = "cineos-native-shot-request/0.1"
+
+
+def _finite_positive_number(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a finite positive number")
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized <= 0.0:
+        raise ValueError(f"{field_name} must be a finite positive number")
+    return normalized
+
+
+def _finite_nonnegative_number(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a finite non-negative number")
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized < 0.0:
+        raise ValueError(f"{field_name} must be a finite non-negative number")
+    return normalized
 
 
 @dataclass(slots=True)
@@ -30,7 +49,64 @@ class NativeShotRequest:
     metadata: dict[str, Any] = field(default_factory=dict)
     content_hash: str = ""
 
+    def validate_timing_integrity(self) -> None:
+        """Fail closed on malformed timing before hashing or renderer execution.
+
+        Timing evidence is part of the native request contract because dialogue/lip-sync
+        and final-film continuity cannot be measured honestly when frame rate, shot
+        duration, or dialogue intervals are non-finite or outside the shot timeline.
+        Optional legacy fields remain optional; when supplied, they must be trustworthy.
+        """
+
+        duration_seconds: float | None = None
+        if "duration_seconds" in self.renderer_requirements:
+            duration_seconds = _finite_positive_number(
+                self.renderer_requirements["duration_seconds"],
+                field_name="renderer_requirements.duration_seconds",
+            )
+        if "fps" in self.renderer_requirements:
+            _finite_positive_number(
+                self.renderer_requirements["fps"],
+                field_name="renderer_requirements.fps",
+            )
+
+        dialogue_timing = self.performance.get("dialogue_timing")
+        if dialogue_timing in (None, []):
+            return
+        if not isinstance(dialogue_timing, list):
+            raise ValueError("performance.dialogue_timing must be a list when supplied")
+
+        for index, cue in enumerate(dialogue_timing):
+            if not isinstance(cue, dict):
+                raise ValueError(
+                    f"performance.dialogue_timing[{index}] must be a mapping"
+                )
+            speaker_id = cue.get("speaker_id")
+            if not isinstance(speaker_id, str) or not speaker_id.strip():
+                raise ValueError(
+                    f"performance.dialogue_timing[{index}].speaker_id must be non-empty"
+                )
+            start_seconds = _finite_nonnegative_number(
+                cue.get("start_seconds"),
+                field_name=f"performance.dialogue_timing[{index}].start_seconds",
+            )
+            end_seconds = _finite_nonnegative_number(
+                cue.get("end_seconds"),
+                field_name=f"performance.dialogue_timing[{index}].end_seconds",
+            )
+            if end_seconds <= start_seconds:
+                raise ValueError(
+                    f"performance.dialogue_timing[{index}] must have end_seconds "
+                    "greater than start_seconds"
+                )
+            if duration_seconds is not None and end_seconds > duration_seconds:
+                raise ValueError(
+                    f"performance.dialogue_timing[{index}] extends beyond the shot "
+                    "duration"
+                )
+
     def payload(self) -> dict[str, Any]:
+        self.validate_timing_integrity()
         data = asdict(self)
         data.pop("content_hash", None)
         return data
