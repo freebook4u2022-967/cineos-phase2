@@ -2,13 +2,16 @@
 
 This module does not claim that an external pretrained foundation is CINEOS-native.
 It verifies that CINEOS orchestration has produced a connected sequence whose GPU
-runtime provenance, measured visual QC, and artifact-bound continuity lineage all
-refer to the same accepted render receipts.
+runtime provenance, measured visual QC, artifact-bound continuity lineage, and
+measured cross-shot transition QC all refer to the same accepted render receipts.
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .connected_continuity_evidence import (
@@ -34,15 +37,21 @@ class ProductionConnectedEvidence:
     runtime_valid: bool
     quality_valid: bool
     continuity_valid: bool
+    transition_quality_valid: bool
     continuity_provenance: tuple[dict[str, Any], ...]
 
     @property
     def accepted(self) -> bool:
-        return self.runtime_valid and self.quality_valid and self.continuity_valid
+        return (
+            self.runtime_valid
+            and self.quality_valid
+            and self.continuity_valid
+            and self.transition_quality_valid
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-production-connected-evidence/0.1",
+            "schema": "cineos-production-connected-evidence/0.2",
             "benchmark_id": self.benchmark_id,
             "profile_id": self.profile_id,
             "origin": self.origin,
@@ -51,9 +60,122 @@ class ProductionConnectedEvidence:
             "runtime_valid": self.runtime_valid,
             "quality_valid": self.quality_valid,
             "continuity_valid": self.continuity_valid,
+            "transition_quality_valid": self.transition_quality_valid,
             "accepted": self.accepted,
             "continuity_provenance": list(self.continuity_provenance),
         }
+
+
+def _required_text(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ProductionConnectedEvidenceError(
+            f"production transition evidence requires {field}"
+        )
+    return value.strip()
+
+
+def _validate_transition_quality_manifest(
+    benchmark: GPUConnectedBenchmarkReceipt,
+) -> None:
+    """Require measured artifact-bound QC for every connected shot boundary."""
+
+    manifest = Path(benchmark.manifest_path)
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProductionConnectedEvidenceError(
+            "production connected evidence cannot read its benchmark manifest"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise ProductionConnectedEvidenceError(
+            "production connected benchmark manifest must be a JSON object"
+        )
+    if payload.get("chain_sha256") != benchmark.chain_sha256:
+        raise ProductionConnectedEvidenceError(
+            "production connected benchmark manifest chain hash does not match receipt"
+        )
+
+    gate = payload.get("quality_retry_gate")
+    if not isinstance(gate, Mapping):
+        raise ProductionConnectedEvidenceError(
+            "production connected evidence requires a transition quality gate"
+        )
+    if gate.get("transition_gate_applied") is not True:
+        raise ProductionConnectedEvidenceError(
+            "production connected evidence requires measured transition QC"
+        )
+
+    expected = len(benchmark.shot_receipts) - 1
+    if gate.get("accepted_transition_count") != expected:
+        raise ProductionConnectedEvidenceError(
+            "production transition evidence does not cover every shot boundary"
+        )
+    transitions = gate.get("accepted_transitions")
+    if not isinstance(transitions, list) or len(transitions) != expected:
+        raise ProductionConnectedEvidenceError(
+            "production transition evidence list does not cover every shot boundary"
+        )
+
+    for index, report in enumerate(transitions):
+        if not isinstance(report, Mapping):
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} must be a mapping"
+            )
+        if report.get("production_measurement_evidence") is not True:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} is not measured evidence"
+            )
+        if report.get("accepted") is not True:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} was not accepted"
+            )
+        _required_text(report.get("observer_id"), field="observer_id")
+        sample_count = report.get("measured_sample_count")
+        if (
+            not isinstance(sample_count, int)
+            or isinstance(sample_count, bool)
+            or sample_count <= 0
+        ):
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} has no measured samples"
+            )
+
+        previous_receipt = benchmark.shot_receipts[index]
+        current_receipt = benchmark.shot_receipts[index + 1]
+        previous_sha = _required_text(
+            getattr(previous_receipt, "output_sha256", None),
+            field="previous artifact SHA-256",
+        )
+        current_sha = _required_text(
+            getattr(current_receipt, "output_sha256", None),
+            field="current artifact SHA-256",
+        )
+        if report.get("previous_output_sha256") != previous_sha:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} predecessor hash mismatch"
+            )
+        if report.get("current_output_sha256") != current_sha:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} current artifact hash mismatch"
+            )
+
+        previous_result = getattr(previous_receipt, "result", None)
+        current_result = getattr(current_receipt, "result", None)
+        if previous_result is None or current_result is None:
+            raise ProductionConnectedEvidenceError(
+                "production transition evidence requires render result lineage"
+            )
+        expected_identity = {
+            "previous_scene_id": getattr(previous_result, "scene_id", None),
+            "previous_shot_id": getattr(previous_result, "shot_id", None),
+            "current_scene_id": getattr(current_result, "scene_id", None),
+            "current_shot_id": getattr(current_result, "shot_id", None),
+        }
+        for field, expected_value in expected_identity.items():
+            if report.get(field) != expected_value:
+                raise ProductionConnectedEvidenceError(
+                    f"production transition evidence {index} {field} mismatch"
+                )
 
 
 def validate_production_connected_evidence(
@@ -61,9 +183,10 @@ def validate_production_connected_evidence(
 ) -> ProductionConnectedEvidence:
     """Validate one benchmark as genuine connected production evidence.
 
-    The gate intentionally requires all three independent attestations:
-    default CUDA runtime provenance, artifact-bound measured QC for every accepted
-    shot, and cryptographically bound predecessor terminal-frame lineage.
+    The gate intentionally requires four independent attestations: default CUDA
+    runtime provenance, artifact-bound measured QC for every accepted shot,
+    cryptographically bound predecessor terminal-frame lineage, and measured
+    artifact-bound transition QC for every adjacent shot boundary.
     """
 
     if not isinstance(benchmark, GPUConnectedBenchmarkReceipt):
@@ -90,6 +213,8 @@ def validate_production_connected_evidence(
             f"production connected evidence failed visual continuity validation: {exc}"
         ) from exc
 
+    _validate_transition_quality_manifest(benchmark)
+
     evidence = ProductionConnectedEvidence(
         benchmark_id=benchmark.benchmark_id,
         profile_id=benchmark.profile_id,
@@ -99,6 +224,7 @@ def validate_production_connected_evidence(
         runtime_valid=True,
         quality_valid=True,
         continuity_valid=True,
+        transition_quality_valid=True,
         continuity_provenance=continuity,
     )
     if not evidence.accepted:
