@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -107,6 +108,83 @@ def _continuity_predecessor(request: NativeShotRequest, *, index: int) -> str | 
     return predecessor
 
 
+def _challenge_tags(request: NativeShotRequest, *, index: int) -> frozenset[str]:
+    raw = request.metadata.get(COMPETITIVE_CHALLENGE_METADATA_KEY)
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or not raw:
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {index} must declare a non-empty "
+            f"{COMPETITIVE_CHALLENGE_METADATA_KEY!r} sequence"
+        )
+
+    tags: set[str] = set()
+    for challenge in raw:
+        if not isinstance(challenge, str) or not challenge.strip():
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} contains an invalid competitive challenge tag"
+            )
+        normalized = challenge.strip()
+        if normalized not in REQUIRED_COMPETITIVE_CHALLENGES:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} declares unknown competitive challenge {normalized!r}"
+            )
+        tags.add(normalized)
+    return frozenset(tags)
+
+
+def _validate_challenge_structure(
+    requests: Sequence[NativeShotRequest], challenge_tags: Sequence[frozenset[str]]
+) -> None:
+    """Bind objectively checkable challenge claims to request structure.
+
+    These checks do not assert that a rendered artifact solves a challenge. They only
+    prevent impossible or vacuous benchmark declarations from reaching expensive GPU
+    execution. Learned/artifact QC remains responsible for judging visual success.
+    """
+
+    reference_occurrences = Counter(
+        reference_id
+        for request in requests
+        for reference_id in set(request.approved_reference_ids)
+    )
+
+    for index, (request, tags) in enumerate(zip(requests, challenge_tags, strict=True)):
+        if "multi_character_interaction" in tags:
+            if len(request.characters) < 2 or len(set(request.approved_reference_ids)) < 2:
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} declares multi_character_interaction but does not "
+                    "contain at least two characters with two distinct approved "
+                    "identity references"
+                )
+
+        if "object_interaction" in tags and not request.props:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} declares object_interaction but contains no prop "
+                "conditioning"
+            )
+
+        if "dialogue_lip_sync" in tags:
+            dialogue_timing = request.performance.get("dialogue_timing")
+            if not isinstance(dialogue_timing, Sequence) or isinstance(
+                dialogue_timing, (str, bytes)
+            ) or not dialogue_timing:
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} declares dialogue_lip_sync but contains no "
+                    "dialogue_timing performance evidence"
+                )
+
+        if "identity_consistency" in tags:
+            persistent_ids = {
+                reference_id
+                for reference_id in request.approved_reference_ids
+                if reference_occurrences[reference_id] >= 2
+            }
+            if not persistent_ids:
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} declares identity_consistency but none of its "
+                    "approved identity references persists into another connected shot"
+                )
+
+
 def _validate_competitive_challenge_coverage(
     requests: Sequence[NativeShotRequest],
 ) -> None:
@@ -118,27 +196,18 @@ def _validate_competitive_challenge_coverage(
     shot sequence from being presented as evidence for the competitive release gate.
     """
 
-    covered: set[str] = set()
-    for index, request in enumerate(requests):
-        raw = request.metadata.get(COMPETITIVE_CHALLENGE_METADATA_KEY)
-        if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or not raw:
-            raise GPUProductionBenchmarkCLIError(
-                f"shot {index} must declare a non-empty "
-                f"{COMPETITIVE_CHALLENGE_METADATA_KEY!r} sequence"
-            )
-        for challenge in raw:
-            if not isinstance(challenge, str) or not challenge.strip():
-                raise GPUProductionBenchmarkCLIError(
-                    f"shot {index} contains an invalid competitive challenge tag"
-                )
-            covered.add(challenge.strip())
-
+    per_shot_tags = tuple(
+        _challenge_tags(request, index=index)
+        for index, request in enumerate(requests)
+    )
+    covered = set().union(*per_shot_tags)
     missing = sorted(REQUIRED_COMPETITIVE_CHALLENGES - covered)
     if missing:
         raise GPUProductionBenchmarkCLIError(
             "production connected benchmark does not cover all mandatory competitive "
             f"challenges; missing: {', '.join(missing)}"
         )
+    _validate_challenge_structure(requests, per_shot_tags)
 
 
 def _validate_connected_sequence(requests: Sequence[NativeShotRequest]) -> None:
