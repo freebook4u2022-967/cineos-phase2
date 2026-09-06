@@ -19,6 +19,10 @@ def _audio_probe(duration: float) -> dict[str, object]:
     }
 
 
+def _skip_postflight(monkeypatch) -> None:
+    monkeypatch.setattr(assembly, "_postflight_output", lambda *_args, **_kwargs: {})
+
+
 def test_approved_audio_is_explicitly_mapped_over_source_audio(tmp_path, monkeypatch):
     shot = tmp_path / "shot.mp4"
     audio = tmp_path / "approved.wav"
@@ -29,6 +33,7 @@ def test_approved_audio_is_explicitly_mapped_over_source_audio(tmp_path, monkeyp
 
     monkeypatch.setattr(assembly, "_ffmpeg", lambda: "ffmpeg")
     monkeypatch.setattr(assembly, "probe_media", lambda _path: _audio_probe(1.0))
+    _skip_postflight(monkeypatch)
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
@@ -57,6 +62,12 @@ def test_video_only_assembly_strips_any_source_audio(tmp_path, monkeypatch):
     captured: list[str] = []
 
     monkeypatch.setattr(assembly, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        assembly,
+        "probe_media",
+        lambda _path: {"duration_seconds": 1.0},
+    )
+    _skip_postflight(monkeypatch)
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
@@ -81,6 +92,7 @@ def test_explicit_durations_hard_trim_each_decoded_shot_before_concat(
     captured: list[str] = []
 
     monkeypatch.setattr(assembly, "_ffmpeg", lambda: "ffmpeg")
+    _skip_postflight(monkeypatch)
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
@@ -120,6 +132,7 @@ def test_explicit_durations_map_approved_audio_after_all_shot_inputs(
 
     monkeypatch.setattr(assembly, "_ffmpeg", lambda: "ffmpeg")
     monkeypatch.setattr(assembly, "probe_media", lambda _path: _audio_probe(4.0))
+    _skip_postflight(monkeypatch)
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
