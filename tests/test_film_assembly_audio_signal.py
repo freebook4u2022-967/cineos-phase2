@@ -15,6 +15,21 @@ def _valid_media(*, audio_stream_count: int) -> dict[str, object]:
         "video_stream_count": 1,
         "audio_stream_count": audio_stream_count,
         "video_frame_counts": [240],
+        "video_codecs": ["h264"],
+        "video_dimensions": [{"width": 1920, "height": 1080}],
+        "video_frame_rates": ["24/1"],
+        "audio_streams": (
+            [
+                {
+                    "codec_name": "aac",
+                    "sample_rate_hz": 48_000,
+                    "channels": 2,
+                    "duration_seconds": 10.0,
+                }
+            ]
+            if audio_stream_count
+            else []
+        ),
     }
 
 
