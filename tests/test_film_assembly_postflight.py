@@ -18,6 +18,21 @@ def _media(
         "video_stream_count": video,
         "audio_stream_count": audio,
         "video_frame_counts": [240] if frame_counts is None else frame_counts,
+        "video_codecs": ["h264"] * video,
+        "video_dimensions": [{"width": 1920, "height": 1080}] * video,
+        "video_frame_rates": ["24/1"] * video,
+        "audio_streams": (
+            [
+                {
+                    "codec_name": "aac",
+                    "sample_rate_hz": 48_000,
+                    "channels": 2,
+                    "duration_seconds": duration,
+                }
+            ]
+            if audio
+            else []
+        ),
     }
 
 
