@@ -178,7 +178,9 @@ def _positive_frame_rate(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 
-def _validate_delivery_contract(media: Mapping[str, Any], *, expect_audio: bool) -> None:
+def _validate_delivery_contract(
+    media: Mapping[str, Any], *, expect_audio: bool
+) -> None:
     """Bind final-film acceptance to the codec and stream contract we actually encode.
 
     A successful FFmpeg process is not proof that the requested delivery settings made it
