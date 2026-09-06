@@ -100,7 +100,9 @@ def test_manifest_rejects_conflicting_current_and_legacy_predecessor(tmp_path):
         load_native_requests(_write_manifest(tmp_path, requests))
 
 
-def test_direct_runner_rejects_disconnected_chain_before_qc_model_load(monkeypatch, tmp_path):
+def test_direct_runner_rejects_disconnected_chain_before_qc_model_load(
+    monkeypatch, tmp_path
+):
     requests = [_request(index) for index in range(5)]
     requests[2] = _request(2, predecessor=None)
     qc_loaded = False
