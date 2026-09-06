@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -17,7 +19,7 @@ def _sha(index: int) -> str:
     return f"{index:064x}"
 
 
-def _benchmark(*, shot_count: int = 5) -> GPUConnectedBenchmarkReceipt:
+def _benchmark(tmp_path: Path, *, shot_count: int = 5) -> GPUConnectedBenchmarkReceipt:
     receipts = []
     reports = []
     for index in range(shot_count):
@@ -86,6 +88,36 @@ def _benchmark(*, shot_count: int = 5) -> GPUConnectedBenchmarkReceipt:
             }
         )
 
+    transitions = [
+        {
+            "production_measurement_evidence": True,
+            "accepted": True,
+            "observer_id": "measured-transition-qc-v1",
+            "measured_sample_count": 4,
+            "previous_output_sha256": _sha(index + 1),
+            "current_output_sha256": _sha(index + 2),
+            "previous_scene_id": "scene-1",
+            "previous_shot_id": f"shot-{index + 1}",
+            "current_scene_id": "scene-1",
+            "current_shot_id": f"shot-{index + 2}",
+        }
+        for index in range(max(0, shot_count - 1))
+    ]
+    manifest = tmp_path / f"benchmark-{shot_count}.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "chain_sha256": _sha(99),
+                "quality_retry_gate": {
+                    "transition_gate_applied": True,
+                    "accepted_transition_count": len(transitions),
+                    "accepted_transitions": transitions,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
     return GPUConnectedBenchmarkReceipt(
         benchmark_id="connected-production-test",
         profile_id="wan2.2-ti2v-5b",
@@ -94,13 +126,23 @@ def _benchmark(*, shot_count: int = 5) -> GPUConnectedBenchmarkReceipt:
         chain_sha256=_sha(99),
         total_output_bytes=1_000,
         elapsed_seconds=12.0,
-        manifest_path="benchmark.json",
+        manifest_path=str(manifest),
         quality_reports=tuple(reports),
     )
 
 
-def test_accepts_only_unified_runtime_quality_and_continuity_evidence() -> None:
-    benchmark = _benchmark()
+def _manifest_payload(benchmark: GPUConnectedBenchmarkReceipt) -> dict[str, object]:
+    return json.loads(Path(benchmark.manifest_path).read_text(encoding="utf-8"))
+
+
+def _write_manifest(
+    benchmark: GPUConnectedBenchmarkReceipt, payload: dict[str, object]
+) -> None:
+    Path(benchmark.manifest_path).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_accepts_only_unified_runtime_quality_and_continuity_evidence(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
 
     evidence = validate_production_connected_evidence(benchmark)
 
@@ -108,17 +150,20 @@ def test_accepts_only_unified_runtime_quality_and_continuity_evidence() -> None:
     assert evidence.runtime_valid is True
     assert evidence.quality_valid is True
     assert evidence.continuity_valid is True
+    assert evidence.transition_quality_valid is True
     assert evidence.shot_count == 5
     assert len(evidence.continuity_provenance) == 5
     assert evidence.to_dict()["accepted"] is True
+    assert evidence.to_dict()["transition_quality_valid"] is True
     assert production_connected_evidence(benchmark) is True
 
 
 @pytest.mark.parametrize("shot_count", [0, 1, 4, 11])
 def test_rejects_sequences_outside_competitive_5_to_10_shot_range(
     shot_count: int,
+    tmp_path,
 ) -> None:
-    benchmark = _benchmark(shot_count=shot_count)
+    benchmark = _benchmark(tmp_path, shot_count=shot_count)
 
     with pytest.raises(ProductionConnectedEvidenceError, match="between 5 and 10"):
         validate_production_connected_evidence(benchmark)
@@ -126,24 +171,24 @@ def test_rejects_sequences_outside_competitive_5_to_10_shot_range(
     assert production_connected_evidence(benchmark) is False
 
 
-def test_rejects_non_default_gpu_runtime_provenance() -> None:
-    benchmark = _benchmark()
+def test_rejects_non_default_gpu_runtime_provenance(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
     benchmark.shot_receipts[2].runtime_provenance["runtime_mode"] = "injected"
 
     with pytest.raises(ProductionConnectedEvidenceError, match="default CUDA runtime"):
         validate_production_connected_evidence(benchmark)
 
 
-def test_rejects_quality_report_bound_to_different_artifact() -> None:
-    benchmark = _benchmark()
+def test_rejects_quality_report_bound_to_different_artifact(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
     benchmark.quality_reports[3]["measurement"]["artifact_sha256"] = _sha(777)
 
     with pytest.raises(ProductionConnectedEvidenceError, match="artifact-bound QC"):
         validate_production_connected_evidence(benchmark)
 
 
-def test_rejects_substituted_predecessor_continuity_artifact() -> None:
-    benchmark = _benchmark()
+def test_rejects_substituted_predecessor_continuity_artifact(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
     benchmark.shot_receipts[4].result.conditioning_provenance[
         "predecessor_artifact_sha256"
     ] = _sha(888)
@@ -151,6 +196,70 @@ def test_rejects_substituted_predecessor_continuity_artifact() -> None:
     with pytest.raises(
         ProductionConnectedEvidenceError,
         match="failed visual continuity validation",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_missing_measured_transition_gate(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    payload["quality_retry_gate"] = {"transition_gate_applied": False}
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="measured transition QC",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+    assert production_connected_evidence(benchmark) is False
+
+
+def test_rejects_incomplete_transition_boundary_coverage(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    gate = payload["quality_retry_gate"]
+    assert isinstance(gate, dict)
+    gate["accepted_transition_count"] = 3
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="cover every shot boundary",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_transition_bound_to_different_artifact(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    gate = payload["quality_retry_gate"]
+    assert isinstance(gate, dict)
+    transitions = gate["accepted_transitions"]
+    assert isinstance(transitions, list)
+    transitions[2]["current_output_sha256"] = _sha(777)
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="current artifact hash mismatch",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_unmeasured_transition_evidence(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    gate = payload["quality_retry_gate"]
+    assert isinstance(gate, dict)
+    transitions = gate["accepted_transitions"]
+    assert isinstance(transitions, list)
+    transitions[1]["production_measurement_evidence"] = False
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="not measured evidence",
     ):
         validate_production_connected_evidence(benchmark)
 
