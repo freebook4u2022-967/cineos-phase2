@@ -40,6 +40,11 @@ class PersistentGPUFoundationExecutor:
     The object is callable with the normal ``ShotExecutor`` signature, so existing
     benchmark/retry orchestration can use it without duplicating rendering logic.
     It must be opened with a context manager; shutdown is guaranteed on exit.
+
+    Session receipts also expose measured model-load amortization and, when the
+    selected CUDA runtime provides the standard PyTorch memory-stat APIs, per-shot
+    peak allocated/reserved VRAM. These are observations only: absence of an API is
+    never replaced with invented measurements.
     """
 
     def __init__(
@@ -69,6 +74,9 @@ class PersistentGPUFoundationExecutor:
         self._renderer: Any | None = None
         self._plan: Any | None = None
         self._runtime: dict[str, Any] | None = None
+        self._model_load_seconds: float | None = None
+        self._render_count = 0
+        self._cumulative_render_seconds = 0.0
 
     @property
     def is_open(self) -> bool:
@@ -101,12 +109,14 @@ class PersistentGPUFoundationExecutor:
             )
         renderer = self.profile.renderer(**renderer_kwargs)
         renderer.initialize()
+        load_started = perf_counter()
         try:
             renderer.load_model(**plan.renderer_options())
             renderer.warmup()
         except Exception:
             renderer.shutdown()
             raise
+        model_load_seconds = perf_counter() - load_started
 
         runtime = _runtime_provenance(
             plan,
@@ -123,9 +133,13 @@ class PersistentGPUFoundationExecutor:
             runtime, self.continuity_identity_adapter
         )
         runtime["persistent_model_session"] = True
+        runtime["session_model_load_seconds"] = model_load_seconds
         self._renderer = renderer
         self._plan = plan
         self._runtime = runtime
+        self._model_load_seconds = model_load_seconds
+        self._render_count = 0
+        self._cumulative_render_seconds = 0.0
         return self
 
     def close(self) -> None:
@@ -133,6 +147,9 @@ class PersistentGPUFoundationExecutor:
         self._renderer = None
         self._plan = None
         self._runtime = None
+        self._model_load_seconds = None
+        self._render_count = 0
+        self._cumulative_render_seconds = 0.0
         if renderer is not None:
             renderer.shutdown()
 
@@ -199,16 +216,24 @@ class PersistentGPUFoundationExecutor:
         renderer = self._renderer
         plan = self._plan
         runtime = self._runtime
-        if renderer is None or plan is None or runtime is None:
+        model_load_seconds = self._model_load_seconds
+        if (
+            renderer is None
+            or plan is None
+            or runtime is None
+            or model_load_seconds is None
+        ):
             raise PersistentGPUSessionError(
                 "persistent GPU session must be opened before rendering"
             )
 
         expected_artifact = _expected_artifact_path(request, self.output_dir)
         _remove_stale_expected_artifact(expected_artifact)
+        self._reset_cuda_peak_memory_stats(renderer)
         started = perf_counter()
         result = renderer.render(request)
         elapsed = perf_counter() - started
+        cuda_memory = self._read_cuda_peak_memory_stats(renderer)
         artifact = _validate_result_identity(
             request,
             self.profile,
@@ -237,6 +262,23 @@ class PersistentGPUFoundationExecutor:
                 f"rendered video artifact cannot be hashed: {artifact}"
             ) from exc
 
+        self._render_count += 1
+        self._cumulative_render_seconds += elapsed
+        receipt_runtime = dict(runtime)
+        receipt_runtime.update(
+            {
+                "session_render_index": self._render_count,
+                "session_cumulative_render_seconds": self._cumulative_render_seconds,
+                "session_amortized_model_load_seconds_per_render": (
+                    model_load_seconds / self._render_count
+                ),
+                "session_total_measured_execution_seconds": (
+                    model_load_seconds + self._cumulative_render_seconds
+                ),
+            }
+        )
+        receipt_runtime.update(cuda_memory)
+
         return GPUFoundationExecutionReceipt(
             result=result,
             execution_plan=plan,
@@ -246,8 +288,60 @@ class PersistentGPUFoundationExecutor:
             output_sha256=digest.hexdigest(),
             elapsed_seconds=elapsed,
             media_payload_bytes=media_payload_bytes,
-            runtime_provenance=dict(runtime),
+            runtime_provenance=receipt_runtime,
         )
+
+    def _torch_runtime(self, renderer: Any) -> Any | None:
+        """Return the actual torch runtime behind the renderer, when observable."""
+        return getattr(renderer, "_torch", None) or self.torch_module
+
+    @staticmethod
+    def _cuda_device_index(renderer: Any) -> int:
+        device = str(getattr(renderer, "_device", "cuda"))
+        if device == "cuda":
+            return 0
+        prefix, separator, suffix = device.partition(":")
+        if prefix != "cuda" or not separator:
+            return 0
+        try:
+            return max(0, int(suffix))
+        except ValueError:
+            return 0
+
+    def _reset_cuda_peak_memory_stats(self, renderer: Any) -> None:
+        """Reset peak counters when PyTorch exposes them; otherwise record nothing."""
+        torch_runtime = self._torch_runtime(renderer)
+        cuda = getattr(torch_runtime, "cuda", None)
+        reset = getattr(cuda, "reset_peak_memory_stats", None)
+        if not callable(reset):
+            return
+        try:
+            reset(self._cuda_device_index(renderer))
+        except (RuntimeError, TypeError, ValueError):
+            # Telemetry must never break an otherwise valid render on older/custom
+            # PyTorch-compatible runtimes. Missing evidence remains visibly missing.
+            return
+
+    def _read_cuda_peak_memory_stats(self, renderer: Any) -> dict[str, int]:
+        """Measure per-shot CUDA peaks without synthesizing unavailable evidence."""
+        torch_runtime = self._torch_runtime(renderer)
+        cuda = getattr(torch_runtime, "cuda", None)
+        allocated = getattr(cuda, "max_memory_allocated", None)
+        reserved = getattr(cuda, "max_memory_reserved", None)
+        if not callable(allocated) or not callable(reserved):
+            return {}
+        device_index = self._cuda_device_index(renderer)
+        try:
+            peak_allocated = int(allocated(device_index))
+            peak_reserved = int(reserved(device_index))
+        except (RuntimeError, TypeError, ValueError):
+            return {}
+        if peak_allocated < 0 or peak_reserved < 0:
+            return {}
+        return {
+            "cuda_peak_memory_allocated_bytes": peak_allocated,
+            "cuda_peak_memory_reserved_bytes": peak_reserved,
+        }
 
 
 __all__ = ["PersistentGPUFoundationExecutor", "PersistentGPUSessionError"]
