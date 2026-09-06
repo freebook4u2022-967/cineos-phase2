@@ -20,7 +20,7 @@ from .connected_continuity_evidence import (
     validate_connected_visual_continuity,
 )
 from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
-from .transition_quality import TRANSITION_QUALITY_SCHEMA
+from .transition_quality import TRANSITION_QUALITY_SCHEMA, TransitionQualityPolicy
 
 
 class ProductionConnectedEvidenceError(RuntimeError):
@@ -53,7 +53,7 @@ class ProductionConnectedEvidence:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-production-connected-evidence/0.3",
+            "schema": "cineos-production-connected-evidence/0.4",
             "benchmark_id": self.benchmark_id,
             "profile_id": self.profile_id,
             "origin": self.origin,
@@ -132,6 +132,7 @@ def _validate_transition_quality_manifest(
             "production transition evidence list does not cover every shot boundary"
         )
 
+    production_floor = TransitionQualityPolicy()
     for index, report in enumerate(transitions):
         if not isinstance(report, Mapping):
             raise ProductionConnectedEvidenceError(
@@ -165,21 +166,37 @@ def _validate_transition_quality_manifest(
             raise ProductionConnectedEvidenceError(
                 f"production transition evidence {index} requires measured metrics"
             )
-        _required_unit_metric(
+        visual_similarity = _required_unit_metric(
             metrics.get("visual_seam_similarity"),
             field="visual_seam_similarity",
             index=index,
         )
-        _required_unit_metric(
+        motion_consistency = _required_unit_metric(
             metrics.get("motion_boundary_consistency"),
             field="motion_boundary_consistency",
             index=index,
         )
+        if visual_similarity < production_floor.visual_similarity_floor:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} visual_seam_similarity "
+                "is below the CINEOS production floor"
+            )
+        if motion_consistency < production_floor.motion_boundary_floor:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} motion_boundary_consistency "
+                "is below the CINEOS production floor"
+            )
         failed_metrics = report.get("failed_metrics")
         if not isinstance(failed_metrics, list) or failed_metrics:
             raise ProductionConnectedEvidenceError(
                 f"production transition evidence {index} accepted report contains "
                 "failed metrics"
+            )
+        directives = report.get("directives")
+        if not isinstance(directives, list) or directives:
+            raise ProductionConnectedEvidenceError(
+                f"production transition evidence {index} accepted report contains "
+                "unresolved rerender directives"
             )
 
         previous_receipt = benchmark.shot_receipts[index]
