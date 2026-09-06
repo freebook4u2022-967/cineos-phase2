@@ -28,6 +28,11 @@ def _capture_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr(assembly_module, "file_hash", lambda _path: "0" * 64)
     monkeypatch.setattr(assembly_module, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        assembly_module,
+        "_postflight_output",
+        lambda *_args, **_kwargs: {},
+    )
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
