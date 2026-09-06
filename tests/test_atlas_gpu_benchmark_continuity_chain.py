@@ -29,7 +29,10 @@ def _request(index: int, *, predecessor=...):
                 {"speaker_id": "lead", "start_seconds": 0.2, "end_seconds": 1.0}
             ],
         },
-        approved_reference_ids=["lead-approved-reference", "partner-approved-reference"],
+        approved_reference_ids=[
+            "lead-approved-reference",
+            "partner-approved-reference",
+        ],
         deterministic_seed=6000 + index,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
         metadata={
