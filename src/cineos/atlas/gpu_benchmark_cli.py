@@ -68,6 +68,7 @@ _STATIC_CAMERA_TERMS = frozenset(
         "locked",
         "locked_off",
         "locked-off",
+        "off",
         "tripod",
         "still",
         "none",
