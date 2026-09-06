@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +20,16 @@ from cineos.atlas.transition_quality import TRANSITION_QUALITY_SCHEMA
 
 def _sha(index: int) -> str:
     return f"{index:064x}"
+
+
+def _receipt_chain_sha256(receipts) -> str:
+    digest = hashlib.sha256()
+    for receipt in receipts:
+        digest.update(receipt.result.request_hash.encode("ascii"))
+        digest.update(b"\0")
+        digest.update(receipt.output_sha256.encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def _benchmark(tmp_path: Path, *, shot_count: int = 5) -> GPUConnectedBenchmarkReceipt:
@@ -111,11 +123,12 @@ def _benchmark(tmp_path: Path, *, shot_count: int = 5) -> GPUConnectedBenchmarkR
         }
         for index in range(max(0, shot_count - 1))
     ]
+    chain_sha256 = _receipt_chain_sha256(receipts)
     manifest = tmp_path / f"benchmark-{shot_count}.json"
     manifest.write_text(
         json.dumps(
             {
-                "chain_sha256": _sha(99),
+                "chain_sha256": chain_sha256,
                 "quality_retry_gate": {
                     "transition_gate_applied": True,
                     "accepted_transition_count": len(transitions),
@@ -131,7 +144,7 @@ def _benchmark(tmp_path: Path, *, shot_count: int = 5) -> GPUConnectedBenchmarkR
         profile_id="wan2.2-ti2v-5b",
         origin="external_pretrained_foundation",
         shot_receipts=tuple(receipts),
-        chain_sha256=_sha(99),
+        chain_sha256=chain_sha256,
         total_output_bytes=1_000,
         elapsed_seconds=12.0,
         manifest_path=str(manifest),
@@ -169,7 +182,7 @@ def test_accepts_only_unified_runtime_quality_and_continuity_evidence(tmp_path) 
     assert evidence.transition_quality_valid is True
     assert evidence.shot_count == 5
     assert len(evidence.continuity_provenance) == 5
-    assert evidence.to_dict()["schema"] == "cineos-production-connected-evidence/0.4"
+    assert evidence.to_dict()["schema"] == "cineos-production-connected-evidence/0.5"
     assert evidence.to_dict()["accepted"] is True
     assert evidence.to_dict()["transition_quality_valid"] is True
     assert production_connected_evidence(benchmark) is True
@@ -215,6 +228,23 @@ def test_rejects_substituted_predecessor_continuity_artifact(tmp_path) -> None:
         match="failed visual continuity validation",
     ):
         validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_forged_chain_even_when_manifest_matches_receipt(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    forged_chain = _sha(999)
+    payload = _manifest_payload(benchmark)
+    payload["chain_sha256"] = forged_chain
+    _write_manifest(benchmark, payload)
+    benchmark = replace(benchmark, chain_sha256=forged_chain)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="chain hash does not match render receipts",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+    assert production_connected_evidence(benchmark) is False
 
 
 def test_rejects_missing_measured_transition_gate(tmp_path) -> None:
