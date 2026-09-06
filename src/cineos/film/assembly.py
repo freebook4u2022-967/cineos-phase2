@@ -14,6 +14,7 @@ from .media_probe import MediaProbeError, probe_media
 from .validator import file_hash
 
 MAX_APPROVED_AUDIO_SHORTFALL_SECONDS = 0.75
+MAX_ASSEMBLED_DURATION_DRIFT_SECONDS = 0.25
 
 
 def _ffmpeg() -> str:
@@ -161,6 +162,55 @@ def _visual_timeline_duration(
     return total
 
 
+def _postflight_output(
+    destination: Path,
+    *,
+    expected_duration: float,
+    expect_audio: bool,
+) -> dict[str, Any]:
+    """Verify the encoded film itself before returning it as production output.
+
+    FFmpeg process success is not sufficient evidence that the destination contains the
+    requested film. Independently decode/probe the resulting artifact and bind acceptance
+    to one video stream, the expected audio topology, and the authoritative visual
+    timeline. This catches truncated, mis-muxed, and stream-selection failures that can
+    otherwise leave a plausible non-empty file behind.
+    """
+    try:
+        media = probe_media(destination)
+    except MediaProbeError as exc:
+        raise AssemblyError(f"assembled output postflight failed: {exc}") from exc
+
+    try:
+        video_stream_count = int(media.get("video_stream_count") or 0)
+        audio_stream_count = int(media.get("audio_stream_count") or 0)
+        actual_duration = float(media.get("duration_seconds") or 0.0)
+    except (TypeError, ValueError):
+        raise AssemblyError("assembled output has malformed stream/timeline evidence")
+
+    if video_stream_count != 1:
+        raise AssemblyError("assembled output must contain exactly one video stream")
+    expected_audio_streams = 1 if expect_audio else 0
+    if audio_stream_count != expected_audio_streams:
+        raise AssemblyError(
+            "assembled output audio topology does not match the approved assembly request"
+        )
+    if not math.isfinite(actual_duration) or actual_duration <= 0:
+        raise AssemblyError("assembled output has no finite positive duration")
+    tolerance = max(
+        MAX_ASSEMBLED_DURATION_DRIFT_SECONDS,
+        expected_duration * 0.02,
+    )
+    drift = abs(actual_duration - expected_duration)
+    if drift > tolerance:
+        raise AssemblyError(
+            "assembled output timeline drift exceeds tolerance "
+            f"({actual_duration:.3f}s encoded vs {expected_duration:.3f}s expected; "
+            f"tolerance {tolerance:.3f}s)"
+        )
+    return media
+
+
 def _explicit_trim_filter(durations: list[float], *, crossfade: float = 0.0) -> str:
     """Build a decoded-frame trim graph for an explicit production timeline."""
     chains: list[str] = []
@@ -218,7 +268,9 @@ def assemble(
     the 48 kHz film/video delivery rate. The output path must never alias an input
     video or approved audio artifact, protecting evidence-bound assets from FFmpeg's
     destructive ``-y`` overwrite behavior. Filesystem aliases such as hard links are
-    treated as collisions even when their path strings differ.
+    treated as collisions even when their path strings differ. The encoded destination
+    is independently probed after FFmpeg completes; process success alone never certifies
+    a final film.
     """
     if not shots:
         raise AssemblyError("cannot assemble an empty timeline")
@@ -249,8 +301,13 @@ def assemble(
         if any(crossfade >= duration for duration in normalized_durations):
             raise AssemblyError("crossfade must be shorter than every shot duration")
 
+    expected_duration = _visual_timeline_duration(
+        sources,
+        normalized_durations,
+        crossfade=crossfade,
+    )
+
     audio_source: Path | None = None
-    expected_duration: float | None = None
     if audio_path is not None:
         audio_source = Path(audio_path).resolve()
         file_hash(audio_source)
@@ -259,17 +316,6 @@ def assemble(
             sources=sources,
             audio_source=audio_source,
         )
-        if crossfade > 0:
-            expected_duration = _visual_timeline_duration(
-                sources,
-                normalized_durations,
-                crossfade=crossfade,
-            )
-        else:
-            expected_duration = _visual_timeline_duration(
-                sources,
-                normalized_durations,
-            )
         _preflight_audio(audio_source, expected_duration=expected_duration)
 
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -280,13 +326,10 @@ def assemble(
             command.extend(["-i", str(source)])
         if audio_source is not None:
             command.extend(["-i", str(audio_source)])
-        if crossfade > 0:
-            trim_filter = _explicit_trim_filter(
-                normalized_durations,
-                crossfade=crossfade,
-            )
-        else:
-            trim_filter = _explicit_trim_filter(normalized_durations)
+        trim_filter = _explicit_trim_filter(
+            normalized_durations,
+            crossfade=crossfade,
+        )
         command.extend(
             [
                 "-filter_complex",
@@ -358,4 +401,9 @@ def assemble(
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode or not destination.is_file():
         raise AssemblyError(f"FFmpeg assembly failed: {result.stderr.strip()}")
+    _postflight_output(
+        destination,
+        expected_duration=expected_duration,
+        expect_audio=audio_source is not None,
+    )
     return destination
