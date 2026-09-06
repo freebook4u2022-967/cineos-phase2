@@ -28,6 +28,11 @@ def _request(index: int, reference_ids=None) -> NativeShotRequest:
         approved_reference_ids=list(reference_ids or ["lead-approved-reference"]),
         deterministic_seed=4000 + index,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
+        metadata={
+            cli.COMPETITIVE_CHALLENGE_METADATA_KEY: sorted(
+                cli.REQUIRED_COMPETITIVE_CHALLENGES
+            )
+        },
     )
     request.refresh_hash()
     return request
@@ -128,6 +133,62 @@ def test_load_native_requests_rejects_non_array_manifest(tmp_path):
 
     with pytest.raises(GPUProductionBenchmarkCLIError, match="shots array"):
         load_native_requests(source)
+
+
+def test_connected_benchmark_rejects_missing_competitive_challenge_before_gpu_load(
+    monkeypatch, tmp_path
+):
+    scorer_loaded = False
+
+    def unexpected_scorer(*args, **kwargs):
+        nonlocal scorer_loaded
+        scorer_loaded = True
+        return object()
+
+    monkeypatch.setattr(cli, "SigLIP2FeatureVideoScorer", unexpected_scorer)
+    requests = [_request(index) for index in range(5)]
+    for request in requests:
+        request.metadata[cli.COMPETITIVE_CHALLENGE_METADATA_KEY] = [
+            "identity_consistency"
+        ]
+        request.refresh_hash()
+
+    with pytest.raises(
+        GPUProductionBenchmarkCLIError,
+        match="does not cover all mandatory competitive challenges",
+    ):
+        run_production_benchmark(
+            "production-evidence",
+            requests,
+            output_dir=tmp_path / "renders",
+            reference_manifest=_reference_manifest(tmp_path),
+        )
+    assert scorer_loaded is False
+
+
+def test_connected_benchmark_rejects_empty_competitive_challenge_declaration(
+    monkeypatch, tmp_path
+):
+    scorer_loaded = False
+
+    def unexpected_scorer(*args, **kwargs):
+        nonlocal scorer_loaded
+        scorer_loaded = True
+        return object()
+
+    monkeypatch.setattr(cli, "SigLIP2FeatureVideoScorer", unexpected_scorer)
+    requests = [_request(index) for index in range(5)]
+    requests[0].metadata[cli.COMPETITIVE_CHALLENGE_METADATA_KEY] = []
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="non-empty"):
+        run_production_benchmark(
+            "production-evidence",
+            requests,
+            output_dir=tmp_path / "renders",
+            reference_manifest=_reference_manifest(tmp_path),
+        )
+    assert scorer_loaded is False
 
 
 def test_production_runner_requires_reference_manifest_before_qc_model_load(tmp_path):
