@@ -172,9 +172,10 @@ def _postflight_output(
 
     FFmpeg process success is not sufficient evidence that the destination contains the
     requested film. Independently decode/probe the resulting artifact and bind acceptance
-    to one video stream, the expected audio topology, and the authoritative visual
-    timeline. This catches truncated, mis-muxed, and stream-selection failures that can
-    otherwise leave a plausible non-empty file behind.
+    to one video stream, positive decoded-frame evidence, the expected audio topology,
+    and the authoritative visual timeline. This catches truncated, mis-muxed,
+    stream-selection, and zero-picture failures that can otherwise leave a plausible
+    non-empty container behind.
     """
     try:
         media = probe_media(destination)
@@ -190,6 +191,19 @@ def _postflight_output(
 
     if video_stream_count != 1:
         raise AssemblyError("assembled output must contain exactly one video stream")
+
+    frame_counts = media.get("video_frame_counts")
+    if not isinstance(frame_counts, list) or len(frame_counts) != 1:
+        raise AssemblyError(
+            "assembled output is missing exactly one decoded-frame evidence value"
+        )
+    try:
+        decoded_frame_count = int(frame_counts[0])
+    except (TypeError, ValueError):
+        raise AssemblyError("assembled output has invalid decoded-frame evidence")
+    if decoded_frame_count <= 0:
+        raise AssemblyError("assembled output has invalid decoded-frame evidence")
+
     expected_audio_streams = 1 if expect_audio else 0
     if audio_stream_count != expected_audio_streams:
         raise AssemblyError(
