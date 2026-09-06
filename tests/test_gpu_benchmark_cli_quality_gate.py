@@ -113,6 +113,70 @@ def test_production_cli_rejects_receipt_without_production_quality_evidence(
         )
 
 
+def test_production_cli_rejects_direct_request_mutated_after_hash_before_qc(
+    monkeypatch, tmp_path
+):
+    requests = list(_connected_requests())
+    requests[2].performance["action"] = "run"
+    qc_initialized = False
+
+    def fail_if_qc_initialized(requests, reference_manifest):
+        nonlocal qc_initialized
+        qc_initialized = True
+        raise AssertionError("QC/model acquisition must not start for stale requests")
+
+    monkeypatch.setattr(
+        cli,
+        "_production_quality_evaluator",
+        fail_if_qc_initialized,
+    )
+
+    with pytest.raises(
+        cli.GPUProductionBenchmarkCLIError,
+        match="content_hash is stale or does not match its live payload",
+    ):
+        cli.run_production_benchmark(
+            "bench-stale-direct-request",
+            tuple(requests),
+            output_dir=tmp_path,
+            reference_manifest="approved-references.json",
+        )
+
+    assert qc_initialized is False
+
+
+def test_production_cli_rejects_unhashed_direct_request_before_qc(
+    monkeypatch, tmp_path
+):
+    requests = list(_connected_requests())
+    requests[1].content_hash = ""
+    qc_initialized = False
+
+    def fail_if_qc_initialized(requests, reference_manifest):
+        nonlocal qc_initialized
+        qc_initialized = True
+        raise AssertionError("QC/model acquisition must not start for unhashed requests")
+
+    monkeypatch.setattr(
+        cli,
+        "_production_quality_evaluator",
+        fail_if_qc_initialized,
+    )
+
+    with pytest.raises(
+        cli.GPUProductionBenchmarkCLIError,
+        match="requires a canonical 64-character content_hash",
+    ):
+        cli.run_production_benchmark(
+            "bench-unhashed-direct-request",
+            tuple(requests),
+            output_dir=tmp_path,
+            reference_manifest="approved-references.json",
+        )
+
+    assert qc_initialized is False
+
+
 def test_production_quality_evaluator_fails_closed_when_pinned_qc_unavailable(
     monkeypatch,
 ):
