@@ -177,7 +177,9 @@ def _has_locomotion_conditioning(request: NativeShotRequest) -> bool:
     """Return true only when native performance conditioning asks for walk/run motion."""
 
     action_terms = _normalized_terms(request.performance.get("action"))
-    body_terms = _normalized_terms(request.performance.get("body_performance_tracks", []))
+    body_terms = _normalized_terms(
+        request.performance.get("body_performance_tracks", [])
+    )
     return bool((action_terms | body_terms) & _LOCOMOTION_TERMS)
 
 
@@ -243,7 +245,9 @@ def _validate_challenge_structure(
                 "walk/run body-performance conditioning"
             )
 
-        if "fast_camera_movement" in tags and not _has_camera_motion_conditioning(request):
+        if "fast_camera_movement" in tags and not _has_camera_motion_conditioning(
+            request
+        ):
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} declares fast_camera_movement but contains no explicit "
                 "non-static camera-movement conditioning"
