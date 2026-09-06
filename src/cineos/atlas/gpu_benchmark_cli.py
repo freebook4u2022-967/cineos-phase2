@@ -62,16 +62,17 @@ _LOCOMOTION_TERMS = frozenset(
         "sprinting",
     }
 )
-_STATIC_CAMERA_TERMS = frozenset(
+_FAST_CAMERA_MOTION_TERMS = frozenset(
     {
-        "static",
-        "locked",
-        "locked_off",
-        "locked-off",
-        "off",
-        "tripod",
-        "still",
-        "none",
+        "fast",
+        "rapid",
+        "aggressive",
+        "whip",
+        "whip_pan",
+        "snap_pan",
+        "crash_zoom",
+        "speed_ramp",
+        "high_speed",
     }
 )
 _HAND_ACTION_TERMS = frozenset(
@@ -251,14 +252,11 @@ def _has_locomotion_conditioning(request: NativeShotRequest) -> bool:
     return bool((action_terms | body_terms) & _LOCOMOTION_TERMS)
 
 
-def _has_camera_motion_conditioning(request: NativeShotRequest) -> bool:
-    """Require an explicit non-static camera movement for the camera stressor."""
+def _has_fast_camera_motion_conditioning(request: NativeShotRequest) -> bool:
+    """Require an explicit high-speed/aggressive camera cue for the camera stressor."""
 
-    raw_movement = request.camera.get("movement")
-    movement_terms = _normalized_terms(raw_movement)
-    if not movement_terms:
-        return False
-    return not movement_terms.issubset(_STATIC_CAMERA_TERMS)
+    movement_terms = _normalized_terms(request.camera.get("movement"))
+    return bool(movement_terms & _FAST_CAMERA_MOTION_TERMS)
 
 
 def _has_hand_conditioning(request: NativeShotRequest) -> bool:
@@ -346,12 +344,12 @@ def _validate_challenge_structure(
                 "walk/run body-performance conditioning"
             )
 
-        if "fast_camera_movement" in tags and not _has_camera_motion_conditioning(
+        if "fast_camera_movement" in tags and not _has_fast_camera_motion_conditioning(
             request
         ):
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} declares fast_camera_movement but contains no explicit "
-                "non-static camera-movement conditioning"
+                "fast/aggressive camera-movement conditioning"
             )
 
         if "hands_anatomy" in tags and not _has_hand_conditioning(request):
