@@ -155,7 +155,9 @@ def test_production_cli_rejects_unhashed_direct_request_before_qc(
     def fail_if_qc_initialized(requests, reference_manifest):
         nonlocal qc_initialized
         qc_initialized = True
-        raise AssertionError("QC/model acquisition must not start for unhashed requests")
+        raise AssertionError(
+            "QC/model acquisition must not start for unhashed requests"
+        )
 
     monkeypatch.setattr(
         cli,
