@@ -31,7 +31,9 @@ def _finite_nonnegative_number(value: Any, *, field_name: str) -> float:
     return normalized
 
 
-def _dialogue_time(cue: dict[str, Any], *, canonical: str, legacy: str, index: int) -> Any:
+def _dialogue_time(
+    cue: dict[str, Any], *, canonical: str, legacy: str, index: int
+) -> Any:
     """Read a canonical dialogue timestamp while accepting the 0.1 legacy alias."""
 
     canonical_value = cue.get(canonical)
