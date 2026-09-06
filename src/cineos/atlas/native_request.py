@@ -31,6 +31,21 @@ def _finite_nonnegative_number(value: Any, *, field_name: str) -> float:
     return normalized
 
 
+def _dialogue_time(cue: dict[str, Any], *, canonical: str, legacy: str, index: int) -> Any:
+    """Read a canonical dialogue timestamp while accepting the 0.1 legacy alias."""
+
+    canonical_value = cue.get(canonical)
+    legacy_value = cue.get(legacy)
+    if canonical_value is not None and legacy_value is not None:
+        if canonical_value != legacy_value:
+            raise ValueError(
+                f"performance.dialogue_timing[{index}] has conflicting "
+                f"{canonical}/{legacy} values"
+            )
+        return canonical_value
+    return canonical_value if canonical_value is not None else legacy_value
+
+
 @dataclass(slots=True)
 class NativeShotRequest:
     shot_id: str
@@ -55,7 +70,8 @@ class NativeShotRequest:
         Timing evidence is part of the native request contract because dialogue/lip-sync
         and final-film continuity cannot be measured honestly when frame rate, shot
         duration, or dialogue intervals are non-finite or outside the shot timeline.
-        Optional legacy fields remain optional; when supplied, they must be trustworthy.
+        Optional legacy fields and the historic ``start``/``end`` dialogue aliases remain
+        compatible; when timing is supplied, it must be trustworthy.
         """
 
         duration_seconds: float | None = None
@@ -82,16 +98,29 @@ class NativeShotRequest:
                     f"performance.dialogue_timing[{index}] must be a mapping"
                 )
             speaker_id = cue.get("speaker_id")
-            if not isinstance(speaker_id, str) or not speaker_id.strip():
+            if speaker_id is not None and (
+                not isinstance(speaker_id, str) or not speaker_id.strip()
+            ):
                 raise ValueError(
-                    f"performance.dialogue_timing[{index}].speaker_id must be non-empty"
+                    f"performance.dialogue_timing[{index}].speaker_id must be non-empty "
+                    "when supplied"
                 )
             start_seconds = _finite_nonnegative_number(
-                cue.get("start_seconds"),
+                _dialogue_time(
+                    cue,
+                    canonical="start_seconds",
+                    legacy="start",
+                    index=index,
+                ),
                 field_name=f"performance.dialogue_timing[{index}].start_seconds",
             )
             end_seconds = _finite_nonnegative_number(
-                cue.get("end_seconds"),
+                _dialogue_time(
+                    cue,
+                    canonical="end_seconds",
+                    legacy="end",
+                    index=index,
+                ),
                 field_name=f"performance.dialogue_timing[{index}].end_seconds",
             )
             if end_seconds <= start_seconds:
@@ -119,6 +148,7 @@ class NativeShotRequest:
         return self.content_hash
 
     def to_dict(self) -> dict[str, Any]:
+        self.validate_timing_integrity()
         if not self.content_hash:
             self.refresh_hash()
         return asdict(self)
