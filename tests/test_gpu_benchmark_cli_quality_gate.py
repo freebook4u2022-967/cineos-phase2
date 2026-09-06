@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from cineos.atlas import gpu_benchmark_cli as cli
+from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.siglip2_video_scorer import SigLIP2VideoScorerError
 
 
@@ -18,11 +19,36 @@ def _quality_gated_receipt(*, production_quality_evidence: bool = True):
     )
 
 
+def _connected_requests() -> tuple[NativeShotRequest, ...]:
+    requests = []
+    for index in range(5):
+        request = NativeShotRequest(
+            shot_id=f"shot-{index}",
+            scene_id="scene-quality-gate",
+            camera={"movement": "tracking"},
+            characters=[{"character_id": "lead"}],
+            environment={"location": "street"},
+            wardrobe=[],
+            props=[],
+            continuity={
+                "previous_shot_id": None if index == 0 else f"shot-{index - 1}"
+            },
+            performance={"action": "walk"},
+            approved_reference_ids=["lead-approved-reference"],
+            deterministic_seed=7000 + index,
+            renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
+        )
+        request.refresh_hash()
+        requests.append(request)
+    return tuple(requests)
+
+
 def test_production_cli_routes_real_render_through_quality_retry_gate(
     monkeypatch, tmp_path
 ):
     evaluator = object()
     observed = {}
+    requests = _connected_requests()
 
     monkeypatch.setattr(
         cli,
@@ -45,13 +71,14 @@ def test_production_cli_routes_real_render_through_quality_retry_gate(
 
     receipt = cli.run_production_benchmark(
         "bench-quality",
-        (),
+        requests,
         output_dir=tmp_path,
         reference_manifest="approved-references.json",
     )
 
     assert receipt.production_quality_evidence is True
     assert observed["benchmark_id"] == "bench-quality"
+    assert observed["requests"] == requests
     assert observed["quality_evaluator"] is evaluator
     assert observed["reference_manifest"] == "approved-references.json"
     assert observed["profile"] is cli.WAN22_TI2V_5B_PROFILE
@@ -60,6 +87,7 @@ def test_production_cli_routes_real_render_through_quality_retry_gate(
 def test_production_cli_rejects_receipt_without_production_quality_evidence(
     monkeypatch, tmp_path
 ):
+    requests = _connected_requests()
     monkeypatch.setattr(
         cli,
         "_production_quality_evaluator",
@@ -79,7 +107,7 @@ def test_production_cli_rejects_receipt_without_production_quality_evidence(
     ):
         cli.run_production_benchmark(
             "bench-no-qc",
-            (),
+            requests,
             output_dir=tmp_path,
             reference_manifest="approved-references.json",
         )
