@@ -149,7 +149,10 @@ def _validate_challenge_structure(
 
     for index, (request, tags) in enumerate(zip(requests, challenge_tags, strict=True)):
         if "multi_character_interaction" in tags:
-            if len(request.characters) < 2 or len(set(request.approved_reference_ids)) < 2:
+            if (
+                len(request.characters) < 2
+                or len(set(request.approved_reference_ids)) < 2
+            ):
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} declares multi_character_interaction but does not "
                     "contain at least two characters with two distinct approved "
@@ -164,9 +167,11 @@ def _validate_challenge_structure(
 
         if "dialogue_lip_sync" in tags:
             dialogue_timing = request.performance.get("dialogue_timing")
-            if not isinstance(dialogue_timing, Sequence) or isinstance(
-                dialogue_timing, (str, bytes)
-            ) or not dialogue_timing:
+            if (
+                not isinstance(dialogue_timing, Sequence)
+                or isinstance(dialogue_timing, (str, bytes))
+                or not dialogue_timing
+            ):
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} declares dialogue_lip_sync but contains no "
                     "dialogue_timing performance evidence"
@@ -197,8 +202,7 @@ def _validate_competitive_challenge_coverage(
     """
 
     per_shot_tags = tuple(
-        _challenge_tags(request, index=index)
-        for index, request in enumerate(requests)
+        _challenge_tags(request, index=index) for index, request in enumerate(requests)
     )
     covered = set().union(*per_shot_tags)
     missing = sorted(REQUIRED_COMPETITIVE_CHALLENGES - covered)
