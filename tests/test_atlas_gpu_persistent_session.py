@@ -158,12 +158,9 @@ def test_persistent_session_loads_pipeline_once_for_multiple_shots(tmp_path):
     assert first.runtime_provenance["session_render_index"] == 1
     assert second.runtime_provenance["session_render_index"] == 2
     assert first.runtime_provenance["session_model_load_seconds"] >= 0.0
-    assert (
-        second.runtime_provenance["session_amortized_model_load_seconds_per_render"]
-        == pytest.approx(
-            second.runtime_provenance["session_model_load_seconds"] / 2.0
-        )
-    )
+    assert second.runtime_provenance[
+        "session_amortized_model_load_seconds_per_render"
+    ] == pytest.approx(second.runtime_provenance["session_model_load_seconds"] / 2.0)
     assert second.runtime_provenance["session_cumulative_render_seconds"] >= (
         first.runtime_provenance["session_cumulative_render_seconds"]
     )
