@@ -28,12 +28,15 @@ def _request(index: int, reference_ids=None) -> NativeShotRequest:
             {"character_id": "lead"},
             {"character_id": "partner"},
         ],
-        environment={"location": "street"},
+        environment={"location": "street", "lighting": "day_to_night transition"},
         wardrobe=[],
-        props=[{"prop_id": "handheld-case"}],
+        props=[{"prop_id": "handheld-case", "action": "throwing"}],
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
         performance={
-            "action": "walk",
+            "action": "walk while throwing case",
+            "gesture_tracks": [
+                {"character_id": "lead", "action": "gripping with both hands"}
+            ],
             "dialogue_timing": [
                 {"speaker_id": "lead", "start_seconds": 0.2, "end_seconds": 1.0}
             ],
