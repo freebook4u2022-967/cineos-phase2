@@ -44,6 +44,57 @@ def _validate_connected_shot_count(requests: Sequence[NativeShotRequest]) -> Non
         )
 
 
+def _continuity_predecessor(request: NativeShotRequest, *, index: int) -> str | None:
+    """Return the declared predecessor while preserving the legacy field alias."""
+
+    continuity = request.continuity
+    current = continuity.get("previous_shot_id")
+    legacy = continuity.get("previous_shot")
+    if current not in (None, "") and legacy not in (None, "") and current != legacy:
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {index} has conflicting previous_shot_id/previous_shot continuity"
+        )
+    predecessor = current if current not in (None, "") else legacy
+    if predecessor is None or predecessor == "":
+        return None
+    if not isinstance(predecessor, str):
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {index} continuity predecessor must be a string or null"
+        )
+    return predecessor
+
+
+def _validate_connected_sequence(requests: Sequence[NativeShotRequest]) -> None:
+    """Require an ordered, unambiguous predecessor chain before GPU/model loading."""
+
+    _validate_connected_shot_count(requests)
+    shot_ids = [request.shot_id for request in requests]
+    if any(not isinstance(shot_id, str) or not shot_id.strip() for shot_id in shot_ids):
+        raise GPUProductionBenchmarkCLIError(
+            "production connected benchmark requires non-empty string shot_id values"
+        )
+    if len(set(shot_ids)) != len(shot_ids):
+        raise GPUProductionBenchmarkCLIError(
+            "production connected benchmark requires unique shot_id values"
+        )
+
+    first_predecessor = _continuity_predecessor(requests[0], index=0)
+    if first_predecessor is not None:
+        raise GPUProductionBenchmarkCLIError(
+            "first shot in production connected benchmark must not declare a predecessor"
+        )
+
+    for index, request in enumerate(requests[1:], start=1):
+        expected = shot_ids[index - 1]
+        predecessor = _continuity_predecessor(request, index=index)
+        if predecessor != expected:
+            raise GPUProductionBenchmarkCLIError(
+                "production connected benchmark continuity is not a contiguous ordered "
+                f"chain: shot {index} ({request.shot_id!r}) must reference {expected!r} "
+                f"as its predecessor, received {predecessor!r}"
+            )
+
+
 def _request_from_mapping(raw: Mapping[str, Any], *, index: int) -> NativeShotRequest:
     payload = dict(raw)
     supplied_hash = payload.pop("content_hash", "")
@@ -69,7 +120,7 @@ def _request_from_mapping(raw: Mapping[str, Any], *, index: int) -> NativeShotRe
 
 
 def load_native_requests(path: str | Path) -> tuple[NativeShotRequest, ...]:
-    """Load a 5-10 shot native-request manifest without trusting stored hashes."""
+    """Load a 5-10 shot connected native-request manifest without trusting hashes."""
 
     source = Path(path)
     try:
@@ -101,7 +152,7 @@ def load_native_requests(path: str | Path) -> tuple[NativeShotRequest, ...]:
             )
         requests.append(_request_from_mapping(raw, index=index))
     loaded = tuple(requests)
-    _validate_connected_shot_count(loaded)
+    _validate_connected_sequence(loaded)
     return loaded
 
 
@@ -214,7 +265,7 @@ def run_production_benchmark(
 
     if not isinstance(continuity_identity_refresh, bool):
         raise TypeError("continuity_identity_refresh must be a bool")
-    _validate_connected_shot_count(requests)
+    _validate_connected_sequence(requests)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     quality_evaluator = _production_quality_evaluator(requests, reference_manifest)
