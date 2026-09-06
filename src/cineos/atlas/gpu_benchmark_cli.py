@@ -10,6 +10,7 @@ foundation and QC weights remain explicitly identified by their pinned provenanc
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -44,6 +45,32 @@ def _validate_connected_shot_count(requests: Sequence[NativeShotRequest]) -> Non
         )
 
 
+def _expected_request_hash(request: NativeShotRequest) -> str:
+    """Compute the canonical native-request hash without mutating caller state."""
+
+    payload = json.dumps(
+        request.payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_request_hashes(requests: Sequence[NativeShotRequest]) -> None:
+    """Require every direct production request to be hash-bound to its live payload."""
+
+    for index, request in enumerate(requests):
+        supplied = request.content_hash
+        if not isinstance(supplied, str) or len(supplied) != 64:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} requires a canonical 64-character content_hash before "
+                "production execution"
+            )
+        expected = _expected_request_hash(request)
+        if supplied != expected:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} content_hash is stale or does not match its live payload"
+            )
+
+
 def _continuity_predecessor(request: NativeShotRequest, *, index: int) -> str | None:
     """Return the declared predecessor while preserving the legacy field alias."""
 
@@ -65,9 +92,10 @@ def _continuity_predecessor(request: NativeShotRequest, *, index: int) -> str | 
 
 
 def _validate_connected_sequence(requests: Sequence[NativeShotRequest]) -> None:
-    """Require an ordered, unambiguous predecessor chain before GPU/model loading."""
+    """Require an ordered, hash-bound predecessor chain before GPU/model loading."""
 
     _validate_connected_shot_count(requests)
+    _validate_request_hashes(requests)
     shot_ids = [request.shot_id for request in requests]
     if any(not isinstance(shot_id, str) or not shot_id.strip() for shot_id in shot_ids):
         raise GPUProductionBenchmarkCLIError(
