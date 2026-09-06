@@ -88,7 +88,7 @@ def test_hands_anatomy_challenge_rejects_missing_hand_or_gesture_conditioning():
 def test_hands_anatomy_challenge_accepts_explicit_reaching_action():
     requests = _requests()
     requests[0].performance["gesture_tracks"] = []
-    requests[0].performance["action"] = "walk, reach, and throw case"
+    requests[0].performance["action"] = "walk reach throw case"
     requests[0].refresh_hash()
 
     cli._validate_connected_sequence(requests)
