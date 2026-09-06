@@ -6,6 +6,7 @@ import math
 import shutil
 import subprocess
 from collections.abc import Mapping
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,9 @@ from .validator import file_hash
 MAX_APPROVED_AUDIO_SHORTFALL_SECONDS = 0.75
 MAX_ASSEMBLED_DURATION_DRIFT_SECONDS = 0.25
 MIN_ASSEMBLED_AUDIO_PEAK_DB = -110.0
+FINAL_VIDEO_CODEC = "h264"
+FINAL_AUDIO_CODEC = "aac"
+FINAL_AUDIO_SAMPLE_RATE_HZ = 48_000
 
 
 def _ffmpeg() -> str:
@@ -163,6 +167,81 @@ def _visual_timeline_duration(
     return total
 
 
+def _positive_frame_rate(value: Any) -> float | None:
+    raw = str(value or "").strip()
+    if not raw or raw.upper() == "N/A" or raw == "0/0":
+        return None
+    try:
+        parsed = float(Fraction(raw))
+    except (ValueError, ZeroDivisionError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
+
+
+def _validate_delivery_contract(media: Mapping[str, Any], *, expect_audio: bool) -> None:
+    """Bind final-film acceptance to the codec and stream contract we actually encode.
+
+    A successful FFmpeg process is not proof that the requested delivery settings made it
+    into the artifact. Validate independent FFprobe evidence for H.264 picture, positive
+    dimensions/frame rate, and—when a soundtrack was requested—AAC at the explicit 48 kHz
+    film/video delivery rate. This gate applies only to the final assembled artifact, not
+    renderer source shots, so external foundations remain free to use other legal codecs.
+    """
+    codecs = media.get("video_codecs")
+    if not isinstance(codecs, list) or len(codecs) != 1:
+        raise AssemblyError("assembled output is missing video-codec evidence")
+    if str(codecs[0] or "").strip().lower() != FINAL_VIDEO_CODEC:
+        raise AssemblyError(
+            "assembled output video codec does not match the delivery contract"
+        )
+
+    dimensions = media.get("video_dimensions")
+    if not isinstance(dimensions, list) or len(dimensions) != 1:
+        raise AssemblyError("assembled output is missing video-dimension evidence")
+    dimension = dimensions[0]
+    if not isinstance(dimension, Mapping):
+        raise AssemblyError("assembled output has malformed video-dimension evidence")
+    try:
+        width = int(dimension.get("width") or 0)
+        height = int(dimension.get("height") or 0)
+    except (TypeError, ValueError):
+        width = height = 0
+    if width <= 0 or height <= 0:
+        raise AssemblyError("assembled output has invalid video dimensions")
+
+    frame_rates = media.get("video_frame_rates")
+    if not isinstance(frame_rates, list) or len(frame_rates) != 1:
+        raise AssemblyError("assembled output is missing frame-rate evidence")
+    if _positive_frame_rate(frame_rates[0]) is None:
+        raise AssemblyError("assembled output has invalid frame-rate evidence")
+
+    if not expect_audio:
+        return
+
+    streams = media.get("audio_streams")
+    if not isinstance(streams, list) or len(streams) != 1:
+        raise AssemblyError("assembled output is missing audio delivery evidence")
+    stream = streams[0]
+    if not isinstance(stream, Mapping):
+        raise AssemblyError("assembled output has malformed audio delivery evidence")
+    codec_name = str(stream.get("codec_name") or "").strip().lower()
+    try:
+        sample_rate = int(stream.get("sample_rate_hz") or 0)
+        channels = int(stream.get("channels") or 0)
+    except (TypeError, ValueError):
+        sample_rate = channels = 0
+    if codec_name != FINAL_AUDIO_CODEC:
+        raise AssemblyError(
+            "assembled output audio codec does not match the delivery contract"
+        )
+    if sample_rate != FINAL_AUDIO_SAMPLE_RATE_HZ:
+        raise AssemblyError(
+            "assembled output audio sample rate does not match the 48 kHz delivery contract"
+        )
+    if channels <= 0:
+        raise AssemblyError("assembled output has invalid audio channel evidence")
+
+
 def _postflight_output(
     destination: Path,
     *,
@@ -173,11 +252,11 @@ def _postflight_output(
 
     FFmpeg process success is not sufficient evidence that the destination contains the
     requested film. Independently decode/probe the resulting artifact and bind acceptance
-    to one video stream, positive decoded-frame evidence, the expected audio topology,
-    the authoritative visual timeline, and (when audio is requested) measurable decoded
-    soundtrack signal. This catches truncated, mis-muxed, silent-audio, stream-selection,
-    and zero-picture failures that can otherwise leave a plausible non-empty container
-    behind.
+    to one video stream, positive decoded-frame evidence, the encoded delivery contract,
+    the expected audio topology, the authoritative visual timeline, and (when audio is
+    requested) measurable decoded soundtrack signal. This catches truncated, mis-muxed,
+    silent-audio, stream-selection, codec-contract, and zero-picture failures that can
+    otherwise leave a plausible non-empty container behind.
     """
     try:
         media = probe_media(destination)
@@ -211,6 +290,7 @@ def _postflight_output(
         raise AssemblyError(
             "assembled output audio topology does not match the approved assembly request"
         )
+    _validate_delivery_contract(media, expect_audio=expect_audio)
     if not math.isfinite(actual_duration) or actual_duration <= 0:
         raise AssemblyError("assembled output has no finite positive duration")
     tolerance = max(
