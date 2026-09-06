@@ -18,15 +18,25 @@ def _request(index: int, *, predecessor=...):
         shot_id=f"shot-{index}",
         scene_id="scene-continuity",
         camera={"movement": "tracking"},
-        characters=[{"character_id": "lead"}],
+        characters=[{"character_id": "lead"}, {"character_id": "partner"}],
         environment={"location": "street"},
         wardrobe=[],
-        props=[],
+        props=[{"prop_id": "case"}],
         continuity={"previous_shot_id": predecessor},
-        performance={"action": "walk"},
-        approved_reference_ids=["lead-approved-reference"],
+        performance={
+            "action": "walk",
+            "dialogue_timing": [
+                {"speaker_id": "lead", "start_seconds": 0.2, "end_seconds": 1.0}
+            ],
+        },
+        approved_reference_ids=["lead-approved-reference", "partner-approved-reference"],
         deterministic_seed=6000 + index,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
+        metadata={
+            cli.COMPETITIVE_CHALLENGE_METADATA_KEY: sorted(
+                cli.REQUIRED_COMPETITIVE_CHALLENGES
+            )
+        },
     )
     request.refresh_hash()
     return request
