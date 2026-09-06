@@ -27,14 +27,17 @@ def _connected_requests() -> tuple[NativeShotRequest, ...]:
             scene_id="scene-quality-gate",
             camera={"movement": "tracking"},
             characters=[{"character_id": "lead"}, {"character_id": "partner"}],
-            environment={"location": "street"},
+            environment={"location": "street", "lighting": "day_to_night transition"},
             wardrobe=[],
-            props=[{"prop_id": "case"}],
+            props=[{"prop_id": "case", "action": "throwing"}],
             continuity={
                 "previous_shot_id": None if index == 0 else f"shot-{index - 1}"
             },
             performance={
-                "action": "walk",
+                "action": "walk while throwing case",
+                "gesture_tracks": [
+                    {"character_id": "lead", "action": "gripping with both hands"}
+                ],
                 "dialogue_timing": [
                     {
                         "speaker_id": "lead",
