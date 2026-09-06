@@ -14,18 +14,32 @@ from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.production_multi_reference import ProductionReferenceBoardAdapter
 
 
+_DEFAULT_REFERENCE_IDS = (
+    "lead-approved-reference",
+    "partner-approved-reference",
+)
+
+
 def _request(index: int, reference_ids=None) -> NativeShotRequest:
     request = NativeShotRequest(
         shot_id=f"shot-{index}",
         scene_id="scene-cli",
         camera={"movement": "tracking"},
-        characters=[{"character_id": "lead"}],
+        characters=[
+            {"character_id": "lead"},
+            {"character_id": "partner"},
+        ],
         environment={"location": "street"},
         wardrobe=[],
-        props=[],
+        props=[{"prop_id": "handheld-case"}],
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
-        performance={"action": "walk"},
-        approved_reference_ids=list(reference_ids or ["lead-approved-reference"]),
+        performance={
+            "action": "walk",
+            "dialogue_timing": [
+                {"speaker_id": "lead", "start_seconds": 0.2, "end_seconds": 1.0}
+            ],
+        },
+        approved_reference_ids=list(reference_ids or _DEFAULT_REFERENCE_IDS),
         deterministic_seed=4000 + index,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
         metadata={
@@ -38,7 +52,7 @@ def _request(index: int, reference_ids=None) -> NativeShotRequest:
     return request
 
 
-def _reference_manifest(tmp_path, reference_ids=("lead-approved-reference",)):
+def _reference_manifest(tmp_path, reference_ids=_DEFAULT_REFERENCE_IDS):
     references = []
     for index, reference_id in enumerate(reference_ids):
         image = tmp_path / f"reference-{index}.png"
@@ -187,6 +201,112 @@ def test_connected_benchmark_rejects_empty_competitive_challenge_declaration(
             requests,
             output_dir=tmp_path / "renders",
             reference_manifest=_reference_manifest(tmp_path),
+        )
+    assert scorer_loaded is False
+
+
+def test_connected_benchmark_rejects_unknown_challenge_before_gpu_load(
+    monkeypatch, tmp_path
+):
+    scorer_loaded = False
+
+    def unexpected_scorer(*args, **kwargs):
+        nonlocal scorer_loaded
+        scorer_loaded = True
+        return object()
+
+    monkeypatch.setattr(cli, "SigLIP2FeatureVideoScorer", unexpected_scorer)
+    requests = [_request(index) for index in range(5)]
+    requests[0].metadata[cli.COMPETITIVE_CHALLENGE_METADATA_KEY].append("magic_quality")
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="unknown competitive"):
+        run_production_benchmark(
+            "production-evidence",
+            requests,
+            output_dir=tmp_path / "renders",
+            reference_manifest=_reference_manifest(tmp_path),
+        )
+    assert scorer_loaded is False
+
+
+@pytest.mark.parametrize(
+    ("challenge", "mutate", "message"),
+    [
+        (
+            "multi_character_interaction",
+            lambda request: (
+                request.characters.__setitem__(slice(None), [{"character_id": "lead"}]),
+                request.approved_reference_ids.__setitem__(
+                    slice(None), ["lead-approved-reference"]
+                ),
+            ),
+            "at least two characters",
+        ),
+        (
+            "object_interaction",
+            lambda request: request.props.clear(),
+            "contains no prop conditioning",
+        ),
+        (
+            "dialogue_lip_sync",
+            lambda request: request.performance.__setitem__("dialogue_timing", []),
+            "contains no dialogue_timing",
+        ),
+    ],
+)
+def test_connected_benchmark_rejects_structurally_vacuous_challenge(
+    challenge, mutate, message, monkeypatch, tmp_path
+):
+    scorer_loaded = False
+
+    def unexpected_scorer(*args, **kwargs):
+        nonlocal scorer_loaded
+        scorer_loaded = True
+        return object()
+
+    monkeypatch.setattr(cli, "SigLIP2FeatureVideoScorer", unexpected_scorer)
+    requests = [_request(index) for index in range(5)]
+    mutate(requests[0])
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match=message):
+        run_production_benchmark(
+            "production-evidence",
+            requests,
+            output_dir=tmp_path / "renders",
+            reference_manifest=_reference_manifest(tmp_path),
+        )
+    assert scorer_loaded is False
+
+
+def test_connected_benchmark_identity_challenge_requires_cross_shot_reference(
+    monkeypatch, tmp_path
+):
+    scorer_loaded = False
+
+    def unexpected_scorer(*args, **kwargs):
+        nonlocal scorer_loaded
+        scorer_loaded = True
+        return object()
+
+    monkeypatch.setattr(cli, "SigLIP2FeatureVideoScorer", unexpected_scorer)
+    requests = [_request(index) for index in range(5)]
+    requests[0].approved_reference_ids = ["one-shot-identity", "one-shot-partner"]
+    for request in requests[1:]:
+        request.approved_reference_ids = [
+            "persistent-lead",
+            "persistent-partner",
+        ]
+    for request in requests:
+        request.refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="persists into another"):
+        run_production_benchmark(
+            "production-evidence",
+            requests,
+            output_dir=tmp_path / "renders",
+            reference_manifest="not-reached.json",
         )
     assert scorer_loaded is False
 
