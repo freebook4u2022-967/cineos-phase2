@@ -34,6 +34,22 @@ class GPUProductionBenchmarkCLIError(RuntimeError):
     """Raised when production benchmark input or execution is not trustworthy."""
 
 
+REQUIRED_COMPETITIVE_CHALLENGES = frozenset(
+    {
+        "identity_consistency",
+        "multi_character_interaction",
+        "hands_anatomy",
+        "walking_running",
+        "dialogue_lip_sync",
+        "object_interaction",
+        "fast_camera_movement",
+        "lighting_changes",
+        "physics",
+    }
+)
+COMPETITIVE_CHALLENGE_METADATA_KEY = "competitive_challenges"
+
+
 def _validate_connected_shot_count(requests: Sequence[NativeShotRequest]) -> None:
     """Fail closed unless the production benchmark contains exactly 5-10 shots."""
 
@@ -91,6 +107,40 @@ def _continuity_predecessor(request: NativeShotRequest, *, index: int) -> str | 
     return predecessor
 
 
+def _validate_competitive_challenge_coverage(
+    requests: Sequence[NativeShotRequest],
+) -> None:
+    """Require explicit coverage of every mandatory difficult production stressor.
+
+    The tags are CINEOS benchmark declarations, not claims that the renderer solved a
+    challenge. Actual success remains determined by artifact-bound QC and benchmark
+    metrics after real inference. Requiring declarations here prevents an easy 5-10
+    shot sequence from being presented as evidence for the competitive release gate.
+    """
+
+    covered: set[str] = set()
+    for index, request in enumerate(requests):
+        raw = request.metadata.get(COMPETITIVE_CHALLENGE_METADATA_KEY)
+        if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or not raw:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} must declare a non-empty "
+                f"{COMPETITIVE_CHALLENGE_METADATA_KEY!r} sequence"
+            )
+        for challenge in raw:
+            if not isinstance(challenge, str) or not challenge.strip():
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} contains an invalid competitive challenge tag"
+                )
+            covered.add(challenge.strip())
+
+    missing = sorted(REQUIRED_COMPETITIVE_CHALLENGES - covered)
+    if missing:
+        raise GPUProductionBenchmarkCLIError(
+            "production connected benchmark does not cover all mandatory competitive "
+            f"challenges; missing: {', '.join(missing)}"
+        )
+
+
 def _validate_connected_sequence(requests: Sequence[NativeShotRequest]) -> None:
     """Require an ordered, hash-bound predecessor chain before GPU/model loading."""
 
@@ -121,6 +171,8 @@ def _validate_connected_sequence(requests: Sequence[NativeShotRequest]) -> None:
                 f"chain: shot {index} ({request.shot_id!r}) must reference {expected!r} "
                 f"as its predecessor, received {predecessor!r}"
             )
+
+    _validate_competitive_challenge_coverage(requests)
 
 
 def _request_from_mapping(raw: Mapping[str, Any], *, index: int) -> NativeShotRequest:
@@ -377,7 +429,9 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "COMPETITIVE_CHALLENGE_METADATA_KEY",
     "GPUProductionBenchmarkCLIError",
+    "REQUIRED_COMPETITIVE_CHALLENGES",
     "load_native_requests",
     "main",
     "run_production_benchmark",
