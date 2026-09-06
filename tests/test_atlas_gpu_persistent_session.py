@@ -16,6 +16,8 @@ class _Properties:
 
 
 class _Cuda:
+    peak_reset_calls = 0
+
     @staticmethod
     def is_available():
         return True
@@ -43,6 +45,18 @@ class _Cuda:
     @staticmethod
     def mem_get_info(_index=0):
         return (40 * 1024**3, 48 * 1024**3)
+
+    @classmethod
+    def reset_peak_memory_stats(cls, _index=0):
+        cls.peak_reset_calls += 1
+
+    @staticmethod
+    def max_memory_allocated(_index=0):
+        return 12 * 1024**3
+
+    @staticmethod
+    def max_memory_reserved(_index=0):
+        return 14 * 1024**3
 
 
 class _Torch:
@@ -109,6 +123,7 @@ def _request(shot_id: str, seed: int) -> NativeShotRequest:
 def test_persistent_session_loads_pipeline_once_for_multiple_shots(tmp_path):
     pipeline = _Pipeline()
     factory_calls = 0
+    reset_calls_before = _Cuda.peak_reset_calls
 
     def factory(*_args, **_kwargs):
         nonlocal factory_calls
@@ -140,6 +155,24 @@ def test_persistent_session_loads_pipeline_once_for_multiple_shots(tmp_path):
     assert first.execution_plan == second.execution_plan
     assert first.runtime_provenance["persistent_model_session"] is True
     assert first.runtime_provenance["production_default_runtime"] is False
+    assert first.runtime_provenance["session_render_index"] == 1
+    assert second.runtime_provenance["session_render_index"] == 2
+    assert first.runtime_provenance["session_model_load_seconds"] >= 0.0
+    assert (
+        second.runtime_provenance["session_amortized_model_load_seconds_per_render"]
+        == pytest.approx(
+            second.runtime_provenance["session_model_load_seconds"] / 2.0
+        )
+    )
+    assert second.runtime_provenance["session_cumulative_render_seconds"] >= (
+        first.runtime_provenance["session_cumulative_render_seconds"]
+    )
+    assert second.runtime_provenance["session_total_measured_execution_seconds"] >= (
+        second.runtime_provenance["session_cumulative_render_seconds"]
+    )
+    assert first.runtime_provenance["cuda_peak_memory_allocated_bytes"] == 12 * 1024**3
+    assert first.runtime_provenance["cuda_peak_memory_reserved_bytes"] == 14 * 1024**3
+    assert _Cuda.peak_reset_calls - reset_calls_before == 2
 
 
 def test_persistent_session_callable_matches_benchmark_executor_contract(tmp_path):
@@ -164,6 +197,7 @@ def test_persistent_session_callable_matches_benchmark_executor_contract(tmp_pat
 
     assert receipt.result.shot_id == "shot-003"
     assert pipeline.calls == 1
+    assert receipt.runtime_provenance["session_render_index"] == 1
 
 
 def test_persistent_session_fails_closed_when_rendered_while_closed(tmp_path):
