@@ -365,7 +365,9 @@ def test_rejects_accepted_transition_that_still_lists_failed_metrics(tmp_path) -
         validate_production_connected_evidence(benchmark)
 
 
-def test_rejects_accepted_transition_with_unresolved_rerender_directives(tmp_path) -> None:
+def test_rejects_accepted_transition_with_unresolved_rerender_directives(
+    tmp_path,
+) -> None:
     benchmark = _benchmark(tmp_path)
     payload = _manifest_payload(benchmark)
     _transitions(payload)[0]["directives"] = [
