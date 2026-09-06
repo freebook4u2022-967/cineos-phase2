@@ -74,6 +74,73 @@ _STATIC_CAMERA_TERMS = frozenset(
         "none",
     }
 )
+_HAND_ACTION_TERMS = frozenset(
+    {
+        "hand",
+        "hands",
+        "finger",
+        "fingers",
+        "grasp",
+        "grasping",
+        "grab",
+        "grabbing",
+        "grip",
+        "gripping",
+        "reach",
+        "reaching",
+        "point",
+        "pointing",
+        "hold",
+        "holding",
+    }
+)
+_LIGHTING_CHANGE_TERMS = frozenset(
+    {
+        "change",
+        "changing",
+        "transition",
+        "transitioning",
+        "flicker",
+        "flickering",
+        "strobe",
+        "blackout",
+        "sunrise",
+        "sunset",
+        "dawn",
+        "dusk",
+        "day_to_night",
+        "night_to_day",
+    }
+)
+_PHYSICS_ACTION_TERMS = frozenset(
+    {
+        "throw",
+        "throwing",
+        "catch",
+        "catching",
+        "drop",
+        "dropping",
+        "fall",
+        "falling",
+        "bounce",
+        "bouncing",
+        "collide",
+        "collision",
+        "impact",
+        "splash",
+        "splashing",
+        "spill",
+        "spilling",
+        "break",
+        "breaking",
+        "roll",
+        "rolling",
+        "slide",
+        "sliding",
+        "swing",
+        "swinging",
+    }
+)
 
 
 def _validate_connected_shot_count(requests: Sequence[NativeShotRequest]) -> None:
@@ -194,6 +261,39 @@ def _has_camera_motion_conditioning(request: NativeShotRequest) -> bool:
     return not movement_terms.issubset(_STATIC_CAMERA_TERMS)
 
 
+def _has_hand_conditioning(request: NativeShotRequest) -> bool:
+    """Require explicit hand/gesture intent for the hands-and-anatomy stressor."""
+
+    gesture_terms = _normalized_terms(request.performance.get("gesture_tracks", []))
+    action_terms = _normalized_terms(request.performance.get("action"))
+    body_terms = _normalized_terms(
+        request.performance.get("body_performance_tracks", [])
+    )
+    return bool((gesture_terms | action_terms | body_terms) & _HAND_ACTION_TERMS)
+
+
+def _has_lighting_change_conditioning(request: NativeShotRequest) -> bool:
+    """Require a native environment/metadata declaration of a lighting transition."""
+
+    environment_terms = _normalized_terms(request.environment or {})
+    metadata_terms = _normalized_terms(request.metadata.get("lighting_transition"))
+    terms = environment_terms | metadata_terms
+    if terms & _LIGHTING_CHANGE_TERMS:
+        return True
+    return any("_to_" in term for term in terms)
+
+
+def _has_physics_conditioning(request: NativeShotRequest) -> bool:
+    """Require explicit dynamic physical interaction rather than a physics label alone."""
+
+    action_terms = _normalized_terms(request.performance.get("action"))
+    body_terms = _normalized_terms(
+        request.performance.get("body_performance_tracks", [])
+    )
+    prop_terms = _normalized_terms(request.props)
+    return bool((action_terms | body_terms | prop_terms) & _PHYSICS_ACTION_TERMS)
+
+
 def _validate_challenge_structure(
     requests: Sequence[NativeShotRequest], challenge_tags: Sequence[frozenset[str]]
 ) -> None:
@@ -252,6 +352,24 @@ def _validate_challenge_structure(
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} declares fast_camera_movement but contains no explicit "
                 "non-static camera-movement conditioning"
+            )
+
+        if "hands_anatomy" in tags and not _has_hand_conditioning(request):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} declares hands_anatomy but contains no explicit "
+                "hand/gesture performance conditioning"
+            )
+
+        if "lighting_changes" in tags and not _has_lighting_change_conditioning(request):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} declares lighting_changes but contains no explicit "
+                "lighting-transition conditioning"
+            )
+
+        if "physics" in tags and not _has_physics_conditioning(request):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} declares physics but contains no explicit dynamic "
+                "physical-interaction conditioning"
             )
 
         if "identity_consistency" in tags:
