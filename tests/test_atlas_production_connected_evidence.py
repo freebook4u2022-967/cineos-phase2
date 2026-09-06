@@ -293,7 +293,9 @@ def test_rejects_transition_with_missing_metrics(tmp_path) -> None:
         validate_production_connected_evidence(benchmark)
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), -0.1, 1.1])
+@pytest.mark.parametrize(
+    "value", [float("nan"), float("inf"), float("-inf"), -0.1, 1.1]
+)
 def test_rejects_non_finite_or_out_of_range_transition_metrics(value, tmp_path) -> None:
     benchmark = _benchmark(tmp_path)
     payload = _manifest_payload(benchmark)
