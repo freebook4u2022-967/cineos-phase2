@@ -2,8 +2,17 @@ from pathlib import Path
 
 import pytest
 
+from cineos.film import assembly as assembly_module
 from cineos.film.assembly import assemble
 from cineos.film.exceptions import AssemblyError
+
+
+def _stub_visual_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        assembly_module,
+        "probe_media",
+        lambda _path: {"duration_seconds": 1.0},
+    )
 
 
 def test_rejects_output_that_overwrites_source_video(tmp_path: Path, monkeypatch):
@@ -42,6 +51,7 @@ def test_rejects_output_that_overwrites_approved_audio(tmp_path: Path, monkeypat
     audio = tmp_path / "mix.wav"
     shot.write_bytes(b"approved-shot")
     audio.write_bytes(b"approved-audio")
+    _stub_visual_probe(monkeypatch)
     monkeypatch.setattr(
         "cineos.film.assembly._ffmpeg",
         lambda: pytest.fail("FFmpeg must not run when output aliases approved audio"),
@@ -61,6 +71,7 @@ def test_rejects_output_hard_link_to_approved_audio(tmp_path: Path, monkeypatch)
     shot.write_bytes(b"approved-shot")
     audio.write_bytes(b"approved-audio")
     output.hardlink_to(audio)
+    _stub_visual_probe(monkeypatch)
     monkeypatch.setattr(
         "cineos.film.assembly._ffmpeg",
         lambda: pytest.fail(
