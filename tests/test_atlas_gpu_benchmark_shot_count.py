@@ -15,7 +15,7 @@ def _request(index: int) -> NativeShotRequest:
     request = NativeShotRequest(
         shot_id=f"shot-{index}",
         scene_id="scene-shot-count",
-        camera={"movement": "tracking"},
+        camera={"movement": "whip_pan"},
         characters=[{"character_id": "lead"}, {"character_id": "partner"}],
         environment={"location": "street", "lighting": "day_to_night transition"},
         wardrobe=[],
