@@ -13,6 +13,7 @@ from cineos.atlas.production_connected_evidence import (
     validate_production_connected_evidence,
 )
 from cineos.atlas.production_continuity_diffusers import VISUAL_CONTINUITY_SCHEMA
+from cineos.atlas.transition_quality import TRANSITION_QUALITY_SCHEMA
 
 
 def _sha(index: int) -> str:
@@ -90,6 +91,7 @@ def _benchmark(tmp_path: Path, *, shot_count: int = 5) -> GPUConnectedBenchmarkR
 
     transitions = [
         {
+            "schema": TRANSITION_QUALITY_SCHEMA,
             "production_measurement_evidence": True,
             "accepted": True,
             "observer_id": "measured-transition-qc-v1",
@@ -100,6 +102,12 @@ def _benchmark(tmp_path: Path, *, shot_count: int = 5) -> GPUConnectedBenchmarkR
             "previous_shot_id": f"shot-{index + 1}",
             "current_scene_id": "scene-1",
             "current_shot_id": f"shot-{index + 2}",
+            "metrics": {
+                "visual_seam_similarity": 0.91,
+                "motion_boundary_consistency": 0.88,
+            },
+            "failed_metrics": [],
+            "directives": [],
         }
         for index in range(max(0, shot_count - 1))
     ]
@@ -141,6 +149,14 @@ def _write_manifest(
     Path(benchmark.manifest_path).write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _transitions(payload: dict[str, object]) -> list[dict[str, object]]:
+    gate = payload["quality_retry_gate"]
+    assert isinstance(gate, dict)
+    transitions = gate["accepted_transitions"]
+    assert isinstance(transitions, list)
+    return transitions
+
+
 def test_accepts_only_unified_runtime_quality_and_continuity_evidence(tmp_path) -> None:
     benchmark = _benchmark(tmp_path)
 
@@ -153,6 +169,7 @@ def test_accepts_only_unified_runtime_quality_and_continuity_evidence(tmp_path) 
     assert evidence.transition_quality_valid is True
     assert evidence.shot_count == 5
     assert len(evidence.continuity_provenance) == 5
+    assert evidence.to_dict()["schema"] == "cineos-production-connected-evidence/0.3"
     assert evidence.to_dict()["accepted"] is True
     assert evidence.to_dict()["transition_quality_valid"] is True
     assert production_connected_evidence(benchmark) is True
@@ -233,11 +250,7 @@ def test_rejects_incomplete_transition_boundary_coverage(tmp_path) -> None:
 def test_rejects_transition_bound_to_different_artifact(tmp_path) -> None:
     benchmark = _benchmark(tmp_path)
     payload = _manifest_payload(benchmark)
-    gate = payload["quality_retry_gate"]
-    assert isinstance(gate, dict)
-    transitions = gate["accepted_transitions"]
-    assert isinstance(transitions, list)
-    transitions[2]["current_output_sha256"] = _sha(777)
+    _transitions(payload)[2]["current_output_sha256"] = _sha(777)
     _write_manifest(benchmark, payload)
 
     with pytest.raises(
@@ -250,16 +263,62 @@ def test_rejects_transition_bound_to_different_artifact(tmp_path) -> None:
 def test_rejects_unmeasured_transition_evidence(tmp_path) -> None:
     benchmark = _benchmark(tmp_path)
     payload = _manifest_payload(benchmark)
-    gate = payload["quality_retry_gate"]
-    assert isinstance(gate, dict)
-    transitions = gate["accepted_transitions"]
-    assert isinstance(transitions, list)
-    transitions[1]["production_measurement_evidence"] = False
+    _transitions(payload)[1]["production_measurement_evidence"] = False
     _write_manifest(benchmark, payload)
 
     with pytest.raises(
         ProductionConnectedEvidenceError,
         match="not measured evidence",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_transition_with_missing_measurement_schema(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    _transitions(payload)[0].pop("schema")
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(ProductionConnectedEvidenceError, match="unsupported schema"):
+        validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_transition_with_missing_metrics(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    _transitions(payload)[0].pop("metrics")
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(ProductionConnectedEvidenceError, match="measured metrics"):
+        validate_production_connected_evidence(benchmark)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), -0.1, 1.1])
+def test_rejects_non_finite_or_out_of_range_transition_metrics(value, tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    transition = _transitions(payload)[0]
+    metrics = transition["metrics"]
+    assert isinstance(metrics, dict)
+    metrics["visual_seam_similarity"] = value
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="must be finite and between 0 and 1",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_accepted_transition_that_still_lists_failed_metrics(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    _transitions(payload)[0]["failed_metrics"] = ["motion_boundary_consistency"]
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="accepted report contains failed metrics",
     ):
         validate_production_connected_evidence(benchmark)
 
