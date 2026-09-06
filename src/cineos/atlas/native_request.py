@@ -11,6 +11,8 @@ from typing import Any
 from cineos.conditioning import ConditioningPackage
 
 NATIVE_SHOT_SCHEMA = "cineos-native-shot-request/0.1"
+_COMPETITIVE_CHALLENGE_METADATA_KEY = "competitive_challenges"
+_DIALOGUE_LIP_SYNC_CHALLENGE = "dialogue_lip_sync"
 
 
 def _finite_positive_number(value: Any, *, field_name: str) -> float:
@@ -48,6 +50,15 @@ def _dialogue_time(
     return canonical_value if canonical_value is not None else legacy_value
 
 
+def _requires_competitive_dialogue_grounding(metadata: dict[str, Any]) -> bool:
+    """Return whether this native request is part of the strict dialogue benchmark."""
+
+    raw = metadata.get(_COMPETITIVE_CHALLENGE_METADATA_KEY)
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        return False
+    return _DIALOGUE_LIP_SYNC_CHALLENGE in raw
+
+
 @dataclass(slots=True)
 class NativeShotRequest:
     shot_id: str
@@ -73,7 +84,9 @@ class NativeShotRequest:
         and final-film continuity cannot be measured honestly when frame rate, shot
         duration, or dialogue intervals are non-finite or outside the shot timeline.
         Optional legacy fields and the historic ``start``/``end`` dialogue aliases remain
-        compatible; when timing is supplied, it must be trustworthy.
+        compatible; when timing is supplied, it must be trustworthy. Competitive
+        dialogue/lip-sync benchmark shots additionally require every cue to identify a
+        character that is actually conditioned in the same native request.
         """
 
         duration_seconds: float | None = None
@@ -94,6 +107,23 @@ class NativeShotRequest:
         if not isinstance(dialogue_timing, list):
             raise ValueError("performance.dialogue_timing must be a list when supplied")
 
+        require_dialogue_grounding = _requires_competitive_dialogue_grounding(
+            self.metadata
+        )
+        character_ids: set[str] = set()
+        if require_dialogue_grounding:
+            for character in self.characters:
+                if not isinstance(character, dict):
+                    continue
+                character_id = character.get("character_id")
+                if isinstance(character_id, str) and character_id.strip():
+                    character_ids.add(character_id)
+            if not character_ids:
+                raise ValueError(
+                    "competitive dialogue_lip_sync requires at least one conditioned "
+                    "character_id"
+                )
+
         for index, cue in enumerate(dialogue_timing):
             if not isinstance(cue, dict):
                 raise ValueError(
@@ -107,6 +137,17 @@ class NativeShotRequest:
                     f"performance.dialogue_timing[{index}].speaker_id must be non-empty "
                     "when supplied"
                 )
+            if require_dialogue_grounding:
+                if speaker_id is None:
+                    raise ValueError(
+                        f"performance.dialogue_timing[{index}] requires speaker_id for "
+                        "competitive dialogue_lip_sync"
+                    )
+                if speaker_id not in character_ids:
+                    raise ValueError(
+                        f"performance.dialogue_timing[{index}].speaker_id {speaker_id!r} "
+                        "does not match a conditioned character_id"
+                    )
             start_seconds = _finite_nonnegative_number(
                 _dialogue_time(
                     cue,

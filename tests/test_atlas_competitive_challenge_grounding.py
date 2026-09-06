@@ -129,3 +129,33 @@ def test_physics_challenge_accepts_explicit_dynamic_prop_action():
     requests[0].refresh_hash()
 
     cli._validate_connected_sequence(requests)
+
+
+def test_dialogue_lip_sync_requires_speaker_identity_grounding():
+    request = _request(0)
+    request.performance["dialogue_timing"] = [
+        {"start_seconds": 0.2, "end_seconds": 1.0}
+    ]
+
+    with pytest.raises(ValueError, match="requires speaker_id"):
+        request.validate_timing_integrity()
+
+
+def test_dialogue_lip_sync_rejects_unknown_speaker_identity():
+    request = _request(0)
+    request.performance["dialogue_timing"] = [
+        {"speaker_id": "intruder", "start_seconds": 0.2, "end_seconds": 1.0}
+    ]
+
+    with pytest.raises(ValueError, match="conditioned character_id"):
+        request.validate_timing_integrity()
+
+
+def test_dialogue_timing_legacy_without_competitive_tag_remains_compatible():
+    request = _request(0)
+    request.metadata.pop(cli.COMPETITIVE_CHALLENGE_METADATA_KEY)
+    request.performance["dialogue_timing"] = [
+        {"start_seconds": 0.2, "end_seconds": 1.0}
+    ]
+
+    request.validate_timing_integrity()
