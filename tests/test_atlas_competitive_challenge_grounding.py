@@ -9,7 +9,7 @@ def _request(index: int) -> NativeShotRequest:
     request = NativeShotRequest(
         shot_id=f"shot-{index}",
         scene_id="scene-motion-grounding",
-        camera={"movement": "tracking"},
+        camera={"movement": "whip_pan"},
         characters=[{"character_id": "lead"}, {"character_id": "partner"}],
         environment={"location": "street", "lighting": "day_to_night transition"},
         wardrobe=[],
@@ -70,8 +70,25 @@ def test_fast_camera_challenge_rejects_static_camera_conditioning():
     requests[0].camera["movement"] = "locked-off"
     requests[0].refresh_hash()
 
-    with pytest.raises(GPUProductionBenchmarkCLIError, match="non-static camera"):
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="fast/aggressive camera"):
         cli._validate_connected_sequence(requests)
+
+
+def test_fast_camera_challenge_rejects_ordinary_tracking_motion():
+    requests = _requests()
+    requests[0].camera["movement"] = "tracking"
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="fast/aggressive camera"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_fast_camera_challenge_accepts_explicit_speed_cue():
+    requests = _requests()
+    requests[0].camera["movement"] = {"type": "tracking", "speed": "fast"}
+    requests[0].refresh_hash()
+
+    cli._validate_connected_sequence(requests)
 
 
 def test_hands_anatomy_challenge_rejects_missing_hand_or_gesture_conditioning():
