@@ -8,6 +8,7 @@ measured cross-shot transition QC all refer to the same accepted render receipts
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Mapping
@@ -53,7 +54,7 @@ class ProductionConnectedEvidence:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-production-connected-evidence/0.4",
+            "schema": "cineos-production-connected-evidence/0.5",
             "benchmark_id": self.benchmark_id,
             "profile_id": self.profile_id,
             "origin": self.origin,
@@ -74,6 +75,51 @@ def _required_text(value: Any, *, field: str) -> str:
             f"production transition evidence requires {field}"
         )
     return value.strip()
+
+
+def _required_sha256(value: Any, *, field: str) -> str:
+    normalized = _required_text(value, field=field)
+    if len(normalized) != 64:
+        raise ProductionConnectedEvidenceError(
+            f"production connected evidence requires a valid {field}"
+        )
+    try:
+        int(normalized, 16)
+    except ValueError as exc:
+        raise ProductionConnectedEvidenceError(
+            f"production connected evidence requires a valid {field}"
+        ) from exc
+    return normalized.lower()
+
+
+def _recomputed_chain_sha256(benchmark: GPUConnectedBenchmarkReceipt) -> str:
+    """Recompute the benchmark chain from the exact accepted render receipts."""
+
+    digest = hashlib.sha256()
+    for index, receipt in enumerate(benchmark.shot_receipts):
+        result = getattr(receipt, "result", None)
+        if result is None:
+            raise ProductionConnectedEvidenceError(
+                f"production connected evidence shot {index} has no render result"
+            )
+        request_hash = _required_text(
+            getattr(result, "request_hash", None),
+            field=f"shot {index} request hash",
+        )
+        output_sha = _required_sha256(
+            getattr(receipt, "output_sha256", None),
+            field=f"shot {index} output SHA-256",
+        )
+        try:
+            digest.update(request_hash.encode("ascii"))
+            digest.update(b"\0")
+            digest.update(output_sha.encode("ascii"))
+            digest.update(b"\n")
+        except UnicodeEncodeError as exc:
+            raise ProductionConnectedEvidenceError(
+                f"production connected evidence shot {index} request hash must be ASCII"
+            ) from exc
+    return digest.hexdigest()
 
 
 def _required_unit_metric(value: Any, *, field: str, index: int) -> float:
@@ -106,9 +152,18 @@ def _validate_transition_quality_manifest(
         raise ProductionConnectedEvidenceError(
             "production connected benchmark manifest must be a JSON object"
         )
+
+    receipt_chain = _required_sha256(
+        benchmark.chain_sha256,
+        field="benchmark chain SHA-256",
+    )
     if payload.get("chain_sha256") != benchmark.chain_sha256:
         raise ProductionConnectedEvidenceError(
             "production connected benchmark manifest chain hash does not match receipt"
+        )
+    if _recomputed_chain_sha256(benchmark) != receipt_chain:
+        raise ProductionConnectedEvidenceError(
+            "production connected benchmark chain hash does not match render receipts"
         )
 
     gate = payload.get("quality_retry_gate")
