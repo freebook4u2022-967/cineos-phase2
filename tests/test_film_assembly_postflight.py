@@ -6,11 +6,18 @@ from cineos.film import assembly
 from cineos.film.exceptions import AssemblyError
 
 
-def _media(*, duration: float = 10.0, video: int = 1, audio: int = 0) -> dict:
+def _media(
+    *,
+    duration: float = 10.0,
+    video: int = 1,
+    audio: int = 0,
+    frame_counts: list[int | None] | None = None,
+) -> dict:
     return {
         "duration_seconds": duration,
         "video_stream_count": video,
         "audio_stream_count": audio,
+        "video_frame_counts": [240] if frame_counts is None else frame_counts,
     }
 
 
@@ -23,6 +30,7 @@ def test_postflight_accepts_video_only_output(monkeypatch: pytest.MonkeyPatch) -
 
     assert evidence["video_stream_count"] == 1
     assert evidence["audio_stream_count"] == 0
+    assert evidence["video_frame_counts"] == [240]
 
 
 def test_postflight_rejects_truncated_timeline(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,9 +69,43 @@ def test_postflight_rejects_unexpected_audio(monkeypatch: pytest.MonkeyPatch) ->
 def test_postflight_rejects_multiple_video_streams(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(assembly, "probe_media", lambda _path: _media(video=2))
+    monkeypatch.setattr(
+        assembly,
+        "probe_media",
+        lambda _path: _media(video=2, frame_counts=[240, 240]),
+    )
 
     with pytest.raises(AssemblyError, match="exactly one video stream"):
+        assembly._postflight_output(
+            Path("film.mp4"), expected_duration=10.0, expect_audio=False
+        )
+
+
+def test_postflight_rejects_missing_decoded_frame_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media = _media()
+    media.pop("video_frame_counts")
+    monkeypatch.setattr(assembly, "probe_media", lambda _path: media)
+
+    with pytest.raises(AssemblyError, match="decoded-frame evidence"):
+        assembly._postflight_output(
+            Path("film.mp4"), expected_duration=10.0, expect_audio=False
+        )
+
+
+@pytest.mark.parametrize("frame_counts", [[], [None], [0], [-1], [240, 240]])
+def test_postflight_rejects_invalid_decoded_frame_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    frame_counts: list[int | None],
+) -> None:
+    monkeypatch.setattr(
+        assembly,
+        "probe_media",
+        lambda _path: _media(frame_counts=frame_counts),
+    )
+
+    with pytest.raises(AssemblyError, match="decoded-frame evidence"):
         assembly._postflight_output(
             Path("film.mp4"), expected_duration=10.0, expect_audio=False
         )
