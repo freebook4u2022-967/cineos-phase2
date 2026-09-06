@@ -127,7 +127,9 @@ def test_rejects_final_mp4_modified_after_assembly_acceptance(tmp_path) -> None:
     assert connected_production_film_evidence(benchmark, assembly) is False
 
 
-def test_rejects_non_hex_qc_evidence_hash_even_when_manifest_is_resigned(tmp_path) -> None:
+def test_rejects_non_hex_qc_evidence_hash_even_when_manifest_is_resigned(
+    tmp_path,
+) -> None:
     benchmark = _benchmark(tmp_path)
     assembly = _assembly(tmp_path, benchmark)
     shots = assembly["shots"]
@@ -144,7 +146,9 @@ def test_rejects_non_hex_qc_evidence_hash_even_when_manifest_is_resigned(tmp_pat
     assert connected_production_film_evidence(benchmark, assembly) is False
 
 
-def test_rejects_reused_qc_evidence_hash_even_when_manifest_is_resigned(tmp_path) -> None:
+def test_rejects_reused_qc_evidence_hash_even_when_manifest_is_resigned(
+    tmp_path,
+) -> None:
     benchmark = _benchmark(tmp_path)
     assembly = _assembly(tmp_path, benchmark)
     shots = assembly["shots"]
