@@ -26,7 +26,9 @@ from cineos.atlas.production_connected_evidence import (
 from .production_assembly import PRODUCTION_EVIDENCE_SCHEMA
 from .validator import file_hash
 
-CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA = "cineos-connected-production-film-evidence/0.1"
+CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA = (
+    "cineos-connected-production-film-evidence/0.1"
+)
 
 
 class ConnectedProductionFilmEvidenceError(RuntimeError):
@@ -111,7 +113,9 @@ def _validate_manifest_integrity(assembly: Mapping[str, Any]) -> str:
 
 def _assembly_shots(assembly: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
     shots = assembly.get("shots")
-    if not isinstance(shots, list) or not all(isinstance(item, Mapping) for item in shots):
+    if not isinstance(shots, list) or not all(
+        isinstance(item, Mapping) for item in shots
+    ):
         raise ConnectedProductionFilmEvidenceError(
             "production assembly requires an ordered shot evidence list"
         )
