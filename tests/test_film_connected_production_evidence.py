@@ -125,3 +125,37 @@ def test_rejects_final_mp4_modified_after_assembly_acceptance(tmp_path) -> None:
         validate_connected_production_film_evidence(benchmark, assembly)
 
     assert connected_production_film_evidence(benchmark, assembly) is False
+
+
+def test_rejects_non_hex_qc_evidence_hash_even_when_manifest_is_resigned(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    assembly = _assembly(tmp_path, benchmark)
+    shots = assembly["shots"]
+    assert isinstance(shots, list)
+    shots[1]["evidence_sha256"] = "z" * 64
+    _resign(assembly)
+
+    with pytest.raises(
+        ConnectedProductionFilmEvidenceError,
+        match="valid assembly shot 1 evidence SHA-256",
+    ):
+        validate_connected_production_film_evidence(benchmark, assembly)
+
+    assert connected_production_film_evidence(benchmark, assembly) is False
+
+
+def test_rejects_reused_qc_evidence_hash_even_when_manifest_is_resigned(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    assembly = _assembly(tmp_path, benchmark)
+    shots = assembly["shots"]
+    assert isinstance(shots, list)
+    shots[3]["evidence_sha256"] = shots[2]["evidence_sha256"]
+    _resign(assembly)
+
+    with pytest.raises(
+        ConnectedProductionFilmEvidenceError,
+        match="reuses QC evidence from another shot",
+    ):
+        validate_connected_production_film_evidence(benchmark, assembly)
+
+    assert connected_production_film_evidence(benchmark, assembly) is False
