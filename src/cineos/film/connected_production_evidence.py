@@ -34,7 +34,7 @@ from .production_assembly import PRODUCTION_EVIDENCE_SCHEMA
 from .validator import file_hash
 
 CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA = (
-    "cineos-connected-production-film-evidence/0.4"
+    "cineos-connected-production-film-evidence/0.5"
 )
 
 
@@ -219,6 +219,57 @@ def _normalize_dialogue_shot_ids(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _resolve_dialogue_shot_ids(
+    benchmark: GPUConnectedBenchmarkReceipt,
+    requested: Sequence[str],
+) -> tuple[str, ...]:
+    """Resolve authoritative dialogue scope from the exact rendered benchmark.
+
+    GPU benchmark receipts from schema 0.3+ self-attest which rendered shots contain
+    dialogue. That declaration is authoritative for final-film lip-sync validation so
+    a caller cannot omit ``required_dialogue_shot_ids`` to bypass measured evidence.
+    Legacy receipts with no declaration retain the previous explicit-caller behavior.
+    """
+
+    explicit = _normalize_dialogue_shot_ids(requested)
+    scope_declared = getattr(benchmark, "dialogue_scope_declared", None)
+    declared_values = getattr(benchmark, "dialogue_shot_ids", None)
+
+    if scope_declared is None:
+        return explicit
+    if scope_declared is not True:
+        if declared_values not in (None, [], ()) or explicit:
+            raise ConnectedProductionFilmEvidenceError(
+                "connected benchmark has inconsistent dialogue scope declaration"
+            )
+        return ()
+    if declared_values is None:
+        raise ConnectedProductionFilmEvidenceError(
+            "connected benchmark declared dialogue scope without dialogue shot IDs"
+        )
+
+    declared = _normalize_dialogue_shot_ids(declared_values)
+    benchmark_shot_ids = tuple(
+        _required_text(
+            getattr(getattr(receipt, "result", None), "shot_id", None),
+            field=f"benchmark shot {index} ID",
+        )
+        for index, receipt in enumerate(benchmark.shot_receipts)
+    )
+    unknown = set(declared).difference(benchmark_shot_ids)
+    if unknown:
+        raise ConnectedProductionFilmEvidenceError(
+            "connected benchmark dialogue scope references unknown rendered shot: "
+            + ", ".join(sorted(unknown))
+        )
+
+    if explicit and explicit != declared:
+        raise ConnectedProductionFilmEvidenceError(
+            "caller dialogue scope conflicts with connected benchmark declaration"
+        )
+    return declared
+
+
 def _validate_lipsync_binding(
     assembly: Mapping[str, Any],
     *,
@@ -346,8 +397,9 @@ def validate_connected_production_film_evidence(
 ) -> ConnectedProductionFilmEvidence:
     """Require one exact evidence chain from connected GPU renders to final MP4.
 
-    Existing silent/non-dialogue callers remain compatible. Once dialogue shot IDs
-    are declared, acceptance fails closed unless each such shot has exactly one
+    Existing legacy silent/non-dialogue callers remain compatible. For benchmark
+    receipts that declare their rendered dialogue scope, that scope is authoritative:
+    acceptance fails closed unless every declared dialogue shot has exactly one
     measured lip-sync report bound to its exact connected render, approved dialogue
     audio hash, and pinned external analyzer provenance.
     """
@@ -371,10 +423,13 @@ def validate_connected_production_film_evidence(
 
     manifest_sha = _validate_manifest_integrity(assembly)
     _validate_shot_binding(benchmark, assembly)
+    authoritative_dialogue_shot_ids = _resolve_dialogue_shot_ids(
+        benchmark, required_dialogue_shot_ids
+    )
     dialogue_shot_ids, lipsync_hashes = _validate_lipsync_binding(
         assembly,
         lipsync_evidence=lipsync_evidence,
-        required_dialogue_shot_ids=required_dialogue_shot_ids,
+        required_dialogue_shot_ids=authoritative_dialogue_shot_ids,
         dialogue_audio_sha256_by_shot=dialogue_audio_sha256_by_shot,
         expected_lipsync_analyzer=expected_lipsync_analyzer,
         lipsync_thresholds=lipsync_thresholds,
