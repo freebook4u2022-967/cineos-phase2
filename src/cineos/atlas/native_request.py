@@ -59,24 +59,31 @@ def _challenge_declared(metadata: dict[str, Any], *, key: str, value: str) -> bo
     return value in raw
 
 
+def _requires_seedance_dialogue_evidence(metadata: dict[str, Any]) -> bool:
+    """Return whether Seedance-style benchmark dialogue must be non-vacuous."""
+
+    return _challenge_declared(
+        metadata,
+        key=_SEEDANCE_CHALLENGE_METADATA_KEY,
+        value=_SEEDANCE_DIALOGUE_CHALLENGE,
+    )
+
+
 def _requires_competitive_dialogue_grounding(metadata: dict[str, Any]) -> bool:
-    """Return whether this request is part of a strict dialogue benchmark.
+    """Return whether supplied dialogue requires conditioned speaker grounding.
 
     CINEOS historically used ``competitive_challenges=["dialogue_lip_sync"]`` while
     the Seedance-style benchmark contract uses ``benchmark_challenges=["dialogue"]``.
-    Treat both declarations as the same strict requirement so the benchmark wrapper
-    cannot accidentally bypass native speaker/timing grounding.
+    Both require speaker grounding when cues are present. Seedance-style dialogue is
+    additionally required to contain cues at the native boundary; the legacy contract
+    retains its historical downstream structural preflight for empty cue lists.
     """
 
     return _challenge_declared(
         metadata,
         key=_COMPETITIVE_CHALLENGE_METADATA_KEY,
         value=_DIALOGUE_LIP_SYNC_CHALLENGE,
-    ) or _challenge_declared(
-        metadata,
-        key=_SEEDANCE_CHALLENGE_METADATA_KEY,
-        value=_SEEDANCE_DIALOGUE_CHALLENGE,
-    )
+    ) or _requires_seedance_dialogue_evidence(metadata)
 
 
 @dataclass(slots=True)
@@ -104,9 +111,9 @@ class NativeShotRequest:
         and final-film continuity cannot be measured honestly when frame rate, shot
         duration, or dialogue intervals are non-finite or outside the shot timeline.
         Optional legacy fields and the historic ``start``/``end`` dialogue aliases remain
-        compatible; when timing is supplied, it must be trustworthy. Competitive
-        dialogue/lip-sync benchmark shots additionally require non-empty dialogue cues
-        and every cue must identify a character conditioned in the same native request.
+        compatible; when timing is supplied, it must be trustworthy. Seedance-style
+        benchmark dialogue additionally requires non-empty cues, and all competitive
+        dialogue cues must identify a character conditioned in the same native request.
         """
 
         duration_seconds: float | None = None
@@ -124,9 +131,10 @@ class NativeShotRequest:
         require_dialogue_grounding = _requires_competitive_dialogue_grounding(
             self.metadata
         )
+        require_seedance_dialogue = _requires_seedance_dialogue_evidence(self.metadata)
         dialogue_timing = self.performance.get("dialogue_timing")
         if dialogue_timing in (None, []):
-            if require_dialogue_grounding:
+            if require_seedance_dialogue:
                 raise ValueError(
                     "competitive dialogue benchmark requires non-empty "
                     "performance.dialogue_timing"
