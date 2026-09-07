@@ -7,7 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from cineos.audio.production_mix_evidence import ProductionMixInput, mix_production_audio
+from cineos.audio.production_mix_evidence import (
+    ProductionMixInput,
+    mix_production_audio,
+)
 from cineos.film.connected_production_evidence import (
     ConnectedProductionFilmEvidenceError,
     _validate_dialogue_mix_binding,
