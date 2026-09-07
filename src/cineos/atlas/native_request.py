@@ -192,7 +192,10 @@ class NativeShotRequest:
     def content_hash_is_current(self) -> bool:
         """Return whether the stored hash matches the current semantic request payload."""
 
-        return bool(self.content_hash) and self.content_hash == self._expected_content_hash()
+        return (
+            bool(self.content_hash)
+            and self.content_hash == self._expected_content_hash()
+        )
 
     def refresh_hash(self) -> str:
         self.content_hash = self._expected_content_hash()
