@@ -2,8 +2,9 @@
 
 This module does not claim that an external pretrained foundation is CINEOS-native.
 It verifies that CINEOS orchestration has produced a connected sequence whose GPU
-runtime provenance, measured visual QC, artifact-bound continuity lineage, and
-measured cross-shot transition QC all refer to the same accepted render receipts.
+runtime provenance, measured visual QC, artifact-bound continuity lineage, measured
+cross-shot transition QC, and competitive hard-case coverage all refer to the same
+accepted render receipts.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from .connected_continuity_evidence import (
     validate_connected_visual_continuity,
 )
 from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
+from .seedance_style_challenge import REQUIRED_CHALLENGES
 from .transition_quality import TRANSITION_QUALITY_SCHEMA, TransitionQualityPolicy
 
 
@@ -41,6 +43,7 @@ class ProductionConnectedEvidence:
     quality_valid: bool
     continuity_valid: bool
     transition_quality_valid: bool
+    challenge_coverage_valid: bool
     continuity_provenance: tuple[dict[str, Any], ...]
 
     @property
@@ -50,11 +53,12 @@ class ProductionConnectedEvidence:
             and self.quality_valid
             and self.continuity_valid
             and self.transition_quality_valid
+            and self.challenge_coverage_valid
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-production-connected-evidence/0.5",
+            "schema": "cineos-production-connected-evidence/0.6",
             "benchmark_id": self.benchmark_id,
             "profile_id": self.profile_id,
             "origin": self.origin,
@@ -64,6 +68,7 @@ class ProductionConnectedEvidence:
             "quality_valid": self.quality_valid,
             "continuity_valid": self.continuity_valid,
             "transition_quality_valid": self.transition_quality_valid,
+            "challenge_coverage_valid": self.challenge_coverage_valid,
             "accepted": self.accepted,
             "continuity_provenance": list(self.continuity_provenance),
         }
@@ -136,11 +141,9 @@ def _required_unit_metric(value: Any, *, field: str, index: int) -> float:
     return normalized
 
 
-def _validate_transition_quality_manifest(
+def _load_benchmark_manifest(
     benchmark: GPUConnectedBenchmarkReceipt,
-) -> None:
-    """Require measured artifact-bound QC for every connected shot boundary."""
-
+) -> Mapping[str, Any]:
     manifest = Path(benchmark.manifest_path)
     try:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
@@ -152,6 +155,98 @@ def _validate_transition_quality_manifest(
         raise ProductionConnectedEvidenceError(
             "production connected benchmark manifest must be a JSON object"
         )
+    return payload
+
+
+def _validate_competitive_challenge_contract(
+    benchmark: GPUConnectedBenchmarkReceipt,
+    payload: Mapping[str, Any],
+) -> None:
+    """Require signed hard-case coverage tied to real receipt scene/shot identities."""
+
+    contract = payload.get("competitive_challenge_contract")
+    if not isinstance(contract, Mapping):
+        raise ProductionConnectedEvidenceError(
+            "production connected evidence requires competitive challenge coverage"
+        )
+    if contract.get("schema") != "cineos-seedance-style-challenge-coverage/0.1":
+        raise ProductionConnectedEvidenceError(
+            "production competitive challenge coverage has unsupported schema"
+        )
+
+    recorded_hash = _required_sha256(
+        contract.get("contract_sha256"),
+        field="competitive challenge contract SHA-256",
+    )
+    unsigned = dict(contract)
+    unsigned.pop("contract_sha256", None)
+    canonical = json.dumps(unsigned, sort_keys=True, separators=(",", ":"))
+    computed_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if computed_hash != recorded_hash:
+        raise ProductionConnectedEvidenceError(
+            "production competitive challenge contract hash does not match its contents"
+        )
+
+    required = contract.get("required_challenges")
+    if required != list(REQUIRED_CHALLENGES):
+        raise ProductionConnectedEvidenceError(
+            "production competitive challenge contract does not declare the required hard cases"
+        )
+    if contract.get("complete") is not True or contract.get("missing") != []:
+        raise ProductionConnectedEvidenceError(
+            "production competitive challenge coverage is incomplete"
+        )
+
+    coverage = contract.get("challenge_to_shots")
+    if not isinstance(coverage, Mapping):
+        raise ProductionConnectedEvidenceError(
+            "production competitive challenge coverage must map challenges to shots"
+        )
+
+    valid_shot_keys: set[str] = set()
+    for index, receipt in enumerate(benchmark.shot_receipts):
+        result = getattr(receipt, "result", None)
+        if result is None:
+            raise ProductionConnectedEvidenceError(
+                f"production connected evidence shot {index} has no render result"
+            )
+        scene_id = _required_text(
+            getattr(result, "scene_id", None), field=f"shot {index} scene ID"
+        )
+        shot_id = _required_text(
+            getattr(result, "shot_id", None), field=f"shot {index} shot ID"
+        )
+        valid_shot_keys.add(f"{scene_id}/{shot_id}")
+
+    for challenge in REQUIRED_CHALLENGES:
+        shots = coverage.get(challenge)
+        if not isinstance(shots, list) or not shots:
+            raise ProductionConnectedEvidenceError(
+                f"production competitive challenge {challenge} has no covered shot"
+            )
+        seen: set[str] = set()
+        for shot_key in shots:
+            if not isinstance(shot_key, str) or not shot_key.strip():
+                raise ProductionConnectedEvidenceError(
+                    f"production competitive challenge {challenge} has invalid shot identity"
+                )
+            normalized = shot_key.strip()
+            if normalized not in valid_shot_keys:
+                raise ProductionConnectedEvidenceError(
+                    f"production competitive challenge {challenge} references an unrendered shot"
+                )
+            if normalized in seen:
+                raise ProductionConnectedEvidenceError(
+                    f"production competitive challenge {challenge} repeats the same shot"
+                )
+            seen.add(normalized)
+
+
+def _validate_transition_quality_manifest(
+    benchmark: GPUConnectedBenchmarkReceipt,
+    payload: Mapping[str, Any],
+) -> None:
+    """Require measured artifact-bound QC for every connected shot boundary."""
 
     receipt_chain = _required_sha256(
         benchmark.chain_sha256,
@@ -295,12 +390,13 @@ def _validate_transition_quality_manifest(
 def validate_production_connected_evidence(
     benchmark: GPUConnectedBenchmarkReceipt,
 ) -> ProductionConnectedEvidence:
-    """Validate one benchmark as genuine connected production evidence.
+    """Validate one benchmark as genuine competitive connected production evidence.
 
-    The gate intentionally requires four independent attestations: default CUDA
+    The gate intentionally requires five independent attestations: default CUDA
     runtime provenance, artifact-bound measured QC for every accepted shot,
-    cryptographically bound predecessor terminal-frame lineage, and measured
-    artifact-bound transition QC for every adjacent shot boundary.
+    cryptographically bound predecessor terminal-frame lineage, measured artifact-bound
+    transition QC for every adjacent shot boundary, and a hash-bound competitive
+    challenge contract covering every required hard case with actually rendered shots.
     """
 
     if not isinstance(benchmark, GPUConnectedBenchmarkReceipt):
@@ -327,7 +423,9 @@ def validate_production_connected_evidence(
             f"production connected evidence failed visual continuity validation: {exc}"
         ) from exc
 
-    _validate_transition_quality_manifest(benchmark)
+    payload = _load_benchmark_manifest(benchmark)
+    _validate_transition_quality_manifest(benchmark, payload)
+    _validate_competitive_challenge_contract(benchmark, payload)
 
     evidence = ProductionConnectedEvidence(
         benchmark_id=benchmark.benchmark_id,
@@ -339,6 +437,7 @@ def validate_production_connected_evidence(
         quality_valid=True,
         continuity_valid=True,
         transition_quality_valid=True,
+        challenge_coverage_valid=True,
         continuity_provenance=continuity,
     )
     if not evidence.accepted:
