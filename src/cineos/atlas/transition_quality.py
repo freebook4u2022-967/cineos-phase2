@@ -53,6 +53,17 @@ def _required_text(value: Any, *, field: str) -> str:
     return value.strip()
 
 
+def _required_sha256(value: Any, *, field: str) -> str:
+    digest = _required_text(value, field=field)
+    if len(digest) != 64:
+        raise TransitionQualityError(f"{field} must be a SHA-256 digest")
+    try:
+        int(digest, 16)
+    except ValueError as exc:
+        raise TransitionQualityError(f"{field} must be a hexadecimal SHA-256 digest") from exc
+    return digest
+
+
 def validate_transition_quality_evidence(
     report: Mapping[str, Any],
     *,
@@ -74,16 +85,14 @@ def validate_transition_quality_evidence(
         raise TransitionQualityError("transition report requires boolean accepted")
 
     observer_id = _required_text(report.get("observer_id"), field="observer_id")
-    previous_sha = _required_text(
+    previous_sha = _required_sha256(
         getattr(previous_receipt, "output_sha256", None),
         field="previous receipt output_sha256",
     )
-    current_sha = _required_text(
+    current_sha = _required_sha256(
         getattr(current_receipt, "output_sha256", None),
         field="current receipt output_sha256",
     )
-    if len(previous_sha) != 64 or len(current_sha) != 64:
-        raise TransitionQualityError("receipt artifact hashes must be SHA-256 digests")
     if report.get("previous_output_sha256") != previous_sha:
         raise TransitionQualityError(
             "transition evidence predecessor artifact hash does not match receipt"
