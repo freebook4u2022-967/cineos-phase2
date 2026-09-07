@@ -1,215 +1,231 @@
-"""Connected hard-case benchmark for CINEOS native video renderers.
+"""Execution-first competitive benchmark for CINEOS video foundations.
 
-The suite deliberately exercises the failure modes that separate a renderer which
-can emit clips from one that can sustain a complete film: identity persistence,
-multi-character interaction, hands, locomotion, dialogue, prop interaction, fast
-camera motion, lighting changes, physics, and long-range continuity.
+The harness deliberately separates *execution evidence* from *visual-quality
+evidence*. Producing a non-empty MP4 proves that a real renderer executed; it
+does not prove Seedance-class quality. Visual quality only becomes validated
+when an explicit evaluator is supplied and passes the rendered artifact.
+
+The default suite is a connected ten-shot scene covering the failure modes that
+matter most for complete-film generation: identity persistence, multiple
+characters, hands/object interaction, locomotion, dialogue, fast camera motion,
+lighting change, and simple physical motion.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import math
-import time
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from cineos.atlas.native_request import NativeShotRequest
-from cineos.atlas.quality_retry import (
-    QualityRetryPolicy,
-    render_with_quality_retry,
-)
-from cineos.native_video.video_renderer import VideoRenderer
-
-COMPETITIVE_BENCHMARK_SCHEMA = "cineos-native-video-competitive-benchmark/0.2"
 
 
-class CompetitiveBenchmarkError(RuntimeError):
-    """Raised when competitive benchmark evidence is incomplete or invalid."""
+class VideoRenderer(Protocol):
+    """Minimal contract implemented by real CINEOS video execution backends."""
+
+    def render(self, request: NativeShotRequest) -> Any: ...
 
 
-class VisualEvaluator(Protocol):
-    def __call__(
-        self,
-        *,
-        case: BenchmarkCase,
-        request: NativeShotRequest,
-        output_path: Path,
-        previous_output_path: Path | None,
-    ) -> Mapping[str, float]: ...
+VisualEvaluator = Callable[[Path, NativeShotRequest], "VisualEvaluation"]
+
+
+@dataclass(frozen=True, slots=True)
+class VisualEvaluation:
+    """Externally measured visual-quality verdict for one rendered shot."""
+
+    passed: bool
+    metrics: Mapping[str, float]
+    notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name, value in self.metrics.items():
+            numeric = float(value)
+            if not 0.0 <= numeric <= 1.0:
+                raise ValueError(f"visual metric {name!r} must be between 0 and 1")
 
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkCase:
+    """One connected shot in the competitive film benchmark."""
+
     shot_id: str
     prompt: str
-    negative_prompt: str
     challenge_tags: tuple[str, ...]
     camera: Mapping[str, Any]
+    negative_prompt: str = (
+        "identity drift, deformed hands, extra fingers, broken anatomy, "
+        "warped objects, text, watermark, temporal flicker"
+    )
 
 
 @dataclass(frozen=True, slots=True)
-class BenchmarkShotEvidence:
+class ShotBenchmarkResult:
     shot_id: str
-    request_hash: str
-    output_path: str
-    output_sha256: str
-    output_bytes: int
-    elapsed_seconds: float
-    metrics: Mapping[str, float]
     challenge_tags: tuple[str, ...]
-    attempts: int = 1
-    selected_attempt: int = 1
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "shot_id": self.shot_id,
-            "request_hash": self.request_hash,
-            "output_path": self.output_path,
-            "output_sha256": self.output_sha256,
-            "output_bytes": self.output_bytes,
-            "elapsed_seconds": self.elapsed_seconds,
-            "metrics": dict(self.metrics),
-            "challenge_tags": list(self.challenge_tags),
-            "attempts": self.attempts,
-            "selected_attempt": self.selected_attempt,
-        }
+    request_hash: str
+    output_path: str | None
+    artifact_bytes: int
+    frame_count: int | None
+    execution_passed: bool
+    quality_evaluated: bool
+    quality_passed: bool | None
+    quality_metrics: Mapping[str, float]
+    notes: tuple[str, ...]
+    attempt_count: int = 1
+    selected_attempt: int | None = 1
+    rerendered: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class CompetitiveBenchmarkReport:
-    renderer_backend: str
+    """Auditable result for a connected multi-shot real-render benchmark."""
+
+    scene_id: str
     foundation: Mapping[str, Any]
-    shot_evidence: tuple[BenchmarkShotEvidence, ...]
-    evaluator_present: bool
-    metric_thresholds: Mapping[str, float]
-    failed_metrics: tuple[str, ...]
-    aggregate_metrics: Mapping[str, float]
-    production_passed: bool
-    schema: str = COMPETITIVE_BENCHMARK_SCHEMA
+    shots: tuple[ShotBenchmarkResult, ...]
+
+    @property
+    def execution_passed(self) -> bool:
+        return bool(self.shots) and all(item.execution_passed for item in self.shots)
+
+    @property
+    def quality_validated(self) -> bool:
+        return bool(self.shots) and all(item.quality_evaluated for item in self.shots)
+
+    @property
+    def quality_passed(self) -> bool:
+        return self.quality_validated and all(
+            item.quality_passed for item in self.shots
+        )
+
+    @property
+    def production_passed(self) -> bool:
+        """Fail closed: real artifacts *and* measured visual quality are required."""
+        return self.execution_passed and self.quality_passed
 
     def to_dict(self) -> dict[str, Any]:
-        payload = {
-            "schema": self.schema,
-            "renderer_backend": self.renderer_backend,
+        return {
+            "schema": "cineos-competitive-video-benchmark/0.1",
+            "scene_id": self.scene_id,
             "foundation": dict(self.foundation),
-            "shot_evidence": [item.to_dict() for item in self.shot_evidence],
-            "evaluator_present": self.evaluator_present,
-            "metric_thresholds": dict(self.metric_thresholds),
-            "failed_metrics": list(self.failed_metrics),
-            "aggregate_metrics": dict(self.aggregate_metrics),
+            "execution_passed": self.execution_passed,
+            "quality_validated": self.quality_validated,
+            "quality_passed": self.quality_passed,
             "production_passed": self.production_passed,
+            "shots": [asdict(item) for item in self.shots],
         }
-        payload["manifest_sha256"] = _canonical_sha256(payload)
-        return payload
 
-
-DEFAULT_METRIC_THRESHOLDS: dict[str, float] = {
-    "identity_consistency": 0.82,
-    "multi_character_interaction": 0.72,
-    "hands_anatomy": 0.70,
-    "locomotion": 0.72,
-    "dialogue": 0.70,
-    "object_interaction": 0.72,
-    "fast_camera_movement": 0.68,
-    "lighting_change": 0.70,
-    "physics": 0.70,
-    "long_range_continuity": 0.78,
-}
-
-
-def _canonical_sha256(payload: Mapping[str, Any]) -> str:
-    canonical = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _finite_metric(value: Any, *, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise CompetitiveBenchmarkError(f"metric {name!r} must be numeric")
-    normalized = float(value)
-    if not math.isfinite(normalized):
-        raise CompetitiveBenchmarkError(f"metric {name!r} must be finite")
-    if not 0.0 <= normalized <= 1.0:
-        raise CompetitiveBenchmarkError(f"metric {name!r} must be in [0, 1]")
-    return normalized
+    def write_json(self, path: str | Path) -> Path:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(self.to_dict(), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return target
 
 
 def default_connected_cases() -> tuple[BenchmarkCase, ...]:
-    """Return the canonical ten-shot connected hard-case film benchmark."""
+    """Return the canonical ten-shot Seedance-style stress scene.
+
+    These are deliberately connected shots rather than unrelated prompt samples.
+    The same hero identity and scene id are reused by ``run_competitive_benchmark``.
+    """
 
     return (
         BenchmarkCase(
-            "shot-01-identity",
-            "The same lead character enters a realistic corridor, turns toward camera, and pauses.",
-            "identity drift, face morphing, age change, wardrobe change, temporal flicker",
-            ("identity_consistency", "long_range_continuity"),
-            {"shot_size": "medium", "movement": "slow dolly in"},
+            "shot-01-identity-closeup",
+            (
+                "Close-up of the hero under soft window light, subtle breathing "
+                "and eye movement."
+            ),
+            ("identity_consistency", "facial_detail"),
+            {"shot_size": "close-up", "movement": "locked"},
         ),
         BenchmarkCase(
             "shot-02-two-character",
-            "The lead meets a second character; they exchange eye contact and move past each other naturally.",
-            "merged bodies, duplicate limbs, identity swaps, frozen extras, temporal flicker",
+            (
+                "The hero crosses frame and meets a second character; both faces "
+                "remain clearly visible."
+            ),
             ("identity_consistency", "multi_character_interaction"),
-            {"shot_size": "two-shot", "movement": "lateral track"},
+            {"shot_size": "medium-wide", "movement": "slow dolly"},
         ),
         BenchmarkCase(
-            "shot-03-hands-prop",
-            "The lead picks up a small metal key, rotates it between both hands, and pockets it.",
-            "extra fingers, fused fingers, disappearing prop, floating object, temporal flicker",
-            ("hands_anatomy", "object_interaction", "physics"),
-            {"shot_size": "close medium", "movement": "gentle handheld"},
+            "shot-03-object-handoff",
+            (
+                "The second character hands a metal key to the hero; fingers grasp "
+                "and release it naturally."
+            ),
+            (
+                "hands_anatomy",
+                "object_interaction",
+                "multi_character_interaction",
+            ),
+            {"shot_size": "medium", "movement": "subtle push-in"},
         ),
         BenchmarkCase(
             "shot-04-walk",
-            "The lead walks briskly down the corridor with natural full-body gait and cloth motion.",
-            "foot sliding, limb warping, duplicated legs, frozen cloth, temporal flicker",
-            ("locomotion", "identity_consistency", "physics"),
-            {"shot_size": "full body", "movement": "backward tracking"},
+            (
+                "The hero walks down the corridor holding the same key, with natural "
+                "full-body gait."
+            ),
+            ("walking", "identity_consistency", "prop_continuity"),
+            {"shot_size": "full", "movement": "tracking"},
         ),
         BenchmarkCase(
-            "shot-05-run-camera",
-            "The lead suddenly runs as the camera whip-pans and accelerates alongside them.",
-            "motion smear face, broken anatomy, foot sliding, camera teleport, temporal flicker",
-            ("locomotion", "fast_camera_movement", "identity_consistency"),
-            {"shot_size": "full body", "movement": "whip pan into fast tracking"},
+            "shot-05-run",
+            (
+                "A sudden alarm sounds and the hero runs toward camera without body "
+                "deformation."
+            ),
+            ("running", "anatomy", "identity_consistency"),
+            {"shot_size": "full", "movement": "backward tracking"},
         ),
         BenchmarkCase(
             "shot-06-dialogue",
-            "The lead stops, looks to the second character, and clearly says: Stay behind me.",
-            "identity drift, frozen mouth, broken teeth, facial warping, temporal flicker",
+            (
+                "The hero stops and speaks one short urgent sentence to the second "
+                "character."
+            ),
             ("dialogue", "facial_performance", "identity_consistency"),
-            {"shot_size": "medium close-up", "movement": "subtle push-in"},
+            {"shot_size": "medium close-up", "movement": "locked"},
         ),
         BenchmarkCase(
-            "shot-07-lighting",
-            "Emergency lights switch from neutral overhead light to pulsing red while the lead keeps moving.",
-            "identity drift, exposure pumping, texture reset, scene teleport, temporal flicker",
-            ("lighting_change", "identity_consistency", "long_range_continuity"),
-            {"shot_size": "medium wide", "movement": "steady tracking"},
+            "shot-07-fast-camera",
+            (
+                "Fast whip-pan follows the hero turning through a doorway, preserving "
+                "geometry and identity."
+            ),
+            ("fast_camera_movement", "temporal_consistency"),
+            {"shot_size": "medium", "movement": "whip pan"},
         ),
         BenchmarkCase(
-            "shot-08-physics",
-            "A rolling cart is struck, tips naturally, and scatters lightweight objects while both characters react.",
-            "floating objects, clipping bodies, nonphysical motion, duplicate objects, temporal flicker",
-            ("physics", "multi_character_interaction", "object_interaction"),
-            {"shot_size": "wide", "movement": "reactive handheld"},
+            "shot-08-light-change",
+            (
+                "The hero enters a dark room as warm corridor light shifts to cool "
+                "emergency lighting."
+            ),
+            ("lighting_change", "identity_consistency", "temporal_consistency"),
+            {"shot_size": "medium-wide", "movement": "steadicam"},
         ),
         BenchmarkCase(
-            "shot-09-fast-orbit",
-            "Camera performs a fast half-orbit around the lead as they dodge the fallen cart and keep running.",
-            "identity drift, face collapse, broken limbs, background teleport, temporal flicker",
-            ("fast_camera_movement", "locomotion", "identity_consistency"),
-            {"shot_size": "medium full", "movement": "fast half orbit"},
+            "shot-09-physics",
+            (
+                "A gust from an open window moves the hero's coat and loose papers "
+                "across the floor naturally."
+            ),
+            ("physics", "cloth_motion", "object_motion"),
+            {"shot_size": "wide", "movement": "slow arc"},
         ),
         BenchmarkCase(
-            "shot-10-continuity",
-            "The lead reaches the exit, reveals the same metal key from shot three, and looks back toward the corridor.",
-            "identity drift, prop substitution, wardrobe change, location reset, temporal flicker",
+            "shot-10-continuity-payoff",
+            (
+                "The hero unlocks the final door with the same key and looks back "
+                "toward the second character."
+            ),
             (
                 "identity_consistency",
                 "hands_anatomy",
@@ -251,17 +267,14 @@ def _request_for_case(
     }
     performance: dict[str, Any] = {}
     if "dialogue" in case.challenge_tags:
-        cue_start = max(0.0, duration * 0.10)
-        cue_end = max(cue_start + 0.05, duration * 0.80)
         performance["dialogue_timing"] = [
             {
-                "start_seconds": cue_start,
-                "end_seconds": cue_end,
+                "start_seconds": duration * 0.10,
+                "end_seconds": duration * 0.80,
                 "speaker_id": "benchmark-hero",
                 "text": "Stay behind me.",
             }
         ]
-
     request = NativeShotRequest(
         shot_id=case.shot_id,
         scene_id=scene_id,
@@ -330,23 +343,17 @@ def run_competitive_benchmark(
     attempt so competitive evidence remains auditable.
     """
 
-    benchmark_cases = tuple(cases or default_connected_cases())
-    if not 5 <= len(benchmark_cases) <= 10:
-        raise CompetitiveBenchmarkError(
-            "competitive film benchmark requires between 5 and 10 connected shots"
-        )
     if not approved_reference_ids:
-        raise CompetitiveBenchmarkError(
-            "competitive benchmark requires approved identity references"
-        )
+        raise ValueError("competitive benchmark requires approved identity references")
+    selected = cases or default_connected_cases()
+    if not selected:
+        raise ValueError("competitive benchmark requires at least one case")
+    if quality_retry_policy is not None and evaluator is None:
+        raise ValueError("quality retries require a visual evaluator")
 
-    thresholds = dict(DEFAULT_METRIC_THRESHOLDS)
-    evidence: list[BenchmarkShotEvidence] = []
-    aggregate: dict[str, list[float]] = {}
-    previous_shot_id: str | None = None
-    previous_output_path: Path | None = None
-
-    for index, case in enumerate(benchmark_cases):
+    results: list[ShotBenchmarkResult] = []
+    for index, case in enumerate(selected):
+        previous_shot_id = None if index == 0 else selected[index - 1].shot_id
         request = _request_for_case(
             case,
             index=index,
@@ -358,154 +365,103 @@ def run_competitive_benchmark(
             fps=fps,
             duration=duration,
         )
-        started = time.monotonic()
-        attempts = 1
-        selected_attempt = 1
+        notes: list[str] = []
+        output_path: Path | None = None
+        artifact_bytes = 0
+        frame_count: int | None = None
+        execution_passed = False
+        quality_evaluated = False
+        quality_passed: bool | None = None
+        quality_metrics: Mapping[str, float] = {}
+        request_hash = request.content_hash
+        attempt_count = 1
+        selected_attempt: int | None = 1
+        rerendered = False
 
-        if quality_retry_policy is None:
-            result = renderer.render_video(request)
-            output_path = Path(result.output_path)
-            if not output_path.is_file():
-                raise CompetitiveBenchmarkError(
-                    f"renderer did not produce benchmark artifact: {output_path}"
-                )
-            if result.request_hash != request.content_hash:
-                raise CompetitiveBenchmarkError(
-                    f"renderer request hash mismatch for {case.shot_id}"
-                )
-            metrics = (
-                dict(
-                    evaluator(
-                        case=case,
-                        request=request,
-                        output_path=output_path,
-                        previous_output_path=previous_output_path,
-                    )
-                )
-                if evaluator is not None
-                else {}
+        if quality_retry_policy is not None and evaluator is not None:
+            from .quality_retry import render_with_quality_retries
+
+            retry_result = render_with_quality_retries(
+                renderer,
+                evaluator,
+                request,
+                policy=quality_retry_policy,
+            )
+            attempt_count = retry_result.attempt_count
+            selected_attempt = retry_result.selected_attempt
+            rerendered = retry_result.rerendered
+            selected_evidence = next(
+                (
+                    item
+                    for item in retry_result.attempts
+                    if item.attempt == selected_attempt
+                ),
+                None,
+            )
+            if selected_evidence is not None:
+                request_hash = selected_evidence.request_hash
+                if selected_evidence.output_path is not None:
+                    output_path = Path(selected_evidence.output_path)
+                artifact_bytes = selected_evidence.artifact_bytes
+                frame_count = selected_evidence.frame_count
+                execution_passed = selected_evidence.execution_passed
+                quality_evaluated = selected_evidence.quality_evaluated
+                quality_passed = selected_evidence.quality_passed
+                quality_metrics = dict(selected_evidence.quality_metrics)
+                notes.extend(selected_evidence.notes)
+            notes.append(
+                "measured quality retry attempts="
+                f"{attempt_count}, selected_attempt={selected_attempt}"
             )
         else:
-            if evaluator is None:
-                raise CompetitiveBenchmarkError(
-                    "quality retry benchmark requires a measured visual evaluator"
-                )
-            retry_policy = (
-                quality_retry_policy
-                if isinstance(quality_retry_policy, QualityRetryPolicy)
-                else QualityRetryPolicy(**dict(quality_retry_policy))
-            )
+            try:
+                rendered = renderer.render(request)
+                raw_path = getattr(rendered, "output_path", rendered)
+                output_path = Path(raw_path)
+                frame_count_value = getattr(rendered, "frame_count", None)
+                if frame_count_value is not None:
+                    frame_count = int(frame_count_value)
+                if output_path.is_file():
+                    artifact_bytes = output_path.stat().st_size
+                    execution_passed = artifact_bytes > 0
+                if not execution_passed:
+                    notes.append("renderer did not produce a non-empty artifact")
+            except Exception as exc:  # benchmark must record failure and continue suite
+                notes.append(f"render failed: {type(exc).__name__}: {exc}")
 
-            def quality_evaluator(result: Any) -> Mapping[str, Any]:
-                path = Path(result.output_path)
-                measured = evaluator(
-                    case=case,
-                    request=request,
-                    output_path=path,
-                    previous_output_path=previous_output_path,
-                )
-                normalized = {
-                    name: _finite_metric(value, name=name)
-                    for name, value in measured.items()
-                }
-                relevant = [
-                    normalized[tag]
-                    for tag in case.challenge_tags
-                    if tag in normalized and tag in thresholds
-                ]
-                accepted = bool(relevant) and all(
-                    normalized[tag] >= thresholds[tag]
-                    for tag in case.challenge_tags
-                    if tag in normalized and tag in thresholds
-                )
-                return {
-                    "accepted": accepted,
-                    "metrics": normalized,
-                    "failed_metrics": [
-                        tag
-                        for tag in case.challenge_tags
-                        if tag in thresholds
-                        and (tag not in normalized or normalized[tag] < thresholds[tag])
-                    ],
-                }
+            if execution_passed and evaluator is not None and output_path is not None:
+                try:
+                    evaluation = evaluator(output_path, request)
+                    quality_evaluated = True
+                    quality_passed = bool(evaluation.passed)
+                    quality_metrics = dict(evaluation.metrics)
+                    notes.extend(evaluation.notes)
+                except Exception as exc:
+                    notes.append(
+                        f"visual evaluation failed: {type(exc).__name__}: {exc}"
+                    )
 
-            retry = render_with_quality_retry(
-                request,
-                renderer,
-                quality_evaluator=quality_evaluator,
-                policy=retry_policy,
-            )
-            result = retry.result
-            output_path = Path(result.output_path)
-            attempts = retry.attempts
-            selected_attempt = retry.selected_attempt
-            metrics = dict(retry.quality_report.get("metrics", {}))
-
-        elapsed = max(0.0, time.monotonic() - started)
-        payload = output_path.read_bytes()
-        if not payload:
-            raise CompetitiveBenchmarkError(
-                f"benchmark artifact is empty: {output_path}"
-            )
-        output_sha = hashlib.sha256(payload).hexdigest()
-
-        normalized_metrics: dict[str, float] = {}
-        for metric_name, metric_value in metrics.items():
-            normalized_metrics[metric_name] = _finite_metric(
-                metric_value, name=metric_name
-            )
-            aggregate.setdefault(metric_name, []).append(
-                normalized_metrics[metric_name]
-            )
-
-        evidence.append(
-            BenchmarkShotEvidence(
+        results.append(
+            ShotBenchmarkResult(
                 shot_id=case.shot_id,
-                request_hash=request.content_hash,
-                output_path=str(output_path),
-                output_sha256=output_sha,
-                output_bytes=len(payload),
-                elapsed_seconds=elapsed,
-                metrics=normalized_metrics,
                 challenge_tags=case.challenge_tags,
-                attempts=attempts,
+                request_hash=request_hash,
+                output_path=str(output_path) if output_path is not None else None,
+                artifact_bytes=artifact_bytes,
+                frame_count=frame_count,
+                execution_passed=execution_passed,
+                quality_evaluated=quality_evaluated,
+                quality_passed=quality_passed,
+                quality_metrics=quality_metrics,
+                notes=tuple(notes),
+                attempt_count=attempt_count,
                 selected_attempt=selected_attempt,
+                rerendered=rerendered,
             )
         )
-        previous_shot_id = case.shot_id
-        previous_output_path = output_path
-
-    aggregate_metrics = {
-        name: sum(values) / len(values) for name, values in aggregate.items() if values
-    }
-    failed_metrics = tuple(
-        name
-        for name, threshold in thresholds.items()
-        if name not in aggregate_metrics or aggregate_metrics[name] < threshold
-    )
-    evaluator_present = evaluator is not None
-    production_passed = evaluator_present and not failed_metrics
 
     return CompetitiveBenchmarkReport(
-        renderer_backend=type(renderer).__name__,
+        scene_id=scene_id,
         foundation=_foundation_dict(renderer),
-        shot_evidence=tuple(evidence),
-        evaluator_present=evaluator_present,
-        metric_thresholds=thresholds,
-        failed_metrics=failed_metrics,
-        aggregate_metrics=aggregate_metrics,
-        production_passed=production_passed,
+        shots=tuple(results),
     )
-
-
-__all__ = [
-    "COMPETITIVE_BENCHMARK_SCHEMA",
-    "DEFAULT_METRIC_THRESHOLDS",
-    "BenchmarkCase",
-    "BenchmarkShotEvidence",
-    "CompetitiveBenchmarkError",
-    "CompetitiveBenchmarkReport",
-    "VisualEvaluator",
-    "default_connected_cases",
-    "run_competitive_benchmark",
-]
