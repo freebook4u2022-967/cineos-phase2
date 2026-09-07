@@ -19,6 +19,17 @@ from cineos.atlas.seedance_style_challenge import (
 
 
 def _request(index: int, challenges: list[str]) -> NativeShotRequest:
+    performance = {"action": "walk"}
+    if "dialogue" in challenges:
+        performance["dialogue_timing"] = [
+            {
+                "start_seconds": 0.25,
+                "end_seconds": 1.25,
+                "speaker_id": "lead",
+                "text": "Stay with me.",
+            }
+        ]
+
     request = NativeShotRequest(
         shot_id=f"shot-{index}",
         scene_id="scene-competitive",
@@ -28,7 +39,7 @@ def _request(index: int, challenges: list[str]) -> NativeShotRequest:
         wardrobe=[],
         props=[],
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
-        performance={"action": "walk"},
+        performance=performance,
         approved_reference_ids=["lead-approved-reference"],
         deterministic_seed=7000 + index,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
