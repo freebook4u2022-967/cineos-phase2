@@ -124,7 +124,9 @@ def _decode_binding_pcm(path: Path) -> tuple[int, ...]:
 
 def _correlation(left: tuple[int, ...], right: tuple[int, ...]) -> float:
     if len(left) != len(right) or not left:
-        raise AudioBindingError("audio-binding correlation requires equal non-empty spans")
+        raise AudioBindingError(
+            "audio-binding correlation requires equal non-empty spans"
+        )
     left_mean = sum(left) / len(left)
     right_mean = sum(right) / len(right)
     numerator = 0.0
@@ -138,7 +140,9 @@ def _correlation(left: tuple[int, ...], right: tuple[int, ...]) -> float:
         right_energy += r * r
     denominator = math.sqrt(left_energy * right_energy)
     if denominator <= 0 or not math.isfinite(denominator):
-        raise AudioBindingError("audio-binding PCM has insufficient non-constant signal")
+        raise AudioBindingError(
+            "audio-binding PCM has insufficient non-constant signal"
+        )
     value = numerator / denominator
     if not math.isfinite(value):
         raise AudioBindingError("audio-binding correlation is non-finite")
@@ -193,7 +197,9 @@ def measure_audio_binding(
     except (TypeError, ValueError) as exc:
         raise AudioBindingError("audio-binding threshold must be finite") from exc
     if not math.isfinite(threshold) or not 0.0 < threshold <= 1.0:
-        raise AudioBindingError("audio-binding threshold must be in the interval (0, 1]")
+        raise AudioBindingError(
+            "audio-binding threshold must be in the interval (0, 1]"
+        )
 
     approved_path = Path(approved_audio).resolve()
     final_path = Path(final_artifact).resolve()

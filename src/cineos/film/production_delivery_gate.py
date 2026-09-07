@@ -14,7 +14,11 @@ from typing import Any
 from cineos.atlas.gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
 from cineos.audio.lipsync_qc import LipSyncAnalyzerProvenance, LipSyncThresholds
 
-from .audio_binding import AudioBindingError, AudioBindingEvidence, measure_audio_binding
+from .audio_binding import (
+    AudioBindingError,
+    AudioBindingEvidence,
+    measure_audio_binding,
+)
 from .connected_production_evidence import (
     ConnectedProductionFilmEvidence,
     ConnectedProductionFilmEvidenceError,

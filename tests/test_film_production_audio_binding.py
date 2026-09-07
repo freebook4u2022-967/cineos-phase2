@@ -19,7 +19,9 @@ def test_measure_audio_binding_accepts_small_encoder_alignment(tmp_path, monkeyp
     final.write_bytes(b"final")
     wave = _wave()
     decoded = iter((wave, (0, 0, 0, 0) + wave))
-    monkeypatch.setattr(audio_binding, "_decode_binding_pcm", lambda _path: next(decoded))
+    monkeypatch.setattr(
+        audio_binding, "_decode_binding_pcm", lambda _path: next(decoded)
+    )
 
     evidence = measure_audio_binding(approved, final)
 
@@ -38,7 +40,9 @@ def test_measure_audio_binding_rejects_substituted_soundtrack(tmp_path, monkeypa
     first = _wave()
     second = tuple(((index * 31 + 7000) % 18013) - 9006 for index in range(1200))
     decoded = iter((first, second))
-    monkeypatch.setattr(audio_binding, "_decode_binding_pcm", lambda _path: next(decoded))
+    monkeypatch.setattr(
+        audio_binding, "_decode_binding_pcm", lambda _path: next(decoded)
+    )
 
     with pytest.raises(AudioBindingError, match="does not match the approved"):
         measure_audio_binding(approved, final)
@@ -59,7 +63,9 @@ def test_delivery_gate_binds_final_mp4_to_approved_mix(tmp_path, monkeypatch):
         to_dict=lambda: {"accepted": True},
     )
     monkeypatch.setattr(
-        delivery, "validate_connected_production_film_evidence", lambda *_a, **_k: connected
+        delivery,
+        "validate_connected_production_film_evidence",
+        lambda *_a, **_k: connected,
     )
     monkeypatch.setattr(delivery, "measure_audio_binding", lambda *_a, **_k: binding)
     assembly = {
@@ -74,7 +80,9 @@ def test_delivery_gate_binds_final_mp4_to_approved_mix(tmp_path, monkeypatch):
     assert evidence.audio_binding is binding
 
 
-def test_delivery_gate_rejects_binding_to_different_final_artifact(tmp_path, monkeypatch):
+def test_delivery_gate_rejects_binding_to_different_final_artifact(
+    tmp_path, monkeypatch
+):
     approved = tmp_path / "approved.wav"
     final = tmp_path / "film.mp4"
     approved.write_bytes(b"approved")
@@ -89,7 +97,9 @@ def test_delivery_gate_rejects_binding_to_different_final_artifact(tmp_path, mon
         to_dict=lambda: {"accepted": True},
     )
     monkeypatch.setattr(
-        delivery, "validate_connected_production_film_evidence", lambda *_a, **_k: connected
+        delivery,
+        "validate_connected_production_film_evidence",
+        lambda *_a, **_k: connected,
     )
     monkeypatch.setattr(delivery, "measure_audio_binding", lambda *_a, **_k: binding)
     assembly = {
@@ -98,5 +108,7 @@ def test_delivery_gate_rejects_binding_to_different_final_artifact(tmp_path, mon
         "final_mp4_sha256": final_sha,
     }
 
-    with pytest.raises(delivery.ProductionDeliveryEvidenceError, match="final MP4 hash"):
+    with pytest.raises(
+        delivery.ProductionDeliveryEvidenceError, match="final MP4 hash"
+    ):
         delivery.validate_production_delivery_evidence(object(), assembly)
