@@ -235,7 +235,11 @@ def validate_production_audio_mix_evidence(evidence: Mapping[str, Any]) -> str:
         )
 
     sample_rate = evidence.get("sample_rate_hz")
-    if isinstance(sample_rate, bool) or not isinstance(sample_rate, int) or sample_rate <= 0:
+    if (
+        isinstance(sample_rate, bool)
+        or not isinstance(sample_rate, int)
+        or sample_rate <= 0
+    ):
         raise ProductionAudioMixEvidenceError(
             "production audio mix evidence requires a positive sample rate"
         )
