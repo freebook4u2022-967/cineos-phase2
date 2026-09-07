@@ -15,6 +15,7 @@ from cineos.atlas.production_connected_evidence import (
     validate_production_connected_evidence,
 )
 from cineos.atlas.production_continuity_diffusers import VISUAL_CONTINUITY_SCHEMA
+from cineos.atlas.seedance_style_challenge import REQUIRED_CHALLENGES
 from cineos.atlas.transition_quality import TRANSITION_QUALITY_SCHEMA
 
 
@@ -30,6 +31,29 @@ def _receipt_chain_sha256(receipts) -> str:
         digest.update(receipt.output_sha256.encode("ascii"))
         digest.update(b"\n")
     return digest.hexdigest()
+
+
+def _challenge_contract(shot_count: int) -> dict[str, object]:
+    usable_count = max(1, shot_count)
+    payload: dict[str, object] = {
+        "schema": "cineos-seedance-style-challenge-coverage/0.1",
+        "required_challenges": list(REQUIRED_CHALLENGES),
+        "complete": True,
+        "missing": [],
+        "challenge_to_shots": {
+            challenge: [f"scene-1/shot-{(index % usable_count) + 1}"]
+            for index, challenge in enumerate(REQUIRED_CHALLENGES)
+        },
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    payload["contract_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return payload
+
+
+def _resign_challenge_contract(contract: dict[str, object]) -> None:
+    contract.pop("contract_sha256", None)
+    canonical = json.dumps(contract, sort_keys=True, separators=(",", ":"))
+    contract["contract_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _benchmark(tmp_path: Path, *, shot_count: int = 5) -> GPUConnectedBenchmarkReceipt:
@@ -134,6 +158,7 @@ def _benchmark(tmp_path: Path, *, shot_count: int = 5) -> GPUConnectedBenchmarkR
                     "accepted_transition_count": len(transitions),
                     "accepted_transitions": transitions,
                 },
+                "competitive_challenge_contract": _challenge_contract(shot_count),
             }
         ),
         encoding="utf-8",
@@ -170,7 +195,15 @@ def _transitions(payload: dict[str, object]) -> list[dict[str, object]]:
     return transitions
 
 
-def test_accepts_only_unified_runtime_quality_and_continuity_evidence(tmp_path) -> None:
+def _challenge(payload: dict[str, object]) -> dict[str, object]:
+    contract = payload["competitive_challenge_contract"]
+    assert isinstance(contract, dict)
+    return contract
+
+
+def test_accepts_only_unified_runtime_quality_continuity_and_challenge_evidence(
+    tmp_path,
+) -> None:
     benchmark = _benchmark(tmp_path)
 
     evidence = validate_production_connected_evidence(benchmark)
@@ -180,11 +213,13 @@ def test_accepts_only_unified_runtime_quality_and_continuity_evidence(tmp_path) 
     assert evidence.quality_valid is True
     assert evidence.continuity_valid is True
     assert evidence.transition_quality_valid is True
+    assert evidence.challenge_coverage_valid is True
     assert evidence.shot_count == 5
     assert len(evidence.continuity_provenance) == 5
-    assert evidence.to_dict()["schema"] == "cineos-production-connected-evidence/0.5"
+    assert evidence.to_dict()["schema"] == "cineos-production-connected-evidence/0.6"
     assert evidence.to_dict()["accepted"] is True
     assert evidence.to_dict()["transition_quality_valid"] is True
+    assert evidence.to_dict()["challenge_coverage_valid"] is True
     assert production_connected_evidence(benchmark) is True
 
 
@@ -410,6 +445,77 @@ def test_rejects_accepted_transition_with_unresolved_rerender_directives(
         match="unresolved rerender directives",
     ):
         validate_production_connected_evidence(benchmark)
+
+
+def test_rejects_missing_competitive_challenge_contract(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    payload.pop("competitive_challenge_contract")
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="requires competitive challenge coverage",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+    assert production_connected_evidence(benchmark) is False
+
+
+def test_rejects_tampered_competitive_challenge_contract(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    contract = _challenge(payload)
+    mapping = contract["challenge_to_shots"]
+    assert isinstance(mapping, dict)
+    mapping["dialogue"] = ["scene-1/shot-4"]
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="contract hash does not match its contents",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+    assert production_connected_evidence(benchmark) is False
+
+
+def test_rejects_resigned_challenge_contract_referencing_unrendered_shot(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    contract = _challenge(payload)
+    mapping = contract["challenge_to_shots"]
+    assert isinstance(mapping, dict)
+    mapping["dialogue"] = ["scene-1/shot-999"]
+    _resign_challenge_contract(contract)
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="references an unrendered shot",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+    assert production_connected_evidence(benchmark) is False
+
+
+def test_rejects_resigned_challenge_contract_with_uncovered_hard_case(tmp_path) -> None:
+    benchmark = _benchmark(tmp_path)
+    payload = _manifest_payload(benchmark)
+    contract = _challenge(payload)
+    mapping = contract["challenge_to_shots"]
+    assert isinstance(mapping, dict)
+    mapping["physics"] = []
+    _resign_challenge_contract(contract)
+    _write_manifest(benchmark, payload)
+
+    with pytest.raises(
+        ProductionConnectedEvidenceError,
+        match="physics has no covered shot",
+    ):
+        validate_production_connected_evidence(benchmark)
+
+    assert production_connected_evidence(benchmark) is False
 
 
 def test_rejects_non_benchmark_objects() -> None:
