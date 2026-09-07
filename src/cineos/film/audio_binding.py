@@ -133,11 +133,11 @@ def _correlation(left: tuple[int, ...], right: tuple[int, ...]) -> float:
     left_energy = 0.0
     right_energy = 0.0
     for left_value, right_value in zip(left, right):
-        l = left_value - left_mean
-        r = right_value - right_mean
-        numerator += l * r
-        left_energy += l * l
-        right_energy += r * r
+        left_delta = left_value - left_mean
+        right_delta = right_value - right_mean
+        numerator += left_delta * right_delta
+        left_energy += left_delta * left_delta
+        right_energy += right_delta * right_delta
     denominator = math.sqrt(left_energy * right_energy)
     if denominator <= 0 or not math.isfinite(denominator):
         raise AudioBindingError(
