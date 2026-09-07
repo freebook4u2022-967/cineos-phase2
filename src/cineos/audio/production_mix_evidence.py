@@ -51,6 +51,52 @@ def _required_sha256(value: str, *, field: str) -> str:
     return normalized
 
 
+def _validated_duration(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ProductionAudioMixEvidenceError(
+            "production audio mix duration must be finite and positive"
+        )
+    try:
+        duration = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ProductionAudioMixEvidenceError(
+            "production audio mix duration must be finite and positive"
+        ) from exc
+    if not math.isfinite(duration) or duration <= 0:
+        raise ProductionAudioMixEvidenceError(
+            "production audio mix duration must be finite and positive"
+        )
+    return duration
+
+
+def _validated_controls(item: Mapping[str, Any], *, index: int) -> tuple[float, ...]:
+    fields = (
+        "start_time_seconds",
+        "gain",
+        "fade_in_seconds",
+        "fade_out_seconds",
+        "pan",
+    )
+    try:
+        values = tuple(float(item.get(field)) for field in fields)
+    except (TypeError, ValueError) as exc:
+        raise ProductionAudioMixEvidenceError(
+            f"production audio mix input {index} has invalid numeric controls"
+        ) from exc
+    if not all(math.isfinite(value) for value in values):
+        raise ProductionAudioMixEvidenceError(
+            f"production audio mix input {index} has non-finite controls"
+        )
+    start_time, gain, fade_in, fade_out, _pan = values
+    if start_time < 0 or gain < 0 or fade_in < 0 or fade_out < 0:
+        raise ProductionAudioMixEvidenceError(
+            f"production audio mix input {index} has invalid negative controls"
+        )
+    return values
+
+
 @dataclass(frozen=True, slots=True)
 class ProductionMixInput:
     path: Path
@@ -74,6 +120,7 @@ def mix_production_audio(
     """Mix exact hash-pinned inputs and return a signed-by-content evidence manifest."""
     if not inputs:
         raise ProductionAudioMixEvidenceError("production audio mix requires inputs")
+    duration = _validated_duration(duration)
     engine = mixer or Mixer()
     records: list[dict[str, Any]] = []
     mix_inputs: list[MixInput] = []
@@ -174,7 +221,7 @@ def mix_production_audio(
 
 
 def validate_production_audio_mix_evidence(evidence: Mapping[str, Any]) -> str:
-    """Validate manifest integrity and return its exact mixed-output SHA-256."""
+    """Validate manifest integrity, semantics, and exact artifact lineage."""
     if evidence.get("schema") != PRODUCTION_AUDIO_MIX_EVIDENCE_SCHEMA:
         raise ProductionAudioMixEvidenceError("unsupported production audio mix schema")
     recorded = _required_sha256(
@@ -186,6 +233,19 @@ def validate_production_audio_mix_evidence(evidence: Mapping[str, Any]) -> str:
         raise ProductionAudioMixEvidenceError(
             "production audio mix evidence SHA-256 does not match contents"
         )
+
+    sample_rate = evidence.get("sample_rate_hz")
+    if isinstance(sample_rate, bool) or not isinstance(sample_rate, int) or sample_rate <= 0:
+        raise ProductionAudioMixEvidenceError(
+            "production audio mix evidence requires a positive sample rate"
+        )
+    channel_layout = str(evidence.get("channel_layout") or "").strip()
+    if not channel_layout:
+        raise ProductionAudioMixEvidenceError(
+            "production audio mix evidence requires channel layout"
+        )
+    _validated_duration(evidence.get("duration_seconds"))
+
     output = Path(str(evidence.get("output_path") or "")).resolve()
     expected_output = _required_sha256(
         str(evidence.get("output_sha256") or ""), field="mix output SHA-256"
@@ -199,11 +259,39 @@ def validate_production_audio_mix_evidence(evidence: Mapping[str, Any]) -> str:
         raise ProductionAudioMixEvidenceError(
             "production audio mix evidence requires inputs"
         )
+
+    seen_dialogue_shots: set[str] = set()
     for index, item in enumerate(inputs):
         if not isinstance(item, Mapping):
             raise ProductionAudioMixEvidenceError(
                 f"production audio mix input {index} must be a mapping"
             )
+        if item.get("index") != index:
+            raise ProductionAudioMixEvidenceError(
+                f"production audio mix input {index} has invalid ordered index"
+            )
+        _validated_controls(item, index=index)
+        kind = str(item.get("kind") or "").strip()
+        if not kind:
+            raise ProductionAudioMixEvidenceError(
+                f"production audio mix input {index} requires kind"
+            )
+        shot_id = str(item.get("shot_id") or "").strip() or None
+        if kind == "dialogue":
+            if shot_id is None:
+                raise ProductionAudioMixEvidenceError(
+                    f"dialogue mix input {index} requires shot_id"
+                )
+            if shot_id in seen_dialogue_shots:
+                raise ProductionAudioMixEvidenceError(
+                    f"duplicate dialogue mix input for shot {shot_id}"
+                )
+            seen_dialogue_shots.add(shot_id)
+        elif shot_id is not None:
+            raise ProductionAudioMixEvidenceError(
+                f"non-dialogue mix input {index} cannot claim shot_id"
+            )
+
         path = Path(str(item.get("path") or "")).resolve()
         expected = _required_sha256(
             str(item.get("sha256") or ""), field=f"mix input {index} SHA-256"
