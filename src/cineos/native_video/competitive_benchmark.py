@@ -12,9 +12,10 @@ import hashlib
 import json
 import math
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.quality_retry import (
@@ -34,7 +35,7 @@ class VisualEvaluator(Protocol):
     def __call__(
         self,
         *,
-        case: "BenchmarkCase",
+        case: BenchmarkCase,
         request: NativeShotRequest,
         output_path: Path,
         previous_output_path: Path | None,
@@ -424,9 +425,7 @@ def run_competitive_benchmark(
                         tag
                         for tag in case.challenge_tags
                         if tag in thresholds
-                        and (
-                            tag not in normalized or normalized[tag] < thresholds[tag]
-                        )
+                        and (tag not in normalized or normalized[tag] < thresholds[tag])
                     ],
                 }
 
