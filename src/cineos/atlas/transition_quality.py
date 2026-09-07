@@ -60,7 +60,9 @@ def _required_sha256(value: Any, *, field: str) -> str:
     try:
         int(digest, 16)
     except ValueError as exc:
-        raise TransitionQualityError(f"{field} must be a hexadecimal SHA-256 digest") from exc
+        raise TransitionQualityError(
+            f"{field} must be a hexadecimal SHA-256 digest"
+        ) from exc
     return digest
 
 
