@@ -27,7 +27,7 @@ from .production_assembly import PRODUCTION_EVIDENCE_SCHEMA
 from .validator import file_hash
 
 CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA = (
-    "cineos-connected-production-film-evidence/0.2"
+    "cineos-connected-production-film-evidence/0.3"
 )
 
 
@@ -95,6 +95,17 @@ def _canonical_hash(value: Mapping[str, Any]) -> str:
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_benchmark_identity(benchmark: GPUConnectedBenchmarkReceipt) -> None:
+    _required_text(benchmark.benchmark_id, field="benchmark ID")
+    _required_text(benchmark.profile_id, field="foundation profile ID")
+    origin = _required_text(benchmark.origin, field="foundation origin")
+    if origin != "external_pretrained_foundation":
+        raise ConnectedProductionFilmEvidenceError(
+            "connected production film evidence must identify the video model as an "
+            "external_pretrained_foundation"
+        )
 
 
 def _validate_manifest_integrity(assembly: Mapping[str, Any]) -> str:
@@ -218,6 +229,7 @@ def validate_connected_production_film_evidence(
             "production assembly has unsupported evidence schema"
         )
 
+    _validate_benchmark_identity(benchmark)
     try:
         connected = validate_production_connected_evidence(benchmark)
     except ProductionConnectedEvidenceError as exc:
