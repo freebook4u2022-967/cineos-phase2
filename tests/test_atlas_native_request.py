@@ -1,4 +1,10 @@
-from cineos.atlas.native_request import NATIVE_SHOT_SCHEMA, compile_native_shot_request
+import pytest
+
+from cineos.atlas.native_request import (
+    NATIVE_SHOT_SCHEMA,
+    NativeShotRequest,
+    compile_native_shot_request,
+)
 from cineos.conditioning import (
     CameraConditioning,
     CharacterConditioning,
@@ -52,6 +58,24 @@ def _package():
     )
 
 
+def _dialogue_request(*, dialogue_timing, metadata=None):
+    return NativeShotRequest(
+        shot_id="shot-dialogue",
+        scene_id="scene-dialogue",
+        camera={},
+        characters=[{"character_id": "char-001"}],
+        environment=None,
+        wardrobe=[],
+        props=[],
+        continuity={},
+        performance={"dialogue_timing": dialogue_timing},
+        approved_reference_ids=["ref-front"],
+        deterministic_seed=7,
+        renderer_requirements={"duration_seconds": 5.0, "fps": 24.0},
+        metadata=metadata or {"benchmark_challenges": ["dialogue"]},
+    )
+
+
 def test_conditioning_compiles_to_cineos_native_shot_request():
     request = compile_native_shot_request(_package())
     payload = request.to_dict()
@@ -86,3 +110,60 @@ def test_native_shot_rejects_unconditioned_request():
         assert "approved conditioning references" in str(error)
     else:
         raise AssertionError("native request accepted an unconditioned shot")
+
+
+def test_seedance_dialogue_challenge_rejects_empty_dialogue_timing():
+    request = _dialogue_request(dialogue_timing=[])
+
+    with pytest.raises(ValueError, match="requires non-empty performance.dialogue_timing"):
+        request.validate_timing_integrity()
+
+
+def test_seedance_dialogue_challenge_requires_grounded_speaker():
+    request = _dialogue_request(
+        dialogue_timing=[{"start": 0.5, "end": 2.0, "text": "Where are you?"}]
+    )
+
+    with pytest.raises(ValueError, match="requires speaker_id"):
+        request.validate_timing_integrity()
+
+
+def test_seedance_dialogue_challenge_rejects_unconditioned_speaker():
+    request = _dialogue_request(
+        dialogue_timing=[
+            {
+                "start": 0.5,
+                "end": 2.0,
+                "speaker_id": "char-other",
+                "text": "Where are you?",
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="does not match a conditioned character_id"):
+        request.validate_timing_integrity()
+
+
+def test_seedance_dialogue_challenge_accepts_grounded_dialogue():
+    request = _dialogue_request(
+        dialogue_timing=[
+            {
+                "start": 0.5,
+                "end": 2.0,
+                "speaker_id": "char-001",
+                "text": "Where are you?",
+            }
+        ]
+    )
+
+    request.validate_timing_integrity()
+
+
+def test_legacy_dialogue_lipsync_challenge_still_requires_grounding():
+    request = _dialogue_request(
+        dialogue_timing=[],
+        metadata={"competitive_challenges": ["dialogue_lip_sync"]},
+    )
+
+    with pytest.raises(ValueError, match="requires non-empty performance.dialogue_timing"):
+        request.validate_timing_integrity()
