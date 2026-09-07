@@ -3,8 +3,9 @@
 This module closes the evidence boundary between Atlas connected-shot validation and
 film assembly. It does not make an external pretrained video foundation CINEOS-native;
 it proves that the exact GPU/QC-approved render artifacts accepted by the connected
-benchmark are the artifacts represented in the production assembly manifest, and that
-the final MP4 still matches its recorded digest.
+benchmark are the artifacts represented in the production assembly manifest, that
+required dialogue shots carry measured lip-sync QC bound to the exact video and
+approved dialogue audio, and that the final MP4 still matches its recorded digest.
 """
 
 from __future__ import annotations
@@ -22,12 +23,18 @@ from cineos.atlas.production_connected_evidence import (
     ProductionConnectedEvidenceError,
     validate_production_connected_evidence,
 )
+from cineos.audio.lipsync_qc import (
+    LipSyncAnalyzerProvenance,
+    LipSyncQCError,
+    LipSyncThresholds,
+    validate_lipsync_quality_evidence,
+)
 
 from .production_assembly import PRODUCTION_EVIDENCE_SCHEMA
 from .validator import file_hash
 
 CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA = (
-    "cineos-connected-production-film-evidence/0.3"
+    "cineos-connected-production-film-evidence/0.4"
 )
 
 
@@ -47,6 +54,8 @@ class ConnectedProductionFilmEvidence:
     assembly_manifest_sha256: str
     final_mp4_sha256: str
     connected_evidence: ProductionConnectedEvidence
+    dialogue_shot_ids: tuple[str, ...] = ()
+    lipsync_evidence_sha256: tuple[str, ...] = ()
 
     @property
     def accepted(self) -> bool:
@@ -62,6 +71,8 @@ class ConnectedProductionFilmEvidence:
             "benchmark_chain_sha256": self.benchmark_chain_sha256,
             "assembly_manifest_sha256": self.assembly_manifest_sha256,
             "final_mp4_sha256": self.final_mp4_sha256,
+            "dialogue_shot_ids": list(self.dialogue_shot_ids),
+            "lipsync_evidence_sha256": list(self.lipsync_evidence_sha256),
             "accepted": self.accepted,
             "connected_evidence": self.connected_evidence.to_dict(),
         }
@@ -194,6 +205,115 @@ def _validate_shot_binding(
             )
 
 
+def _normalize_dialogue_shot_ids(values: Sequence[str]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for index, value in enumerate(values):
+        shot_id = _required_text(value, field=f"dialogue shot ID {index}")
+        if shot_id in seen:
+            raise ConnectedProductionFilmEvidenceError(
+                f"duplicate required dialogue shot ID: {shot_id}"
+            )
+        seen.add(shot_id)
+        normalized.append(shot_id)
+    return tuple(normalized)
+
+
+def _validate_lipsync_binding(
+    assembly: Mapping[str, Any],
+    *,
+    lipsync_evidence: Sequence[Mapping[str, Any]] | None,
+    required_dialogue_shot_ids: Sequence[str],
+    dialogue_audio_sha256_by_shot: Mapping[str, str] | None,
+    expected_lipsync_analyzer: LipSyncAnalyzerProvenance | None,
+    lipsync_thresholds: LipSyncThresholds | None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    required = _normalize_dialogue_shot_ids(required_dialogue_shot_ids)
+    reports = tuple(lipsync_evidence or ())
+    if not required:
+        if reports:
+            raise ConnectedProductionFilmEvidenceError(
+                "lip-sync evidence was supplied without required dialogue shot IDs"
+            )
+        return (), ()
+
+    if not reports:
+        raise ConnectedProductionFilmEvidenceError(
+            "dialogue-bearing production film requires measured lip-sync evidence"
+        )
+    if dialogue_audio_sha256_by_shot is None:
+        raise ConnectedProductionFilmEvidenceError(
+            "dialogue-bearing production film requires approved dialogue audio hashes"
+        )
+    if expected_lipsync_analyzer is None:
+        raise ConnectedProductionFilmEvidenceError(
+            "dialogue-bearing production film requires pinned lip-sync analyzer provenance"
+        )
+
+    shot_hashes: dict[str, str] = {}
+    for index, shot in enumerate(_assembly_shots(assembly)):
+        shot_id = _required_text(shot.get("shot_id"), field=f"assembly shot {index} ID")
+        shot_hashes[shot_id] = _required_sha256(
+            shot.get("output_sha256"),
+            field=f"assembly shot {index} output SHA-256",
+        )
+
+    required_set = set(required)
+    missing_from_assembly = required_set.difference(shot_hashes)
+    if missing_from_assembly:
+        raise ConnectedProductionFilmEvidenceError(
+            "required dialogue shot is absent from production assembly: "
+            + ", ".join(sorted(missing_from_assembly))
+        )
+
+    validated_hashes: dict[str, str] = {}
+    for index, report in enumerate(reports):
+        if not isinstance(report, Mapping):
+            raise ConnectedProductionFilmEvidenceError(
+                f"lip-sync evidence {index} must be a mapping"
+            )
+        shot_id = _required_text(
+            report.get("shot_id"), field=f"lip-sync evidence {index} shot ID"
+        )
+        if shot_id not in required_set:
+            raise ConnectedProductionFilmEvidenceError(
+                f"lip-sync evidence references non-required dialogue shot: {shot_id}"
+            )
+        if shot_id in validated_hashes:
+            raise ConnectedProductionFilmEvidenceError(
+                f"duplicate lip-sync evidence for dialogue shot: {shot_id}"
+            )
+        expected_audio = _required_sha256(
+            dialogue_audio_sha256_by_shot.get(shot_id),
+            field=f"dialogue shot {shot_id} approved audio SHA-256",
+        )
+        try:
+            validate_lipsync_quality_evidence(
+                report,
+                expected_shot_id=shot_id,
+                expected_video_sha256=shot_hashes[shot_id],
+                expected_audio_sha256=expected_audio,
+                thresholds=lipsync_thresholds,
+                expected_analyzer=expected_lipsync_analyzer,
+            )
+        except (LipSyncQCError, TypeError) as exc:
+            raise ConnectedProductionFilmEvidenceError(
+                f"dialogue shot {shot_id} has invalid measured lip-sync evidence: {exc}"
+            ) from exc
+        validated_hashes[shot_id] = _required_sha256(
+            report.get("evidence_sha256"),
+            field=f"dialogue shot {shot_id} lip-sync evidence SHA-256",
+        )
+
+    missing = required_set.difference(validated_hashes)
+    if missing:
+        raise ConnectedProductionFilmEvidenceError(
+            "dialogue-bearing production film is missing measured lip-sync evidence for: "
+            + ", ".join(sorted(missing))
+        )
+    return required, tuple(validated_hashes[shot_id] for shot_id in required)
+
+
 def _validate_final_artifact(assembly: Mapping[str, Any]) -> str:
     expected = _required_sha256(
         assembly.get("final_mp4_sha256"), field="final MP4 SHA-256"
@@ -217,8 +337,20 @@ def _validate_final_artifact(assembly: Mapping[str, Any]) -> str:
 def validate_connected_production_film_evidence(
     benchmark: GPUConnectedBenchmarkReceipt,
     assembly: Mapping[str, Any],
+    *,
+    lipsync_evidence: Sequence[Mapping[str, Any]] | None = None,
+    required_dialogue_shot_ids: Sequence[str] = (),
+    dialogue_audio_sha256_by_shot: Mapping[str, str] | None = None,
+    expected_lipsync_analyzer: LipSyncAnalyzerProvenance | None = None,
+    lipsync_thresholds: LipSyncThresholds | None = None,
 ) -> ConnectedProductionFilmEvidence:
-    """Require one exact evidence chain from connected GPU renders to final MP4."""
+    """Require one exact evidence chain from connected GPU renders to final MP4.
+
+    Existing silent/non-dialogue callers remain compatible. Once dialogue shot IDs
+    are declared, acceptance fails closed unless each such shot has exactly one
+    measured lip-sync report bound to its exact connected render, approved dialogue
+    audio hash, and pinned external analyzer provenance.
+    """
 
     if not isinstance(benchmark, GPUConnectedBenchmarkReceipt):
         raise TypeError("benchmark must be a GPUConnectedBenchmarkReceipt")
@@ -239,6 +371,14 @@ def validate_connected_production_film_evidence(
 
     manifest_sha = _validate_manifest_integrity(assembly)
     _validate_shot_binding(benchmark, assembly)
+    dialogue_shot_ids, lipsync_hashes = _validate_lipsync_binding(
+        assembly,
+        lipsync_evidence=lipsync_evidence,
+        required_dialogue_shot_ids=required_dialogue_shot_ids,
+        dialogue_audio_sha256_by_shot=dialogue_audio_sha256_by_shot,
+        expected_lipsync_analyzer=expected_lipsync_analyzer,
+        lipsync_thresholds=lipsync_thresholds,
+    )
     final_sha = _validate_final_artifact(assembly)
 
     evidence = ConnectedProductionFilmEvidence(
@@ -250,6 +390,8 @@ def validate_connected_production_film_evidence(
         assembly_manifest_sha256=manifest_sha,
         final_mp4_sha256=final_sha,
         connected_evidence=connected,
+        dialogue_shot_ids=dialogue_shot_ids,
+        lipsync_evidence_sha256=lipsync_hashes,
     )
     if not evidence.accepted:
         raise ConnectedProductionFilmEvidenceError(
@@ -261,11 +403,25 @@ def validate_connected_production_film_evidence(
 def connected_production_film_evidence(
     benchmark: GPUConnectedBenchmarkReceipt,
     assembly: Mapping[str, Any],
+    *,
+    lipsync_evidence: Sequence[Mapping[str, Any]] | None = None,
+    required_dialogue_shot_ids: Sequence[str] = (),
+    dialogue_audio_sha256_by_shot: Mapping[str, str] | None = None,
+    expected_lipsync_analyzer: LipSyncAnalyzerProvenance | None = None,
+    lipsync_thresholds: LipSyncThresholds | None = None,
 ) -> bool:
     """Return whether connected benchmark evidence binds to the exact final film."""
 
     try:
-        validate_connected_production_film_evidence(benchmark, assembly)
+        validate_connected_production_film_evidence(
+            benchmark,
+            assembly,
+            lipsync_evidence=lipsync_evidence,
+            required_dialogue_shot_ids=required_dialogue_shot_ids,
+            dialogue_audio_sha256_by_shot=dialogue_audio_sha256_by_shot,
+            expected_lipsync_analyzer=expected_lipsync_analyzer,
+            lipsync_thresholds=lipsync_thresholds,
+        )
     except (ConnectedProductionFilmEvidenceError, TypeError):
         return False
     return True
