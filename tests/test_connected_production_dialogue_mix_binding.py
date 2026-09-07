@@ -28,6 +28,19 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _assembly(audio_sha256: str) -> dict:
+    return {
+        "audio": {"sha256": audio_sha256},
+        "shots": [
+            {"shot_id": "shot-1", "media": {"duration_seconds": 0.1}},
+            {"shot_id": "shot-2", "media": {"duration_seconds": 0.1}},
+        ],
+        "timeline": {
+            "compatibility": {"edit_durations_seconds": [0.1, 0.1]},
+        },
+    }
+
+
 def _fixture(tmp_path: Path):
     dialogue = _wav(tmp_path / "dialogue.wav", 800)
     evidence = mix_production_audio(
@@ -35,15 +48,16 @@ def _fixture(tmp_path: Path):
             ProductionMixInput(
                 dialogue,
                 _sha(dialogue),
+                start_time=0.1,
                 kind="dialogue",
                 shot_id="shot-2",
             )
         ],
         tmp_path / "mix.wav",
-        duration=0.1,
+        duration=0.2,
     )
     benchmark = SimpleNamespace(dialogue_scope_declared=True)
-    assembly = {"audio": {"sha256": evidence["output_sha256"]}}
+    assembly = _assembly(evidence["output_sha256"])
     return benchmark, assembly, dialogue, evidence
 
 
@@ -109,3 +123,50 @@ def test_gpu_declared_dialogue_rejects_unrelated_assembly_audio(tmp_path) -> Non
             dialogue_audio_sha256_by_shot={"shot-2": _sha(dialogue)},
             audio_mix_evidence=evidence,
         )
+
+
+def test_gpu_declared_dialogue_rejects_shifted_global_timeline_offset(tmp_path) -> None:
+    benchmark, _assembly_manifest, dialogue, _ = _fixture(tmp_path)
+    shifted = mix_production_audio(
+        [
+            ProductionMixInput(
+                dialogue,
+                _sha(dialogue),
+                start_time=0.0,
+                kind="dialogue",
+                shot_id="shot-2",
+            )
+        ],
+        tmp_path / "shifted.wav",
+        duration=0.2,
+    )
+    assembly = _assembly(shifted["output_sha256"])
+
+    with pytest.raises(
+        ConnectedProductionFilmEvidenceError,
+        match="shifts dialogue away from approved shot timeline",
+    ):
+        _validate_dialogue_mix_binding(
+            benchmark,
+            assembly,
+            dialogue_shot_ids=["shot-2"],
+            dialogue_audio_sha256_by_shot={"shot-2": _sha(dialogue)},
+            audio_mix_evidence=shifted,
+        )
+
+
+def test_gpu_declared_dialogue_uses_probed_timeline_when_no_edit_durations(
+    tmp_path,
+) -> None:
+    benchmark, assembly, dialogue, evidence = _fixture(tmp_path)
+    assembly["timeline"]["compatibility"]["edit_durations_seconds"] = None
+
+    evidence_sha = _validate_dialogue_mix_binding(
+        benchmark,
+        assembly,
+        dialogue_shot_ids=["shot-2"],
+        dialogue_audio_sha256_by_shot={"shot-2": _sha(dialogue)},
+        audio_mix_evidence=evidence,
+    )
+
+    assert evidence_sha == evidence["evidence_sha256"]
