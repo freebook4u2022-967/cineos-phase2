@@ -173,6 +173,22 @@ def _receipt_payload(receipt: Any) -> dict[str, Any]:
     }
 
 
+def _dialogue_shot_ids(requests: Sequence[NativeShotRequest]) -> tuple[str, ...]:
+    """Return dialogue-bearing shots from the exact validated native requests.
+
+    This scope is captured by the connected GPU benchmark itself so later film-level
+    lip-sync validation can be bound to what was actually rendered instead of relying
+    only on a separately supplied list. Empty/absent dialogue remains valid.
+    """
+
+    dialogue: list[str] = []
+    for request in requests:
+        timing = request.performance.get("dialogue_timing")
+        if isinstance(timing, list) and timing:
+            dialogue.append(request.shot_id)
+    return tuple(dialogue)
+
+
 @dataclass(frozen=True, slots=True)
 class GPUConnectedBenchmarkReceipt:
     """Auditable evidence for one successful connected 5-10 shot GPU run."""
@@ -186,6 +202,7 @@ class GPUConnectedBenchmarkReceipt:
     elapsed_seconds: float
     manifest_path: str
     quality_reports: tuple[dict[str, Any], ...] = ()
+    dialogue_shot_ids: tuple[str, ...] | None = None
 
     @property
     def production_gpu_evidence(self) -> bool:
@@ -205,7 +222,7 @@ class GPUConnectedBenchmarkReceipt:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema": "cineos-gpu-connected-benchmark/0.2",
+            "schema": "cineos-gpu-connected-benchmark/0.3",
             "benchmark_id": self.benchmark_id,
             "profile_id": self.profile_id,
             "origin": self.origin,
@@ -216,6 +233,8 @@ class GPUConnectedBenchmarkReceipt:
             "manifest_path": self.manifest_path,
             "quality_gate_applied": bool(self.quality_reports),
             "quality_reports": list(self.quality_reports),
+            "dialogue_scope_declared": self.dialogue_shot_ids is not None,
+            "dialogue_shot_ids": list(self.dialogue_shot_ids or ()),
             "production_gpu_evidence": self.production_gpu_evidence,
             "production_quality_evidence": self.production_quality_evidence,
             "evidence_tier": self.evidence_tier,
@@ -452,6 +471,7 @@ def run_connected_gpu_benchmark(
         elapsed_seconds=elapsed,
         manifest_path=str(manifest),
         quality_reports=tuple(quality_reports),
+        dialogue_shot_ids=_dialogue_shot_ids(requests),
     )
     payload = completed.to_dict()
     payload["foundation_profile"] = profile.snapshot()
