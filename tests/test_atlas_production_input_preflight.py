@@ -117,7 +117,7 @@ def test_preflight_validates_connected_graph_and_reference_before_model_io(
     requests = _requests()
     result = preflight_production_inputs(requests, _manifest(tmp_path))
 
-    assert result["schema"] == "cineos-production-input-preflight/0.3"
+    assert result["schema"] == "cineos-production-input-preflight/0.4"
     assert result["shot_count"] == 5
     assert result["request_bundle_sha256"] == _bundle_sha256(requests)
     assert result["request_content_hashes"] == [
@@ -147,6 +147,42 @@ def test_preflight_receipt_changes_when_valid_request_bundle_changes(
     assert original["reference_manifest_sha256"] == changed["reference_manifest_sha256"]
     assert original["request_bundle_sha256"] != changed["request_bundle_sha256"]
     assert original["request_content_hashes"] != changed["request_content_hashes"]
+
+
+def test_preflight_rejects_stale_request_hash_before_reference_io(tmp_path: Path) -> None:
+    requests = list(_requests())
+    original_hash = requests[0].content_hash
+    requests[0].camera["movement"] = "fast handheld push-in"
+
+    assert requests[0].content_hash == original_hash
+    assert requests[0].content_hash_is_current() is False
+
+    with pytest.raises(
+        ProductionInputPreflightError,
+        match="stale or missing content_hash",
+    ):
+        preflight_production_inputs(tuple(requests), tmp_path / "missing-manifest.json")
+
+
+def test_preflight_accepts_request_after_explicit_hash_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        ProductionReferenceLoader,
+        "__call__",
+        lambda self, reference_id: object(),
+    )
+    requests = list(_requests())
+    original_hash = requests[0].content_hash
+    requests[0].camera["movement"] = "fast handheld push-in"
+    refreshed_hash = requests[0].refresh_hash()
+
+    assert refreshed_hash != original_hash
+    assert requests[0].content_hash_is_current() is True
+
+    result = preflight_production_inputs(tuple(requests), _manifest(tmp_path))
+    assert result["request_content_hashes"][0] == refreshed_hash
+    assert result["validated"] is True
 
 
 def test_preflight_rejects_aliased_reference_ids_before_reference_decode(
