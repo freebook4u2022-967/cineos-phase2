@@ -25,7 +25,7 @@ from .connected_production_evidence import (
     validate_connected_production_film_evidence,
 )
 
-PRODUCTION_DELIVERY_EVIDENCE_SCHEMA = "cineos-production-delivery-evidence/0.1"
+PRODUCTION_DELIVERY_EVIDENCE_SCHEMA = "cineos-production-delivery-evidence/0.2"
 
 
 class ProductionDeliveryEvidenceError(RuntimeError):
@@ -81,9 +81,16 @@ def _required_sha256(value: Any, *, field: str) -> str:
 
 def _validate_final_audio_binding(
     assembly: Mapping[str, Any],
+    *,
+    required: bool = False,
 ) -> AudioBindingEvidence | None:
     audio = assembly.get("audio")
     if audio is None:
+        if required:
+            raise ProductionDeliveryEvidenceError(
+                "dialogue-bearing production delivery requires approved audio evidence "
+                "bound to the final MP4"
+            )
         return None
     if not isinstance(audio, Mapping):
         raise ProductionDeliveryEvidenceError(
@@ -142,7 +149,11 @@ def validate_production_delivery_evidence(
             f"connected production film evidence is invalid: {exc}"
         ) from exc
 
-    binding = _validate_final_audio_binding(assembly)
+    dialogue_shot_ids = tuple(getattr(connected, "dialogue_shot_ids", ()))
+    binding = _validate_final_audio_binding(
+        assembly,
+        required=bool(dialogue_shot_ids),
+    )
     evidence = ProductionDeliveryEvidence(
         connected_film=connected,
         audio_binding=binding,

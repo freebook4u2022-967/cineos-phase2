@@ -112,3 +112,40 @@ def test_delivery_gate_rejects_binding_to_different_final_artifact(
         delivery.ProductionDeliveryEvidenceError, match="final MP4 hash"
     ):
         delivery.validate_production_delivery_evidence(object(), assembly)
+
+
+def test_delivery_gate_requires_final_audio_binding_for_dialogue(monkeypatch):
+    connected = SimpleNamespace(
+        accepted=True,
+        dialogue_shot_ids=("shot-1",),
+        to_dict=lambda: {"accepted": True},
+    )
+    monkeypatch.setattr(
+        delivery,
+        "validate_connected_production_film_evidence",
+        lambda *_a, **_k: connected,
+    )
+
+    with pytest.raises(
+        delivery.ProductionDeliveryEvidenceError,
+        match="dialogue-bearing production delivery requires approved audio evidence",
+    ):
+        delivery.validate_production_delivery_evidence(object(), {})
+
+
+def test_delivery_gate_allows_silent_film_without_audio_binding(monkeypatch):
+    connected = SimpleNamespace(
+        accepted=True,
+        dialogue_shot_ids=(),
+        to_dict=lambda: {"accepted": True},
+    )
+    monkeypatch.setattr(
+        delivery,
+        "validate_connected_production_film_evidence",
+        lambda *_a, **_k: connected,
+    )
+
+    evidence = delivery.validate_production_delivery_evidence(object(), {})
+
+    assert evidence.accepted is True
+    assert evidence.audio_binding is None
