@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .mixer import MixInput, Mixer
+from .mixer import Mixer, MixInput
 
 PRODUCTION_AUDIO_MIX_EVIDENCE_SCHEMA = "cineos-production-audio-mix-evidence/0.1"
 
@@ -32,7 +32,9 @@ def _sha256(path: Path) -> str:
 
 
 def _canonical_hash(value: Mapping[str, Any]) -> str:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -98,7 +100,9 @@ def mix_production_audio(
             raise ProductionAudioMixEvidenceError(
                 f"production mix input {index} has invalid numeric controls"
             ) from exc
-        if not all(math.isfinite(value) for value in (start_time, gain, fade_in, fade_out, pan)):
+        if not all(
+            math.isfinite(value) for value in (start_time, gain, fade_in, fade_out, pan)
+        ):
             raise ProductionAudioMixEvidenceError(
                 f"production mix input {index} has non-finite controls"
             )
@@ -192,7 +196,9 @@ def validate_production_audio_mix_evidence(evidence: Mapping[str, Any]) -> str:
         )
     inputs = evidence.get("inputs")
     if not isinstance(inputs, list) or not inputs:
-        raise ProductionAudioMixEvidenceError("production audio mix evidence requires inputs")
+        raise ProductionAudioMixEvidenceError(
+            "production audio mix evidence requires inputs"
+        )
     for index, item in enumerate(inputs):
         if not isinstance(item, Mapping):
             raise ProductionAudioMixEvidenceError(
