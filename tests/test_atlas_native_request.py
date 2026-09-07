@@ -115,7 +115,9 @@ def test_native_shot_rejects_unconditioned_request():
 def test_seedance_dialogue_challenge_rejects_empty_dialogue_timing():
     request = _dialogue_request(dialogue_timing=[])
 
-    with pytest.raises(ValueError, match="requires non-empty performance.dialogue_timing"):
+    with pytest.raises(
+        ValueError, match="requires non-empty performance.dialogue_timing"
+    ):
         request.validate_timing_integrity()
 
 
@@ -165,5 +167,7 @@ def test_legacy_dialogue_lipsync_challenge_still_requires_grounding():
         metadata={"competitive_challenges": ["dialogue_lip_sync"]},
     )
 
-    with pytest.raises(ValueError, match="requires non-empty performance.dialogue_timing"):
+    with pytest.raises(
+        ValueError, match="requires non-empty performance.dialogue_timing"
+    ):
         request.validate_timing_integrity()
