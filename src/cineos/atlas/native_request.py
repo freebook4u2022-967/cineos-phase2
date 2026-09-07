@@ -13,6 +13,8 @@ from cineos.conditioning import ConditioningPackage
 NATIVE_SHOT_SCHEMA = "cineos-native-shot-request/0.1"
 _COMPETITIVE_CHALLENGE_METADATA_KEY = "competitive_challenges"
 _DIALOGUE_LIP_SYNC_CHALLENGE = "dialogue_lip_sync"
+_SEEDANCE_CHALLENGE_METADATA_KEY = "benchmark_challenges"
+_SEEDANCE_DIALOGUE_CHALLENGE = "dialogue"
 
 
 def _finite_positive_number(value: Any, *, field_name: str) -> float:
@@ -50,13 +52,31 @@ def _dialogue_time(
     return canonical_value if canonical_value is not None else legacy_value
 
 
-def _requires_competitive_dialogue_grounding(metadata: dict[str, Any]) -> bool:
-    """Return whether this native request is part of the strict dialogue benchmark."""
-
-    raw = metadata.get(_COMPETITIVE_CHALLENGE_METADATA_KEY)
+def _challenge_declared(metadata: dict[str, Any], *, key: str, value: str) -> bool:
+    raw = metadata.get(key)
     if not isinstance(raw, (list, tuple, set, frozenset)):
         return False
-    return _DIALOGUE_LIP_SYNC_CHALLENGE in raw
+    return value in raw
+
+
+def _requires_competitive_dialogue_grounding(metadata: dict[str, Any]) -> bool:
+    """Return whether this request is part of a strict dialogue benchmark.
+
+    CINEOS historically used ``competitive_challenges=["dialogue_lip_sync"]`` while
+    the Seedance-style benchmark contract uses ``benchmark_challenges=["dialogue"]``.
+    Treat both declarations as the same strict requirement so the benchmark wrapper
+    cannot accidentally bypass native speaker/timing grounding.
+    """
+
+    return _challenge_declared(
+        metadata,
+        key=_COMPETITIVE_CHALLENGE_METADATA_KEY,
+        value=_DIALOGUE_LIP_SYNC_CHALLENGE,
+    ) or _challenge_declared(
+        metadata,
+        key=_SEEDANCE_CHALLENGE_METADATA_KEY,
+        value=_SEEDANCE_DIALOGUE_CHALLENGE,
+    )
 
 
 @dataclass(slots=True)
@@ -85,8 +105,8 @@ class NativeShotRequest:
         duration, or dialogue intervals are non-finite or outside the shot timeline.
         Optional legacy fields and the historic ``start``/``end`` dialogue aliases remain
         compatible; when timing is supplied, it must be trustworthy. Competitive
-        dialogue/lip-sync benchmark shots additionally require every cue to identify a
-        character that is actually conditioned in the same native request.
+        dialogue/lip-sync benchmark shots additionally require non-empty dialogue cues
+        and every cue must identify a character conditioned in the same native request.
         """
 
         duration_seconds: float | None = None
@@ -101,15 +121,20 @@ class NativeShotRequest:
                 field_name="renderer_requirements.fps",
             )
 
+        require_dialogue_grounding = _requires_competitive_dialogue_grounding(
+            self.metadata
+        )
         dialogue_timing = self.performance.get("dialogue_timing")
         if dialogue_timing in (None, []):
+            if require_dialogue_grounding:
+                raise ValueError(
+                    "competitive dialogue benchmark requires non-empty "
+                    "performance.dialogue_timing"
+                )
             return
         if not isinstance(dialogue_timing, list):
             raise ValueError("performance.dialogue_timing must be a list when supplied")
 
-        require_dialogue_grounding = _requires_competitive_dialogue_grounding(
-            self.metadata
-        )
         character_ids: set[str] = set()
         if require_dialogue_grounding:
             for character in self.characters:
