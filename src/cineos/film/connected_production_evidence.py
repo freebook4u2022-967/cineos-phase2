@@ -6,13 +6,15 @@ it proves that the exact GPU/QC-approved render artifacts accepted by the connec
 benchmark are the artifacts represented in the production assembly manifest, that
 required dialogue shots carry measured lip-sync QC bound to the exact video and
 approved dialogue audio, that those same dialogue artifacts are inputs to the exact
-approved production audio mix, and that the final MP4 still matches its recorded digest.
+approved production audio mix at the approved global shot timeline offsets, and that
+the final MP4 still matches its recorded digest.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +41,7 @@ from .production_assembly import PRODUCTION_EVIDENCE_SCHEMA
 from .validator import file_hash
 
 CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA = (
-    "cineos-connected-production-film-evidence/0.6"
+    "cineos-connected-production-film-evidence/0.7"
 )
 
 
@@ -365,6 +367,62 @@ def _validate_lipsync_binding(
     return required, tuple(validated_hashes[shot_id] for shot_id in required)
 
 
+def _dialogue_timeline_starts(assembly: Mapping[str, Any]) -> dict[str, float]:
+    """Derive exact global shot starts from the approved production timeline."""
+    shots = _assembly_shots(assembly)
+    timeline = assembly.get("timeline")
+    if not isinstance(timeline, Mapping):
+        raise ConnectedProductionFilmEvidenceError(
+            "GPU-declared dialogue film requires approved timeline evidence"
+        )
+    compatibility = timeline.get("compatibility")
+    if not isinstance(compatibility, Mapping):
+        raise ConnectedProductionFilmEvidenceError(
+            "GPU-declared dialogue film requires timeline compatibility evidence"
+        )
+
+    explicit = compatibility.get("edit_durations_seconds")
+    durations: list[float] = []
+    if explicit is not None:
+        if not isinstance(explicit, list) or len(explicit) != len(shots):
+            raise ConnectedProductionFilmEvidenceError(
+                "production dialogue timeline has invalid edit-duration evidence"
+            )
+        raw_durations = explicit
+    else:
+        raw_durations = []
+        for index, shot in enumerate(shots):
+            media = shot.get("media")
+            if not isinstance(media, Mapping):
+                raise ConnectedProductionFilmEvidenceError(
+                    f"production dialogue timeline shot {index} lacks media evidence"
+                )
+            raw_durations.append(media.get("duration_seconds"))
+
+    for index, value in enumerate(raw_durations):
+        try:
+            duration = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ConnectedProductionFilmEvidenceError(
+                f"production dialogue timeline shot {index} has invalid duration"
+            ) from exc
+        if not math.isfinite(duration) or duration <= 0:
+            raise ConnectedProductionFilmEvidenceError(
+                f"production dialogue timeline shot {index} has invalid duration"
+            )
+        durations.append(duration)
+
+    starts: dict[str, float] = {}
+    cursor = 0.0
+    for index, (shot, duration) in enumerate(zip(shots, durations)):
+        shot_id = _required_text(
+            shot.get("shot_id"), field=f"assembly shot {index} ID"
+        )
+        starts[shot_id] = cursor
+        cursor += duration
+    return starts
+
+
 def _validate_dialogue_mix_binding(
     benchmark: GPUConnectedBenchmarkReceipt,
     assembly: Mapping[str, Any],
@@ -373,7 +431,7 @@ def _validate_dialogue_mix_binding(
     dialogue_audio_sha256_by_shot: Mapping[str, str] | None,
     audio_mix_evidence: Mapping[str, Any] | None,
 ) -> str | None:
-    """Bind modern authoritative dialogue scope to the exact final assembly mix."""
+    """Bind authoritative dialogue to exact final mix artifacts and timeline offsets."""
     if getattr(benchmark, "dialogue_scope_declared", None) is not True:
         return None
     required = _normalize_dialogue_shot_ids(dialogue_shot_ids)
@@ -407,12 +465,13 @@ def _validate_dialogue_mix_binding(
             "production audio mix output does not match approved assembly audio"
         )
 
+    expected_starts = _dialogue_timeline_starts(assembly)
     inputs = audio_mix_evidence.get("inputs")
     if not isinstance(inputs, list):
         raise ConnectedProductionFilmEvidenceError(
             "production audio mix evidence requires an input list"
         )
-    dialogue_inputs: dict[str, str] = {}
+    dialogue_inputs: dict[str, tuple[str, float]] = {}
     for index, item in enumerate(inputs):
         if not isinstance(item, Mapping) or item.get("kind") != "dialogue":
             continue
@@ -423,8 +482,21 @@ def _validate_dialogue_mix_binding(
             raise ConnectedProductionFilmEvidenceError(
                 f"duplicate dialogue mix input for shot: {shot_id}"
             )
-        dialogue_inputs[shot_id] = _required_sha256(
-            item.get("sha256"), field=f"dialogue mix input {index} SHA-256"
+        try:
+            start_time = float(item.get("start_time_seconds"))
+        except (TypeError, ValueError) as exc:
+            raise ConnectedProductionFilmEvidenceError(
+                f"dialogue mix input {index} has invalid timeline offset"
+            ) from exc
+        if not math.isfinite(start_time) or start_time < 0:
+            raise ConnectedProductionFilmEvidenceError(
+                f"dialogue mix input {index} has invalid timeline offset"
+            )
+        dialogue_inputs[shot_id] = (
+            _required_sha256(
+                item.get("sha256"), field=f"dialogue mix input {index} SHA-256"
+            ),
+            start_time,
         )
 
     required_set = set(required)
@@ -446,9 +518,20 @@ def _validate_dialogue_mix_binding(
             dialogue_audio_sha256_by_shot.get(shot_id),
             field=f"dialogue shot {shot_id} approved audio SHA-256",
         )
-        if dialogue_inputs[shot_id] != expected:
+        actual_sha, actual_start = dialogue_inputs[shot_id]
+        if actual_sha != expected:
             raise ConnectedProductionFilmEvidenceError(
                 f"production audio mix substitutes dialogue audio for shot: {shot_id}"
+            )
+        if shot_id not in expected_starts:
+            raise ConnectedProductionFilmEvidenceError(
+                f"production dialogue timeline references unknown shot: {shot_id}"
+            )
+        expected_start = expected_starts[shot_id]
+        if abs(actual_start - expected_start) > 1e-6:
+            raise ConnectedProductionFilmEvidenceError(
+                "production audio mix shifts dialogue away from approved shot timeline "
+                f"for {shot_id}: {actual_start:.6f}s vs {expected_start:.6f}s"
             )
     return _required_sha256(
         audio_mix_evidence.get("evidence_sha256"), field="audio mix evidence SHA-256"
@@ -491,7 +574,7 @@ def validate_connected_production_film_evidence(
     Legacy receipts retain their previous contract. GPU benchmark receipts that
     authoritatively declare dialogue must additionally prove that the same exact
     dialogue artifacts used for measured lip-sync QC were consumed by the exact audio
-    mix supplied to production assembly.
+    mix supplied to production assembly at the approved global shot timeline offsets.
     """
     if not isinstance(benchmark, GPUConnectedBenchmarkReceipt):
         raise TypeError("benchmark must be a GPUConnectedBenchmarkReceipt")
