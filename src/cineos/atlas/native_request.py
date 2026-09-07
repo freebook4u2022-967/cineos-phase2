@@ -183,11 +183,19 @@ class NativeShotRequest:
         data.pop("content_hash", None)
         return data
 
-    def refresh_hash(self) -> str:
+    def _expected_content_hash(self) -> str:
         payload = json.dumps(
             self.payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
-        self.content_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def content_hash_is_current(self) -> bool:
+        """Return whether the stored hash matches the current semantic request payload."""
+
+        return bool(self.content_hash) and self.content_hash == self._expected_content_hash()
+
+    def refresh_hash(self) -> str:
+        self.content_hash = self._expected_content_hash()
         return self.content_hash
 
     def to_dict(self) -> dict[str, Any]:
