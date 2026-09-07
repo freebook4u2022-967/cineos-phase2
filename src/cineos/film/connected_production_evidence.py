@@ -415,9 +415,7 @@ def _dialogue_timeline_starts(assembly: Mapping[str, Any]) -> dict[str, float]:
     starts: dict[str, float] = {}
     cursor = 0.0
     for index, (shot, duration) in enumerate(zip(shots, durations)):
-        shot_id = _required_text(
-            shot.get("shot_id"), field=f"assembly shot {index} ID"
-        )
+        shot_id = _required_text(shot.get("shot_id"), field=f"assembly shot {index} ID")
         starts[shot_id] = cursor
         cursor += duration
     return starts
