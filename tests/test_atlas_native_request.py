@@ -161,13 +161,20 @@ def test_seedance_dialogue_challenge_accepts_grounded_dialogue():
     request.validate_timing_integrity()
 
 
-def test_legacy_dialogue_lipsync_challenge_still_requires_grounding():
+def test_legacy_dialogue_lipsync_keeps_empty_timing_compatibility():
     request = _dialogue_request(
         dialogue_timing=[],
         metadata={"competitive_challenges": ["dialogue_lip_sync"]},
     )
 
-    with pytest.raises(
-        ValueError, match="requires non-empty performance.dialogue_timing"
-    ):
+    request.validate_timing_integrity()
+
+
+def test_legacy_dialogue_lipsync_still_grounds_supplied_cues():
+    request = _dialogue_request(
+        dialogue_timing=[{"start": 0.5, "end": 2.0, "text": "Where are you?"}],
+        metadata={"competitive_challenges": ["dialogue_lip_sync"]},
+    )
+
+    with pytest.raises(ValueError, match="requires speaker_id"):
         request.validate_timing_integrity()
