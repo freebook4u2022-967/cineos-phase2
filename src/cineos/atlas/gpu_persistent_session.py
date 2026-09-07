@@ -43,8 +43,9 @@ class PersistentGPUFoundationExecutor:
 
     Session receipts also expose measured model-load amortization and, when the
     selected CUDA runtime provides the standard PyTorch memory-stat APIs, per-shot
-    peak allocated/reserved VRAM. These are observations only: absence of an API is
-    never replaced with invented measurements.
+    peak allocated/reserved VRAM. CUDA render timing is synchronized when the
+    runtime exposes ``cuda.synchronize``; otherwise the receipt explicitly records
+    that host-side timing was not CUDA-synchronized rather than inventing precision.
     """
 
     def __init__(
@@ -230,9 +231,12 @@ class PersistentGPUFoundationExecutor:
         expected_artifact = _expected_artifact_path(request, self.output_dir)
         _remove_stale_expected_artifact(expected_artifact)
         self._reset_cuda_peak_memory_stats(renderer)
+        timing_sync_before = self._synchronize_cuda(renderer)
         started = perf_counter()
         result = renderer.render(request)
+        timing_sync_after = self._synchronize_cuda(renderer)
         elapsed = perf_counter() - started
+        cuda_timing_synchronized = timing_sync_before and timing_sync_after
         cuda_memory = self._read_cuda_peak_memory_stats(renderer)
         artifact = _validate_result_identity(
             request,
@@ -275,6 +279,7 @@ class PersistentGPUFoundationExecutor:
                 "session_total_measured_execution_seconds": (
                     model_load_seconds + self._cumulative_render_seconds
                 ),
+                "cuda_render_timing_synchronized": cuda_timing_synchronized,
             }
         )
         receipt_runtime.update(cuda_memory)
@@ -307,6 +312,19 @@ class PersistentGPUFoundationExecutor:
             return max(0, int(suffix))
         except ValueError:
             return 0
+
+    def _synchronize_cuda(self, renderer: Any) -> bool:
+        """Synchronize CUDA for trustworthy timing when the runtime supports it."""
+        torch_runtime = self._torch_runtime(renderer)
+        cuda = getattr(torch_runtime, "cuda", None)
+        synchronize = getattr(cuda, "synchronize", None)
+        if not callable(synchronize):
+            return False
+        try:
+            synchronize(self._cuda_device_index(renderer))
+        except (RuntimeError, TypeError, ValueError):
+            return False
+        return True
 
     def _reset_cuda_peak_memory_stats(self, renderer: Any) -> None:
         """Reset peak counters when PyTorch exposes them; otherwise record nothing."""

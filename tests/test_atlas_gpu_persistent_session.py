@@ -17,6 +17,7 @@ class _Properties:
 
 class _Cuda:
     peak_reset_calls = 0
+    synchronize_calls = 0
 
     @staticmethod
     def is_available():
@@ -49,6 +50,10 @@ class _Cuda:
     @classmethod
     def reset_peak_memory_stats(cls, _index=0):
         cls.peak_reset_calls += 1
+
+    @classmethod
+    def synchronize(cls, _index=0):
+        cls.synchronize_calls += 1
 
     @staticmethod
     def max_memory_allocated(_index=0):
@@ -124,6 +129,7 @@ def test_persistent_session_loads_pipeline_once_for_multiple_shots(tmp_path):
     pipeline = _Pipeline()
     factory_calls = 0
     reset_calls_before = _Cuda.peak_reset_calls
+    synchronize_calls_before = _Cuda.synchronize_calls
 
     def factory(*_args, **_kwargs):
         nonlocal factory_calls
@@ -169,7 +175,33 @@ def test_persistent_session_loads_pipeline_once_for_multiple_shots(tmp_path):
     )
     assert first.runtime_provenance["cuda_peak_memory_allocated_bytes"] == 12 * 1024**3
     assert first.runtime_provenance["cuda_peak_memory_reserved_bytes"] == 14 * 1024**3
+    assert first.runtime_provenance["cuda_render_timing_synchronized"] is True
+    assert second.runtime_provenance["cuda_render_timing_synchronized"] is True
     assert _Cuda.peak_reset_calls - reset_calls_before == 2
+    assert _Cuda.synchronize_calls - synchronize_calls_before == 4
+
+
+def test_persistent_session_marks_unsynchronized_timing_without_failing(
+    tmp_path, monkeypatch
+):
+    pipeline = _Pipeline()
+    monkeypatch.delattr(_Cuda, "synchronize")
+
+    def exporter(_frames, output_path, *, fps):
+        del fps
+        Path(output_path).write_bytes(_minimal_mp4_bytes(b"unsynchronized"))
+
+    with PersistentGPUFoundationExecutor(
+        WAN22_TI2V_5B_PROFILE,
+        output_dir=tmp_path,
+        torch_module=_Torch(),
+        pipeline_factory=lambda *_args, **_kwargs: pipeline,
+        video_exporter=exporter,
+    ) as executor:
+        receipt = executor.render(_request("shot-unsynced", 105))
+
+    assert pipeline.calls == 1
+    assert receipt.runtime_provenance["cuda_render_timing_synchronized"] is False
 
 
 def test_persistent_session_callable_matches_benchmark_executor_contract(tmp_path):
