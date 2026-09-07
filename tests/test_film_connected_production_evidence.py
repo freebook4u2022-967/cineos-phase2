@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -159,6 +160,32 @@ def test_rejects_reused_qc_evidence_hash_even_when_manifest_is_resigned(
     with pytest.raises(
         ConnectedProductionFilmEvidenceError,
         match="reuses QC evidence from another shot",
+    ):
+        validate_connected_production_film_evidence(benchmark, assembly)
+
+    assert connected_production_film_evidence(benchmark, assembly) is False
+
+
+def test_rejects_blank_foundation_profile_identity(tmp_path) -> None:
+    benchmark = replace(_benchmark(tmp_path), profile_id="   ")
+    assembly = _assembly(tmp_path, benchmark)
+
+    with pytest.raises(
+        ConnectedProductionFilmEvidenceError,
+        match="foundation profile ID",
+    ):
+        validate_connected_production_film_evidence(benchmark, assembly)
+
+    assert connected_production_film_evidence(benchmark, assembly) is False
+
+
+def test_rejects_external_foundation_mislabeled_as_native(tmp_path) -> None:
+    benchmark = replace(_benchmark(tmp_path), origin="cineos_native")
+    assembly = _assembly(tmp_path, benchmark)
+
+    with pytest.raises(
+        ConnectedProductionFilmEvidenceError,
+        match="external_pretrained_foundation",
     ):
         validate_connected_production_film_evidence(benchmark, assembly)
 
