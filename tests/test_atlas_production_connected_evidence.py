@@ -480,7 +480,9 @@ def test_rejects_tampered_competitive_challenge_contract(tmp_path) -> None:
     assert production_connected_evidence(benchmark) is False
 
 
-def test_rejects_resigned_challenge_contract_referencing_unrendered_shot(tmp_path) -> None:
+def test_rejects_resigned_challenge_contract_referencing_unrendered_shot(
+    tmp_path,
+) -> None:
     benchmark = _benchmark(tmp_path)
     payload = _manifest_payload(benchmark)
     contract = _challenge(payload)
