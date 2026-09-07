@@ -5,7 +5,8 @@ film assembly. It does not make an external pretrained video foundation CINEOS-n
 it proves that the exact GPU/QC-approved render artifacts accepted by the connected
 benchmark are the artifacts represented in the production assembly manifest, that
 required dialogue shots carry measured lip-sync QC bound to the exact video and
-approved dialogue audio, and that the final MP4 still matches its recorded digest.
+approved dialogue audio, that those same dialogue artifacts are inputs to the exact
+approved production audio mix, and that the final MP4 still matches its recorded digest.
 """
 
 from __future__ import annotations
@@ -29,12 +30,16 @@ from cineos.audio.lipsync_qc import (
     LipSyncThresholds,
     validate_lipsync_quality_evidence,
 )
+from cineos.audio.production_mix_evidence import (
+    ProductionAudioMixEvidenceError,
+    validate_production_audio_mix_evidence,
+)
 
 from .production_assembly import PRODUCTION_EVIDENCE_SCHEMA
 from .validator import file_hash
 
 CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA = (
-    "cineos-connected-production-film-evidence/0.5"
+    "cineos-connected-production-film-evidence/0.6"
 )
 
 
@@ -56,6 +61,7 @@ class ConnectedProductionFilmEvidence:
     connected_evidence: ProductionConnectedEvidence
     dialogue_shot_ids: tuple[str, ...] = ()
     lipsync_evidence_sha256: tuple[str, ...] = ()
+    audio_mix_evidence_sha256: str | None = None
 
     @property
     def accepted(self) -> bool:
@@ -73,6 +79,7 @@ class ConnectedProductionFilmEvidence:
             "final_mp4_sha256": self.final_mp4_sha256,
             "dialogue_shot_ids": list(self.dialogue_shot_ids),
             "lipsync_evidence_sha256": list(self.lipsync_evidence_sha256),
+            "audio_mix_evidence_sha256": self.audio_mix_evidence_sha256,
             "accepted": self.accepted,
             "connected_evidence": self.connected_evidence.to_dict(),
         }
@@ -223,14 +230,7 @@ def _resolve_dialogue_shot_ids(
     benchmark: GPUConnectedBenchmarkReceipt,
     requested: Sequence[str],
 ) -> tuple[str, ...]:
-    """Resolve authoritative dialogue scope from the exact rendered benchmark.
-
-    GPU benchmark receipts from schema 0.3+ self-attest which rendered shots contain
-    dialogue. That declaration is authoritative for final-film lip-sync validation so
-    a caller cannot omit ``required_dialogue_shot_ids`` to bypass measured evidence.
-    Legacy receipts with no declaration retain the previous explicit-caller behavior.
-    """
-
+    """Resolve authoritative dialogue scope from the exact rendered benchmark."""
     explicit = _normalize_dialogue_shot_ids(requested)
     scope_declared = getattr(benchmark, "dialogue_scope_declared", None)
     declared_values = getattr(benchmark, "dialogue_shot_ids", None)
@@ -365,6 +365,96 @@ def _validate_lipsync_binding(
     return required, tuple(validated_hashes[shot_id] for shot_id in required)
 
 
+def _validate_dialogue_mix_binding(
+    benchmark: GPUConnectedBenchmarkReceipt,
+    assembly: Mapping[str, Any],
+    *,
+    dialogue_shot_ids: Sequence[str],
+    dialogue_audio_sha256_by_shot: Mapping[str, str] | None,
+    audio_mix_evidence: Mapping[str, Any] | None,
+) -> str | None:
+    """Bind modern authoritative dialogue scope to the exact final assembly mix."""
+    if getattr(benchmark, "dialogue_scope_declared", None) is not True:
+        return None
+    required = _normalize_dialogue_shot_ids(dialogue_shot_ids)
+    if not required:
+        return None
+    if dialogue_audio_sha256_by_shot is None:
+        raise ConnectedProductionFilmEvidenceError(
+            "dialogue-bearing production film requires approved dialogue audio hashes"
+        )
+    if not isinstance(audio_mix_evidence, Mapping):
+        raise ConnectedProductionFilmEvidenceError(
+            "GPU-declared dialogue film requires production audio mix evidence"
+        )
+    try:
+        mix_output_sha = validate_production_audio_mix_evidence(audio_mix_evidence)
+    except (ProductionAudioMixEvidenceError, TypeError) as exc:
+        raise ConnectedProductionFilmEvidenceError(
+            f"production audio mix evidence is invalid: {exc}"
+        ) from exc
+
+    assembly_audio = assembly.get("audio")
+    if not isinstance(assembly_audio, Mapping):
+        raise ConnectedProductionFilmEvidenceError(
+            "GPU-declared dialogue film requires an approved assembly audio artifact"
+        )
+    assembly_audio_sha = _required_sha256(
+        assembly_audio.get("sha256"), field="assembly audio SHA-256"
+    )
+    if mix_output_sha != assembly_audio_sha:
+        raise ConnectedProductionFilmEvidenceError(
+            "production audio mix output does not match approved assembly audio"
+        )
+
+    inputs = audio_mix_evidence.get("inputs")
+    if not isinstance(inputs, list):
+        raise ConnectedProductionFilmEvidenceError(
+            "production audio mix evidence requires an input list"
+        )
+    dialogue_inputs: dict[str, str] = {}
+    for index, item in enumerate(inputs):
+        if not isinstance(item, Mapping) or item.get("kind") != "dialogue":
+            continue
+        shot_id = _required_text(
+            item.get("shot_id"), field=f"dialogue mix input {index} shot ID"
+        )
+        if shot_id in dialogue_inputs:
+            raise ConnectedProductionFilmEvidenceError(
+                f"duplicate dialogue mix input for shot: {shot_id}"
+            )
+        dialogue_inputs[shot_id] = _required_sha256(
+            item.get("sha256"), field=f"dialogue mix input {index} SHA-256"
+        )
+
+    required_set = set(required)
+    actual_set = set(dialogue_inputs)
+    if actual_set != required_set:
+        missing = required_set.difference(actual_set)
+        extra = actual_set.difference(required_set)
+        detail: list[str] = []
+        if missing:
+            detail.append("missing " + ", ".join(sorted(missing)))
+        if extra:
+            detail.append("unexpected " + ", ".join(sorted(extra)))
+        raise ConnectedProductionFilmEvidenceError(
+            "production audio mix dialogue scope does not match connected benchmark: "
+            + "; ".join(detail)
+        )
+    for shot_id in required:
+        expected = _required_sha256(
+            dialogue_audio_sha256_by_shot.get(shot_id),
+            field=f"dialogue shot {shot_id} approved audio SHA-256",
+        )
+        if dialogue_inputs[shot_id] != expected:
+            raise ConnectedProductionFilmEvidenceError(
+                f"production audio mix substitutes dialogue audio for shot: {shot_id}"
+            )
+    return _required_sha256(
+        audio_mix_evidence.get("evidence_sha256"), field="audio mix evidence SHA-256"
+    )
+
+
 def _validate_final_artifact(assembly: Mapping[str, Any]) -> str:
     expected = _required_sha256(
         assembly.get("final_mp4_sha256"), field="final MP4 SHA-256"
@@ -394,16 +484,15 @@ def validate_connected_production_film_evidence(
     dialogue_audio_sha256_by_shot: Mapping[str, str] | None = None,
     expected_lipsync_analyzer: LipSyncAnalyzerProvenance | None = None,
     lipsync_thresholds: LipSyncThresholds | None = None,
+    audio_mix_evidence: Mapping[str, Any] | None = None,
 ) -> ConnectedProductionFilmEvidence:
     """Require one exact evidence chain from connected GPU renders to final MP4.
 
-    Existing legacy silent/non-dialogue callers remain compatible. For benchmark
-    receipts that declare their rendered dialogue scope, that scope is authoritative:
-    acceptance fails closed unless every declared dialogue shot has exactly one
-    measured lip-sync report bound to its exact connected render, approved dialogue
-    audio hash, and pinned external analyzer provenance.
+    Legacy receipts retain their previous contract. GPU benchmark receipts that
+    authoritatively declare dialogue must additionally prove that the same exact
+    dialogue artifacts used for measured lip-sync QC were consumed by the exact audio
+    mix supplied to production assembly.
     """
-
     if not isinstance(benchmark, GPUConnectedBenchmarkReceipt):
         raise TypeError("benchmark must be a GPUConnectedBenchmarkReceipt")
     if not isinstance(assembly, Mapping):
@@ -434,6 +523,13 @@ def validate_connected_production_film_evidence(
         expected_lipsync_analyzer=expected_lipsync_analyzer,
         lipsync_thresholds=lipsync_thresholds,
     )
+    mix_evidence_sha = _validate_dialogue_mix_binding(
+        benchmark,
+        assembly,
+        dialogue_shot_ids=dialogue_shot_ids,
+        dialogue_audio_sha256_by_shot=dialogue_audio_sha256_by_shot,
+        audio_mix_evidence=audio_mix_evidence,
+    )
     final_sha = _validate_final_artifact(assembly)
 
     evidence = ConnectedProductionFilmEvidence(
@@ -447,6 +543,7 @@ def validate_connected_production_film_evidence(
         connected_evidence=connected,
         dialogue_shot_ids=dialogue_shot_ids,
         lipsync_evidence_sha256=lipsync_hashes,
+        audio_mix_evidence_sha256=mix_evidence_sha,
     )
     if not evidence.accepted:
         raise ConnectedProductionFilmEvidenceError(
@@ -464,9 +561,9 @@ def connected_production_film_evidence(
     dialogue_audio_sha256_by_shot: Mapping[str, str] | None = None,
     expected_lipsync_analyzer: LipSyncAnalyzerProvenance | None = None,
     lipsync_thresholds: LipSyncThresholds | None = None,
+    audio_mix_evidence: Mapping[str, Any] | None = None,
 ) -> bool:
     """Return whether connected benchmark evidence binds to the exact final film."""
-
     try:
         validate_connected_production_film_evidence(
             benchmark,
@@ -476,6 +573,7 @@ def connected_production_film_evidence(
             dialogue_audio_sha256_by_shot=dialogue_audio_sha256_by_shot,
             expected_lipsync_analyzer=expected_lipsync_analyzer,
             lipsync_thresholds=lipsync_thresholds,
+            audio_mix_evidence=audio_mix_evidence,
         )
     except (ConnectedProductionFilmEvidenceError, TypeError):
         return False
