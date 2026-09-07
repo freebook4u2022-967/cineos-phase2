@@ -192,7 +192,13 @@ class PersistentGPUFoundationExecutor:
     def discard_quality_rejected_result(
         self, receipt: GPUFoundationExecutionReceipt
     ) -> None:
-        """Ensure rejected GPU output cannot become a successor continuity anchor."""
+        """Ensure rejected GPU output cannot become a successor continuity anchor.
+
+        Once a stateful renderer reports that rollback is malformed or fails, its
+        in-memory continuity state can no longer be trusted. Close the persistent
+        session immediately instead of leaving a poisoned model session reusable.
+        Stateless/legacy renderers without a rollback hook remain compatible.
+        """
 
         renderer = self._renderer
         if renderer is None:
@@ -203,14 +209,18 @@ class PersistentGPUFoundationExecutor:
         if discard is None:
             return
         if not callable(discard):
+            self.close()
             raise PersistentGPUSessionError(
-                "renderer exposes a non-callable quality rejection hook"
+                "renderer exposes a non-callable quality rejection hook; "
+                "persistent session was closed"
             )
         try:
             discard(receipt)
         except Exception as exc:
+            self.close()
             raise PersistentGPUSessionError(
-                "renderer could not remove rejected continuity state"
+                "renderer could not remove rejected continuity state; "
+                "persistent session was closed"
             ) from exc
 
     def render(self, request: NativeShotRequest) -> GPUFoundationExecutionReceipt:
