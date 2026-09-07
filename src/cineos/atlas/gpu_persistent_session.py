@@ -238,33 +238,38 @@ class PersistentGPUFoundationExecutor:
         elapsed = perf_counter() - started
         cuda_timing_synchronized = timing_sync_before and timing_sync_after
         cuda_memory = self._read_cuda_peak_memory_stats(renderer)
-        artifact = _validate_result_identity(
-            request,
-            self.profile,
-            result,
-            expected_artifact,
-        )
-        try:
-            output_bytes = artifact.stat().st_size
-        except OSError as exc:
-            raise PersistentGPUSessionError(
-                f"renderer reported {artifact} but no readable video artifact exists"
-            ) from exc
-        if output_bytes <= 0:
-            raise PersistentGPUSessionError(
-                f"renderer produced an empty video artifact at {artifact}"
-            )
-        media_payload_bytes = _validate_video_artifact(artifact)
 
-        digest = hashlib.sha256()
         try:
-            with artifact.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    digest.update(chunk)
-        except OSError as exc:
-            raise PersistentGPUSessionError(
-                f"rendered video artifact cannot be hashed: {artifact}"
-            ) from exc
+            artifact = _validate_result_identity(
+                request,
+                self.profile,
+                result,
+                expected_artifact,
+            )
+            try:
+                output_bytes = artifact.stat().st_size
+            except OSError as exc:
+                raise PersistentGPUSessionError(
+                    f"renderer reported {artifact} but no readable video artifact exists"
+                ) from exc
+            if output_bytes <= 0:
+                raise PersistentGPUSessionError(
+                    f"renderer produced an empty video artifact at {artifact}"
+                )
+            media_payload_bytes = _validate_video_artifact(artifact)
+
+            digest = hashlib.sha256()
+            try:
+                with artifact.open("rb") as handle:
+                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                        digest.update(chunk)
+            except OSError as exc:
+                raise PersistentGPUSessionError(
+                    f"rendered video artifact cannot be hashed: {artifact}"
+                ) from exc
+        except Exception:
+            self._discard_unvalidated_result(renderer, result)
+            raise
 
         self._render_count += 1
         self._cumulative_render_seconds += elapsed
@@ -295,6 +300,34 @@ class PersistentGPUFoundationExecutor:
             media_payload_bytes=media_payload_bytes,
             runtime_provenance=receipt_runtime,
         )
+
+    def _discard_unvalidated_result(self, renderer: Any, result: Any) -> None:
+        """Rollback renderer continuity state when outer artifact validation fails.
+
+        Production continuity renderers stage their terminal frame before this
+        wrapper performs the stronger MP4/artifact checks. A failed outer check must
+        therefore actively remove that exact staged render. If the renderer exposes
+        a rejection hook but rollback itself fails, the persistent session is no
+        longer safe for connected inference and is closed immediately.
+        """
+
+        discard = getattr(renderer, "discard_quality_rejected_result", None)
+        if discard is None:
+            return
+        if not callable(discard):
+            self.close()
+            raise PersistentGPUSessionError(
+                "renderer exposes a non-callable continuity rollback hook; "
+                "persistent session was closed"
+            )
+        try:
+            discard(result)
+        except Exception as exc:
+            self.close()
+            raise PersistentGPUSessionError(
+                "renderer could not rollback an unvalidated continuity render; "
+                "persistent session was closed"
+            ) from exc
 
     def _torch_runtime(self, renderer: Any) -> Any | None:
         """Return the actual torch runtime behind the renderer, when observable."""
