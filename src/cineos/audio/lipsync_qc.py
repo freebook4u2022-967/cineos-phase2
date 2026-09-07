@@ -58,7 +58,12 @@ def _required_sha256(value: Any, *, field: str) -> str:
 def _required_https_url(value: Any, *, field: str) -> str:
     normalized = _required_text(value, field=field)
     parsed = urlparse(normalized)
-    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+    ):
         raise LipSyncQCError(f"lip-sync QC requires a valid HTTPS {field}")
     return normalized
 
@@ -230,9 +235,13 @@ def validate_lipsync_quality_evidence(
     if expected_analyzer is not None:
         pinned = expected_analyzer.validated()
         if origin != pinned.analyzer_origin:
-            raise LipSyncQCError("lip-sync analyzer origin does not match pinned provenance")
+            raise LipSyncQCError(
+                "lip-sync analyzer origin does not match pinned provenance"
+            )
         if analyzer_id != pinned.analyzer_id:
-            raise LipSyncQCError("lip-sync analyzer ID does not match pinned provenance")
+            raise LipSyncQCError(
+                "lip-sync analyzer ID does not match pinned provenance"
+            )
         if revision != pinned.analyzer_revision:
             raise LipSyncQCError(
                 "lip-sync analyzer revision does not match pinned provenance"
