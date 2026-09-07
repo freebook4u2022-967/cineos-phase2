@@ -63,6 +63,18 @@ def _reject_aliased_reference_content(reference_hashes: dict[str, str]) -> None:
     )
 
 
+def _reject_stale_request_hashes(requests: Sequence[NativeShotRequest]) -> None:
+    """Reject requests mutated after their native content identity was established."""
+
+    for request in requests:
+        if request.content_hash_is_current():
+            continue
+        raise ProductionInputPreflightError(
+            f"shot {request.scene_id}/{request.shot_id} has a stale or missing "
+            "content_hash; call refresh_hash() after mutating NativeShotRequest"
+        )
+
+
 def preflight_production_inputs(
     requests: Sequence[NativeShotRequest],
     reference_manifest: str | Path,
@@ -70,6 +82,7 @@ def preflight_production_inputs(
     """Validate connected production inputs without loading models."""
 
     request_sequence = tuple(requests)
+    _reject_stale_request_hashes(request_sequence)
     try:
         _validate_requests(request_sequence)
         _production_multi_reference_adapter(request_sequence)
@@ -100,7 +113,7 @@ def preflight_production_inputs(
         raise ProductionInputPreflightError(str(exc)) from exc
 
     return {
-        "schema": "cineos-production-input-preflight/0.3",
+        "schema": "cineos-production-input-preflight/0.4",
         "shot_count": len(request_sequence),
         "request_bundle_sha256": _request_bundle_sha256(request_sequence),
         "request_content_hashes": [
