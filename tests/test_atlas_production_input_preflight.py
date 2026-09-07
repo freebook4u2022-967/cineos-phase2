@@ -165,6 +165,8 @@ def test_preflight_rejects_stale_request_hash_before_reference_io(
     ):
         preflight_production_inputs(tuple(requests), tmp_path / "missing-manifest.json")
 
+    assert requests[0].content_hash == original_hash
+
 
 def test_preflight_accepts_request_after_explicit_hash_refresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
