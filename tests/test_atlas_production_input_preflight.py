@@ -149,7 +149,9 @@ def test_preflight_receipt_changes_when_valid_request_bundle_changes(
     assert original["request_content_hashes"] != changed["request_content_hashes"]
 
 
-def test_preflight_rejects_stale_request_hash_before_reference_io(tmp_path: Path) -> None:
+def test_preflight_rejects_stale_request_hash_before_reference_io(
+    tmp_path: Path,
+) -> None:
     requests = list(_requests())
     original_hash = requests[0].content_hash
     requests[0].camera["movement"] = "fast handheld push-in"
