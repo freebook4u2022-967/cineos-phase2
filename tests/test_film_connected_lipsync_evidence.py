@@ -77,14 +77,17 @@ def test_binds_measured_lipsync_to_dialogue_shot_and_final_film(tmp_path) -> Non
     assert evidence.dialogue_shot_ids == (shot_id,)
     assert evidence.lipsync_evidence_sha256 == (report["evidence_sha256"],)
     assert evidence.to_dict()["schema"] == CONNECTED_PRODUCTION_FILM_EVIDENCE_SCHEMA
-    assert connected_production_film_evidence(
-        benchmark,
-        assembly,
-        lipsync_evidence=[report],
-        required_dialogue_shot_ids=[shot_id],
-        dialogue_audio_sha256_by_shot={shot_id: audio_sha},
-        expected_lipsync_analyzer=_analyzer(),
-    ) is True
+    assert (
+        connected_production_film_evidence(
+            benchmark,
+            assembly,
+            lipsync_evidence=[report],
+            required_dialogue_shot_ids=[shot_id],
+            dialogue_audio_sha256_by_shot={shot_id: audio_sha},
+            expected_lipsync_analyzer=_analyzer(),
+        )
+        is True
+    )
 
 
 def test_dialogue_shot_fails_closed_without_lipsync_evidence(tmp_path) -> None:
@@ -162,7 +165,9 @@ def test_rejects_lipsync_report_from_unpinned_analyzer(tmp_path) -> None:
         )
 
 
-def test_rejects_incomplete_lipsync_coverage_for_required_dialogue_shots(tmp_path) -> None:
+def test_rejects_incomplete_lipsync_coverage_for_required_dialogue_shots(
+    tmp_path,
+) -> None:
     benchmark, assembly, shot_id, audio_sha, report = _dialogue_fixture(tmp_path)
     shots = assembly["shots"]
     assert isinstance(shots, list)
