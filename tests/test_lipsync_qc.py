@@ -8,6 +8,7 @@ import pytest
 
 from cineos.audio.lipsync_qc import (
     ExternalLipSyncAnalyzer,
+    LipSyncAnalyzerProvenance,
     LipSyncQCError,
     LipSyncQualityEvidence,
     validate_lipsync_quality_evidence,
@@ -16,6 +17,15 @@ from cineos.audio.lipsync_qc import (
 
 def _digest(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _provenance() -> LipSyncAnalyzerProvenance:
+    return LipSyncAnalyzerProvenance(
+        analyzer_id="learned-av-sync-evaluator",
+        analyzer_revision="immutable-revision-1",
+        analyzer_license_id="declared-license",
+        analyzer_source_url="https://example.invalid/model-card",
+    )
 
 
 def _evidence(
@@ -56,6 +66,7 @@ def test_valid_measured_lipsync_evidence_is_artifact_bound() -> None:
         expected_shot_id="shot-01",
         expected_video_sha256=video_sha,
         expected_audio_sha256=audio_sha,
+        expected_analyzer=_provenance(),
     )
     assert result.accepted is True
     assert result.analyzer_origin == "external_pretrained_foundation"
@@ -68,6 +79,7 @@ def test_valid_measured_lipsync_evidence_is_artifact_bound() -> None:
         ("audio_sha256", "z" * 64),
         ("measured", False),
         ("analyzer_origin", "cineos_native"),
+        ("analyzer_source_url", "http://example.invalid/model-card"),
     ],
 )
 def test_lipsync_evidence_fails_closed_on_invalid_production_claims(
@@ -85,6 +97,31 @@ def test_lipsync_evidence_fails_closed_on_invalid_production_claims(
             expected_shot_id="shot-01",
             expected_video_sha256=video_sha,
             expected_audio_sha256=audio_sha,
+            expected_analyzer=_provenance(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("analyzer_id", "substituted-analyzer"),
+        ("analyzer_revision", "mutable-main"),
+        ("analyzer_license_id", "different-license"),
+        ("analyzer_source_url", "https://example.invalid/other-model"),
+    ],
+)
+def test_lipsync_evidence_rejects_re_signed_provenance_substitution(
+    field: str, value: str
+) -> None:
+    video_sha = "a" * 64
+    audio_sha = "b" * 64
+    with pytest.raises(LipSyncQCError, match="pinned provenance"):
+        validate_lipsync_quality_evidence(
+            _evidence(video_sha=video_sha, audio_sha=audio_sha, **{field: value}),
+            expected_shot_id="shot-01",
+            expected_video_sha256=video_sha,
+            expected_audio_sha256=audio_sha,
+            expected_analyzer=_provenance(),
         )
 
 
@@ -123,7 +160,7 @@ def test_lipsync_evidence_rejects_tampering() -> None:
         )
 
 
-def test_external_analyzer_binds_exact_artifacts(
+def test_external_analyzer_binds_exact_artifacts_and_pinned_provenance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     video = tmp_path / "shot.mp4"
@@ -153,17 +190,61 @@ def test_external_analyzer_binds_exact_artifacts(
 
     monkeypatch.setattr("cineos.audio.lipsync_qc.subprocess.run", fake_run)
     analyzer = ExternalLipSyncAnalyzer(
-        command=("sync-eval", "--video", "{video}", "--audio", "{audio}")
+        command=("sync-eval", "--video", "{video}", "--audio", "{audio}"),
+        provenance=_provenance(),
     )
     evidence = analyzer.measure(shot_id="shot-01", video_path=video, audio_path=audio)
 
     assert evidence.video_sha256 == _digest(b"video-frames")
     assert evidence.audio_sha256 == _digest(b"dialogue-audio")
+    assert evidence.analyzer_revision == "immutable-revision-1"
     argv = observed["argv"]
     assert isinstance(argv, list)
     assert str(video.resolve()) in argv
     assert str(audio.resolve()) in argv
     assert evidence.accepted is True
+
+
+def test_external_analyzer_rejects_self_reported_provenance_substitution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video = tmp_path / "shot.mp4"
+    audio = tmp_path / "dialogue.wav"
+    video.write_bytes(b"video-frames")
+    audio.write_bytes(b"dialogue-audio")
+
+    class Completed:
+        stdout = json.dumps(
+            {
+                "analyzer_id": "substituted-analyzer",
+                "sync_confidence": 0.92,
+                "av_offset_ms": -16.0,
+                "speaking_frame_coverage": 0.82,
+                "face_track_coverage": 0.96,
+            }
+        )
+
+    monkeypatch.setattr(
+        "cineos.audio.lipsync_qc.subprocess.run", lambda *args, **kwargs: Completed()
+    )
+    analyzer = ExternalLipSyncAnalyzer(
+        command=("sync-eval", "--video", "{video}", "--audio", "{audio}"),
+        provenance=_provenance(),
+    )
+    with pytest.raises(LipSyncQCError, match="pinned provenance"):
+        analyzer.measure(shot_id="shot-01", video_path=video, audio_path=audio)
+
+
+def test_external_analyzer_requires_pinned_provenance(tmp_path: Path) -> None:
+    video = tmp_path / "shot.mp4"
+    audio = tmp_path / "dialogue.wav"
+    video.write_bytes(b"video")
+    audio.write_bytes(b"audio")
+    analyzer = ExternalLipSyncAnalyzer(
+        command=("sync-eval", "--video", "{video}", "--audio", "{audio}")
+    )
+    with pytest.raises(LipSyncQCError, match="requires pinned provenance"):
+        analyzer.measure(shot_id="shot-01", video_path=video, audio_path=audio)
 
 
 def test_external_analyzer_requires_both_artifact_placeholders() -> None:

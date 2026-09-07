@@ -15,8 +15,9 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
-LIPSYNC_QC_SCHEMA = "cineos-lipsync-qc/0.1"
+LIPSYNC_QC_SCHEMA = "cineos-lipsync-qc/0.2"
 ALLOWED_ANALYZER_ORIGINS = frozenset(
     {"external_pretrained_foundation", "external_reference_analyzer"}
 )
@@ -51,6 +52,14 @@ def _required_sha256(value: Any, *, field: str) -> str:
         int(normalized, 16)
     except ValueError as exc:
         raise LipSyncQCError(f"lip-sync QC requires a valid {field}") from exc
+    return normalized
+
+
+def _required_https_url(value: Any, *, field: str) -> str:
+    normalized = _required_text(value, field=field)
+    parsed = urlparse(normalized)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+        raise LipSyncQCError(f"lip-sync QC requires a valid HTTPS {field}")
     return normalized
 
 
@@ -100,6 +109,38 @@ class LipSyncThresholds:
 
 
 @dataclass(frozen=True, slots=True)
+class LipSyncAnalyzerProvenance:
+    """Pinned external analyzer provenance owned by CINEOS configuration."""
+
+    analyzer_id: str
+    analyzer_revision: str
+    analyzer_license_id: str
+    analyzer_source_url: str
+    analyzer_origin: str = "external_pretrained_foundation"
+
+    def validated(self) -> LipSyncAnalyzerProvenance:
+        origin = _required_text(self.analyzer_origin, field="analyzer origin")
+        if origin not in ALLOWED_ANALYZER_ORIGINS:
+            raise LipSyncQCError(
+                "lip-sync analyzer must be identified as an external learned/reference "
+                "foundation; it cannot be relabeled as CINEOS-native"
+            )
+        return LipSyncAnalyzerProvenance(
+            analyzer_id=_required_text(self.analyzer_id, field="analyzer ID"),
+            analyzer_revision=_required_text(
+                self.analyzer_revision, field="analyzer revision"
+            ),
+            analyzer_license_id=_required_text(
+                self.analyzer_license_id, field="analyzer license ID"
+            ),
+            analyzer_source_url=_required_https_url(
+                self.analyzer_source_url, field="analyzer source URL"
+            ),
+            analyzer_origin=origin,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class LipSyncQualityEvidence:
     """Artifact-bound measurements from one learned A/V synchronization analyzer."""
 
@@ -138,8 +179,14 @@ def validate_lipsync_quality_evidence(
     expected_video_sha256: str,
     expected_audio_sha256: str,
     thresholds: LipSyncThresholds | None = None,
+    expected_analyzer: LipSyncAnalyzerProvenance | None = None,
 ) -> LipSyncQualityEvidence:
-    """Validate measured evidence and bind it to exact dialogue artifacts."""
+    """Validate measured evidence and bind it to exact dialogue artifacts.
+
+    ``expected_analyzer`` is optional for backwards-compatible evidence readers. The
+    production executor always supplies it, so analyzer provenance is pinned by
+    CINEOS configuration rather than trusted from analyzer stdout.
+    """
 
     if not isinstance(evidence, Mapping):
         raise TypeError("lip-sync evidence must be a mapping")
@@ -177,9 +224,27 @@ def validate_lipsync_quality_evidence(
     license_id = _required_text(
         evidence.get("analyzer_license_id"), field="analyzer license ID"
     )
-    source_url = _required_text(
+    source_url = _required_https_url(
         evidence.get("analyzer_source_url"), field="analyzer source URL"
     )
+    if expected_analyzer is not None:
+        pinned = expected_analyzer.validated()
+        if origin != pinned.analyzer_origin:
+            raise LipSyncQCError("lip-sync analyzer origin does not match pinned provenance")
+        if analyzer_id != pinned.analyzer_id:
+            raise LipSyncQCError("lip-sync analyzer ID does not match pinned provenance")
+        if revision != pinned.analyzer_revision:
+            raise LipSyncQCError(
+                "lip-sync analyzer revision does not match pinned provenance"
+            )
+        if license_id != pinned.analyzer_license_id:
+            raise LipSyncQCError(
+                "lip-sync analyzer license does not match pinned provenance"
+            )
+        if source_url != pinned.analyzer_source_url:
+            raise LipSyncQCError(
+                "lip-sync analyzer source URL does not match pinned provenance"
+            )
 
     confidence = _unit_interval(
         evidence.get("sync_confidence"), field="sync confidence"
@@ -235,6 +300,7 @@ class ExternalLipSyncAnalyzer:
     """Invoke a configured external learned analyzer without disguising provenance."""
 
     command: tuple[str, ...]
+    provenance: LipSyncAnalyzerProvenance | None = None
     origin: str = "external_pretrained_foundation"
     timeout_seconds: float = 300.0
 
@@ -256,6 +322,16 @@ class ExternalLipSyncAnalyzer:
             raise LipSyncQCError(
                 "external lip-sync analyzer command must bind {video} and {audio}"
             )
+        if self.provenance is None:
+            raise LipSyncQCError(
+                "production external lip-sync analyzer requires pinned provenance"
+            )
+        pinned = self.provenance.validated()
+        if self.origin != pinned.analyzer_origin:
+            raise LipSyncQCError(
+                "external lip-sync analyzer origin does not match pinned provenance"
+            )
+
         video = Path(video_path).resolve()
         audio = Path(audio_path).resolve()
         video_sha = _sha256_file(video)
@@ -283,6 +359,19 @@ class ExternalLipSyncAnalyzer:
         if not isinstance(measured, Mapping):
             raise LipSyncQCError("external lip-sync analyzer JSON must be an object")
 
+        reported_fields = {
+            "analyzer_id": pinned.analyzer_id,
+            "analyzer_revision": pinned.analyzer_revision,
+            "analyzer_license_id": pinned.analyzer_license_id,
+            "analyzer_source_url": pinned.analyzer_source_url,
+        }
+        for field, expected in reported_fields.items():
+            if field in measured and measured.get(field) != expected:
+                raise LipSyncQCError(
+                    f"external lip-sync analyzer reported {field} that does not match "
+                    "pinned provenance"
+                )
+
         limits = (thresholds or LipSyncThresholds()).validated()
         confidence = _unit_interval(
             measured.get("sync_confidence"), field="sync confidence"
@@ -305,19 +394,11 @@ class ExternalLipSyncAnalyzer:
             shot_id=_required_text(shot_id, field="shot ID"),
             video_sha256=video_sha,
             audio_sha256=audio_sha,
-            analyzer_origin=self.origin,
-            analyzer_id=_required_text(
-                measured.get("analyzer_id"), field="analyzer ID"
-            ),
-            analyzer_revision=_required_text(
-                measured.get("analyzer_revision"), field="analyzer revision"
-            ),
-            analyzer_license_id=_required_text(
-                measured.get("analyzer_license_id"), field="analyzer license ID"
-            ),
-            analyzer_source_url=_required_text(
-                measured.get("analyzer_source_url"), field="analyzer source URL"
-            ),
+            analyzer_origin=pinned.analyzer_origin,
+            analyzer_id=pinned.analyzer_id,
+            analyzer_revision=pinned.analyzer_revision,
+            analyzer_license_id=pinned.analyzer_license_id,
+            analyzer_source_url=pinned.analyzer_source_url,
             sync_confidence=confidence,
             av_offset_ms=offset,
             speaking_frame_coverage=speaking,
@@ -331,4 +412,5 @@ class ExternalLipSyncAnalyzer:
             expected_video_sha256=video_sha,
             expected_audio_sha256=audio_sha,
             thresholds=limits,
+            expected_analyzer=pinned,
         )
