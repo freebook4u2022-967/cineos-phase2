@@ -122,7 +122,9 @@ def test_invalid_mp4_cannot_remain_as_successor_continuity_anchor(tmp_path):
 
         assert executor.is_open is True
 
-        with pytest.raises(DiffusersVideoError, match="predecessor frame is unavailable"):
+        with pytest.raises(
+            DiffusersVideoError, match="predecessor frame is unavailable"
+        ):
             executor.render(
                 _request(
                     "shot-successor",
