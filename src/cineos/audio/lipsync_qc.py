@@ -11,9 +11,10 @@ import hashlib
 import json
 import math
 import subprocess
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 LIPSYNC_QC_SCHEMA = "cineos-lipsync-qc/0.1"
 ALLOWED_ANALYZER_ORIGINS = frozenset(
@@ -79,7 +80,7 @@ class LipSyncThresholds:
     min_speaking_frame_coverage: float = 0.60
     min_face_track_coverage: float = 0.90
 
-    def validated(self) -> "LipSyncThresholds":
+    def validated(self) -> LipSyncThresholds:
         confidence = _unit_interval(
             self.min_sync_confidence, field="minimum sync confidence"
         )
@@ -151,12 +152,8 @@ def validate_lipsync_quality_evidence(
     if shot_id != _required_text(expected_shot_id, field="expected shot ID"):
         raise LipSyncQCError("lip-sync QC shot ID does not match dialogue shot")
 
-    video_sha = _required_sha256(
-        evidence.get("video_sha256"), field="video SHA-256"
-    )
-    audio_sha = _required_sha256(
-        evidence.get("audio_sha256"), field="audio SHA-256"
-    )
+    video_sha = _required_sha256(evidence.get("video_sha256"), field="video SHA-256")
+    audio_sha = _required_sha256(evidence.get("audio_sha256"), field="audio SHA-256")
     if video_sha != _required_sha256(
         expected_video_sha256, field="expected video SHA-256"
     ):
@@ -166,9 +163,7 @@ def validate_lipsync_quality_evidence(
     ):
         raise LipSyncQCError("lip-sync QC audio artifact does not match dialogue audio")
 
-    origin = _required_text(
-        evidence.get("analyzer_origin"), field="analyzer origin"
-    )
+    origin = _required_text(evidence.get("analyzer_origin"), field="analyzer origin")
     if origin not in ALLOWED_ANALYZER_ORIGINS:
         raise LipSyncQCError(
             "lip-sync analyzer must be identified as an external learned/reference "
@@ -311,7 +306,9 @@ class ExternalLipSyncAnalyzer:
             video_sha256=video_sha,
             audio_sha256=audio_sha,
             analyzer_origin=self.origin,
-            analyzer_id=_required_text(measured.get("analyzer_id"), field="analyzer ID"),
+            analyzer_id=_required_text(
+                measured.get("analyzer_id"), field="analyzer ID"
+            ),
             analyzer_revision=_required_text(
                 measured.get("analyzer_revision"), field="analyzer revision"
             ),

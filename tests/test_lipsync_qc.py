@@ -18,7 +18,9 @@ def _digest(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _evidence(*, video_sha: str, audio_sha: str, **overrides: object) -> dict[str, object]:
+def _evidence(
+    *, video_sha: str, audio_sha: str, **overrides: object
+) -> dict[str, object]:
     item = LipSyncQualityEvidence(
         shot_id="shot-01",
         video_sha256=video_sha,
@@ -153,9 +155,7 @@ def test_external_analyzer_binds_exact_artifacts(
     analyzer = ExternalLipSyncAnalyzer(
         command=("sync-eval", "--video", "{video}", "--audio", "{audio}")
     )
-    evidence = analyzer.measure(
-        shot_id="shot-01", video_path=video, audio_path=audio
-    )
+    evidence = analyzer.measure(shot_id="shot-01", video_path=video, audio_path=audio)
 
     assert evidence.video_sha256 == _digest(b"video-frames")
     assert evidence.audio_sha256 == _digest(b"dialogue-audio")
