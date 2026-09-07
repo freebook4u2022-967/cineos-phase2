@@ -190,6 +190,20 @@ def test_rejects_incomplete_lipsync_coverage_for_required_dialogue_shots(
         )
 
 
+def test_rejects_lipsync_evidence_without_declared_dialogue_scope(tmp_path) -> None:
+    benchmark, assembly, _, _, report = _dialogue_fixture(tmp_path)
+
+    with pytest.raises(
+        ConnectedProductionFilmEvidenceError,
+        match="without required dialogue shot IDs",
+    ):
+        validate_connected_production_film_evidence(
+            benchmark,
+            assembly,
+            lipsync_evidence=[report],
+        )
+
+
 def test_non_dialogue_legacy_connected_film_remains_compatible(tmp_path) -> None:
     benchmark = _benchmark(tmp_path)
     assembly = _assembly(tmp_path, benchmark)
