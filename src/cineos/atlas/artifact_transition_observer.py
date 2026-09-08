@@ -141,12 +141,16 @@ def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
     left_norm = math.sqrt(sum(value * value for value in left))
     right_norm = math.sqrt(sum(value * value for value in right))
     if left_norm <= 0 or right_norm <= 0:
-        raise TransitionArtifactObservationError("transition feature vector has zero norm")
+        raise TransitionArtifactObservationError(
+            "transition feature vector has zero norm"
+        )
     value = sum(a * b for a, b in zip(left, right, strict=True)) / (
         left_norm * right_norm
     )
     if not math.isfinite(value):
-        raise TransitionArtifactObservationError("transition feature cosine is non-finite")
+        raise TransitionArtifactObservationError(
+            "transition feature cosine is non-finite"
+        )
     return max(-1.0, min(1.0, value))
 
 
@@ -199,7 +203,9 @@ class SigLIP2ArtifactTransitionObserver:
         sampler: BoundarySampler | None = None,
     ) -> None:
         if not callable(getattr(feature_scorer, "encode_sample_features", None)):
-            raise TypeError("transition feature scorer must expose encode_sample_features")
+            raise TypeError(
+                "transition feature scorer must expose encode_sample_features"
+            )
         if sampler is not None and not callable(sampler):
             raise TypeError("transition sampler must be callable")
         self.feature_scorer = feature_scorer
@@ -235,9 +241,7 @@ class SigLIP2ArtifactTransitionObserver:
             "observer_id": self.observer_id,
             "previous_output_sha256": _sha256_file(previous),
             "current_output_sha256": _sha256_file(current),
-            "measured_sample_count": min(
-                len(previous_features), len(current_features)
-            ),
+            "measured_sample_count": min(len(previous_features), len(current_features)),
             "metrics": {
                 "visual_seam_similarity": visual,
                 "motion_boundary_consistency": motion,
