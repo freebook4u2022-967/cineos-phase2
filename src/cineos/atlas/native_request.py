@@ -35,7 +35,9 @@ def _finite_nonnegative_number(value: Any, *, field_name: str) -> float:
     return normalized
 
 
-def _dialogue_time(cue: dict[str, Any], *, canonical: str, legacy: str, index: int) -> Any:
+def _dialogue_time(
+    cue: dict[str, Any], *, canonical: str, legacy: str, index: int
+) -> Any:
     """Read a canonical dialogue timestamp while accepting the 0.1 legacy alias."""
     canonical_value = cue.get(canonical)
     legacy_value = cue.get(legacy)
@@ -57,7 +59,9 @@ def _challenge_declared(metadata: dict[str, Any], *, key: str, value: str) -> bo
 
 def _requires_seedance_dialogue_evidence(metadata: dict[str, Any]) -> bool:
     return _challenge_declared(
-        metadata, key=_SEEDANCE_CHALLENGE_METADATA_KEY, value=_SEEDANCE_DIALOGUE_CHALLENGE
+        metadata,
+        key=_SEEDANCE_CHALLENGE_METADATA_KEY,
+        value=_SEEDANCE_DIALOGUE_CHALLENGE,
     )
 
 
@@ -72,13 +76,21 @@ def _requires_competitive_dialogue_grounding(metadata: dict[str, Any]) -> bool:
 def _conditioned_character_id(character: dict[str, Any], *, index: int) -> str | None:
     canonical = character.get("character_uuid")
     legacy = character.get("character_id")
-    if canonical is not None and (not isinstance(canonical, str) or not canonical.strip()):
-        raise ValueError(f"characters[{index}].character_uuid must be non-empty when supplied")
+    if canonical is not None and (
+        not isinstance(canonical, str) or not canonical.strip()
+    ):
+        raise ValueError(
+            f"characters[{index}].character_uuid must be non-empty when supplied"
+        )
     if legacy is not None and (not isinstance(legacy, str) or not legacy.strip()):
-        raise ValueError(f"characters[{index}].character_id must be non-empty when supplied")
+        raise ValueError(
+            f"characters[{index}].character_id must be non-empty when supplied"
+        )
     if canonical is not None and legacy is not None:
         if canonical.strip() != legacy.strip():
-            raise ValueError(f"characters[{index}] has conflicting character_uuid/character_id")
+            raise ValueError(
+                f"characters[{index}] has conflicting character_uuid/character_id"
+            )
         return canonical.strip()
     if canonical is not None:
         return canonical.strip()
@@ -116,12 +128,15 @@ class NativeShotRequest:
         fps: float | None = None
         if "fps" in self.renderer_requirements:
             fps = _finite_positive_number(
-                self.renderer_requirements["fps"], field_name="renderer_requirements.fps"
+                self.renderer_requirements["fps"],
+                field_name="renderer_requirements.fps",
             )
         elif "fps" in self.camera:
             fps = _finite_positive_number(self.camera["fps"], field_name="camera.fps")
 
-        require_dialogue_grounding = _requires_competitive_dialogue_grounding(self.metadata)
+        require_dialogue_grounding = _requires_competitive_dialogue_grounding(
+            self.metadata
+        )
         require_seedance_dialogue = _requires_seedance_dialogue_evidence(self.metadata)
         dialogue_timing = self.performance.get("dialogue_timing")
         if dialogue_timing in (None, []):
@@ -154,7 +169,9 @@ class NativeShotRequest:
 
         for index, cue in enumerate(dialogue_timing):
             if not isinstance(cue, dict):
-                raise ValueError(f"performance.dialogue_timing[{index}] must be a mapping")
+                raise ValueError(
+                    f"performance.dialogue_timing[{index}] must be a mapping"
+                )
             speaker_id = cue.get("speaker_id")
             if speaker_id is not None and (
                 not isinstance(speaker_id, str) or not speaker_id.strip()
@@ -173,8 +190,12 @@ class NativeShotRequest:
                         "does not match a conditioned character_id or character_uuid"
                     )
 
-            raw_start = _dialogue_time(cue, canonical="start_seconds", legacy="start", index=index)
-            raw_end = _dialogue_time(cue, canonical="end_seconds", legacy="end", index=index)
+            raw_start = _dialogue_time(
+                cue, canonical="start_seconds", legacy="start", index=index
+            )
+            raw_end = _dialogue_time(
+                cue, canonical="end_seconds", legacy="end", index=index
+            )
             has_seconds = raw_start is not None or raw_end is not None
             has_frames = "start_frame" in cue or "end_frame" in cue
             if has_seconds and has_frames:
@@ -183,10 +204,12 @@ class NativeShotRequest:
                 )
             if has_seconds:
                 start_seconds = _finite_nonnegative_number(
-                    raw_start, field_name=f"performance.dialogue_timing[{index}].start_seconds"
+                    raw_start,
+                    field_name=f"performance.dialogue_timing[{index}].start_seconds",
                 )
                 end_seconds = _finite_nonnegative_number(
-                    raw_end, field_name=f"performance.dialogue_timing[{index}].end_seconds"
+                    raw_end,
+                    field_name=f"performance.dialogue_timing[{index}].end_seconds",
                 )
             elif has_frames:
                 start_frame = _finite_nonnegative_number(
@@ -234,7 +257,10 @@ class NativeShotRequest:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def content_hash_is_current(self) -> bool:
-        return bool(self.content_hash) and self.content_hash == self._expected_content_hash()
+        return (
+            bool(self.content_hash)
+            and self.content_hash == self._expected_content_hash()
+        )
 
     def refresh_hash(self) -> str:
         self.content_hash = self._expected_content_hash()
@@ -250,7 +276,9 @@ class NativeShotRequest:
 def compile_native_shot_request(package: ConditioningPackage) -> NativeShotRequest:
     """Compile an existing CINEOS ConditioningPackage into a native shot request."""
     if not package.character_conditioning and not package.approved_reference_ids:
-        raise ValueError("native shot request requires approved conditioning references")
+        raise ValueError(
+            "native shot request requires approved conditioning references"
+        )
 
     request = NativeShotRequest(
         shot_id=package.shot_id,
