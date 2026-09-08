@@ -22,15 +22,15 @@ from .gpu_benchmark_cli import (
 )
 from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
 from .gpu_preflight import inspect_cuda_environment
+from .gpu_production_quality_retry import (
+    ProductionGPUQualityRetryError,
+    run_production_quality_retry_connected_gpu_benchmark,
+)
 from .native_request import NativeShotRequest
 from .production_foundation_selection import (
     ProductionFoundationSelection,
     ProductionFoundationSelectionError,
     select_strongest_production_foundation,
-)
-from .gpu_production_quality_retry import (
-    ProductionGPUQualityRetryError,
-    run_production_quality_retry_connected_gpu_benchmark,
 )
 
 
