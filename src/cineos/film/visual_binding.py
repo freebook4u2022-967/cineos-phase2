@@ -5,8 +5,10 @@ prove visual identity. This module independently decodes the ordered approved sh
 final film to the same low-rate RGB representation and requires strong pixel
 correlation with a tightly bounded frame-alignment search. RGB is intentionally used
 instead of luma-only sampling so a re-signed delivery cannot silently substitute or
-radically alter chroma while preserving grayscale structure. It is an integrity gate,
-not an aesthetic-quality metric.
+radically alter chroma while preserving grayscale structure. The sampled duration must
+also match within the bounded alignment tolerance so approved footage cannot be padded
+with or truncated around unapproved video. It is an integrity gate, not an aesthetic-
+quality metric.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-VISUAL_BINDING_SCHEMA = "cineos-production-visual-binding/0.2"
+VISUAL_BINDING_SCHEMA = "cineos-production-visual-binding/0.3"
 VISUAL_BINDING_SAMPLE_FPS = 2
 VISUAL_BINDING_WIDTH = 32
 VISUAL_BINDING_HEIGHT = 18
@@ -30,6 +32,7 @@ VISUAL_BINDING_FRAME_BYTES = (
     VISUAL_BINDING_WIDTH * VISUAL_BINDING_HEIGHT * VISUAL_BINDING_CHANNELS
 )
 VISUAL_BINDING_MAX_LAG_FRAMES = 1
+VISUAL_BINDING_MAX_FRAME_DELTA = VISUAL_BINDING_MAX_LAG_FRAMES
 MIN_VISUAL_BINDING_CORRELATION = 0.92
 MIN_VISUAL_BINDING_FRAMES = 4
 
@@ -48,6 +51,9 @@ class VisualBindingEvidence:
     width: int
     height: int
     channels: int
+    approved_sampled_frames: int
+    final_sampled_frames: int
+    max_frame_delta: int
     compared_frames: int
     alignment_lag_frames: int
     correlation: float
@@ -67,6 +73,9 @@ class VisualBindingEvidence:
             "width": self.width,
             "height": self.height,
             "channels": self.channels,
+            "approved_sampled_frames": self.approved_sampled_frames,
+            "final_sampled_frames": self.final_sampled_frames,
+            "max_frame_delta": self.max_frame_delta,
             "compared_frames": self.compared_frames,
             "alignment_lag_frames": self.alignment_lag_frames,
             "correlation": self.correlation,
@@ -184,6 +193,13 @@ def _best_alignment(approved: bytes, encoded: bytes) -> tuple[float, int, int]:
     frame_bytes = VISUAL_BINDING_FRAME_BYTES
     approved_frames = len(approved) // frame_bytes
     encoded_frames = len(encoded) // frame_bytes
+    frame_delta = abs(approved_frames - encoded_frames)
+    if frame_delta > VISUAL_BINDING_MAX_FRAME_DELTA:
+        raise VisualBindingError(
+            "final-film sampled duration does not match approved connected shots: "
+            f"approved_frames={approved_frames}, final_frames={encoded_frames}, "
+            f"allowed_delta<={VISUAL_BINDING_MAX_FRAME_DELTA}"
+        )
     best: tuple[float, int, int] | None = None
     for lag in range(-VISUAL_BINDING_MAX_LAG_FRAMES, VISUAL_BINDING_MAX_LAG_FRAMES + 1):
         if lag >= 0:
@@ -252,6 +268,8 @@ def measure_visual_binding(
     approved_video = b"".join(decoded_parts)
     final_path = Path(final_artifact).resolve()
     final_video = _decode_binding_rgb(final_path)
+    approved_sampled_frames = len(approved_video) // VISUAL_BINDING_FRAME_BYTES
+    final_sampled_frames = len(final_video) // VISUAL_BINDING_FRAME_BYTES
     correlation, lag, compared_frames = _best_alignment(approved_video, final_video)
     unsigned = {
         "schema": VISUAL_BINDING_SCHEMA,
@@ -261,6 +279,9 @@ def measure_visual_binding(
         "width": VISUAL_BINDING_WIDTH,
         "height": VISUAL_BINDING_HEIGHT,
         "channels": VISUAL_BINDING_CHANNELS,
+        "approved_sampled_frames": approved_sampled_frames,
+        "final_sampled_frames": final_sampled_frames,
+        "max_frame_delta": VISUAL_BINDING_MAX_FRAME_DELTA,
         "compared_frames": compared_frames,
         "alignment_lag_frames": lag,
         "correlation": correlation,
@@ -274,6 +295,9 @@ def measure_visual_binding(
         width=VISUAL_BINDING_WIDTH,
         height=VISUAL_BINDING_HEIGHT,
         channels=VISUAL_BINDING_CHANNELS,
+        approved_sampled_frames=approved_sampled_frames,
+        final_sampled_frames=final_sampled_frames,
+        max_frame_delta=VISUAL_BINDING_MAX_FRAME_DELTA,
         compared_frames=compared_frames,
         alignment_lag_frames=lag,
         correlation=correlation,
@@ -292,6 +316,7 @@ __all__ = [
     "MIN_VISUAL_BINDING_CORRELATION",
     "VISUAL_BINDING_CHANNELS",
     "VISUAL_BINDING_FRAME_BYTES",
+    "VISUAL_BINDING_MAX_FRAME_DELTA",
     "VISUAL_BINDING_MAX_LAG_FRAMES",
     "VISUAL_BINDING_SAMPLE_FPS",
     "VISUAL_BINDING_SCHEMA",
