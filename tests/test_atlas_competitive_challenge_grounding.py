@@ -164,7 +164,29 @@ def test_dialogue_lip_sync_rejects_unknown_speaker_identity():
         {"speaker_id": "intruder", "start_seconds": 0.2, "end_seconds": 1.0}
     ]
 
-    with pytest.raises(ValueError, match="conditioned character_id"):
+    with pytest.raises(ValueError, match="conditioned character identity"):
+        request.validate_timing_integrity()
+
+
+def test_dialogue_lip_sync_accepts_canonical_character_uuid():
+    request = _request(0)
+    request.characters = [
+        {"character_uuid": "lead", "approved_reference_ids": ["lead-ref"]},
+        {"character_uuid": "partner", "approved_reference_ids": ["partner-ref"]},
+    ]
+    request.refresh_hash()
+
+    request.validate_timing_integrity()
+
+
+def test_dialogue_lip_sync_rejects_conflicting_character_identity_aliases():
+    request = _request(0)
+    request.characters = [
+        {"character_uuid": "lead", "character_id": "different-lead"},
+        {"character_uuid": "partner"},
+    ]
+
+    with pytest.raises(ValueError, match="conflicting character_uuid/character_id"):
         request.validate_timing_integrity()
 
 
