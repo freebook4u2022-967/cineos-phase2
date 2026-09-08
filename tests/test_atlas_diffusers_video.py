@@ -58,6 +58,28 @@ class FakePipeline:
         return FakeOutput()
 
 
+class FakeTextOnlyPipeline:
+    def __init__(self):
+        self.device = None
+        self.calls = []
+
+    def to(self, device):
+        self.device = device
+        return self
+
+    def __call__(self, prompt, width, height, num_frames, generator=None):
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "width": width,
+                "height": height,
+                "num_frames": num_frames,
+                "generator": generator,
+            }
+        )
+        return FakeOutput()
+
+
 def _request():
     request = NativeShotRequest(
         shot_id="shot-001",
@@ -136,6 +158,83 @@ def test_diffusers_renderer_executes_injected_pipeline_and_exports_video(tmp_pat
     assert result.request_hash == _request().content_hash
     assert Path(result.output_path).exists()
     assert exports[0][2] == 24.0
+
+
+def test_diffusers_renderer_rejects_identity_reference_without_loader(tmp_path):
+    renderer = DiffusersVideoRenderer(
+        FoundationProvenance(model_id="declared/model"),
+        output_dir=tmp_path,
+        pipeline_factory=lambda *_args, **_kwargs: FakePipeline(),
+        video_exporter=lambda *_args, **_kwargs: None,
+    )
+    renderer.initialize()
+    renderer.load_model(device="cpu")
+
+    with pytest.raises(DiffusersVideoError, match="reference_loader"):
+        renderer.render(_request())
+
+
+def test_diffusers_renderer_rejects_identity_reference_without_image_surface(tmp_path):
+    renderer = DiffusersVideoRenderer(
+        FoundationProvenance(model_id="declared/model"),
+        output_dir=tmp_path,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+        pipeline_factory=lambda *_args, **_kwargs: FakeTextOnlyPipeline(),
+        video_exporter=lambda *_args, **_kwargs: None,
+    )
+    renderer.initialize()
+    renderer.load_model(device="cpu")
+
+    with pytest.raises(DiffusersVideoError, match="explicit pipeline 'image'"):
+        renderer.render(_request())
+
+
+def test_diffusers_renderer_rejects_silent_multi_reference_reduction(tmp_path):
+    pipeline = FakePipeline()
+    loaded = []
+    renderer = DiffusersVideoRenderer(
+        FoundationProvenance(model_id="declared/model"),
+        output_dir=tmp_path,
+        reference_loader=lambda reference_id: loaded.append(reference_id) or reference_id,
+        pipeline_factory=lambda *_args, **_kwargs: pipeline,
+        video_exporter=lambda *_args, **_kwargs: None,
+    )
+    renderer.initialize()
+    renderer.load_model(device="cpu")
+    request = _request()
+    request.approved_reference_ids = ["hero-front", "partner-front"]
+    request.refresh_hash()
+
+    with pytest.raises(DiffusersVideoError, match="multi-reference identity"):
+        renderer.render(request)
+
+    assert loaded == []
+    assert pipeline.calls == []
+
+
+def test_diffusers_renderer_keeps_text_only_shots_backward_compatible(tmp_path):
+    pipeline = FakeTextOnlyPipeline()
+
+    def exporter(_frames, path, *, fps):
+        assert fps == 24.0
+        Path(path).write_text("fake-video", encoding="utf-8")
+
+    renderer = DiffusersVideoRenderer(
+        FoundationProvenance(model_id="declared/model"),
+        output_dir=tmp_path,
+        pipeline_factory=lambda *_args, **_kwargs: pipeline,
+        video_exporter=exporter,
+    )
+    renderer.initialize()
+    renderer.load_model(device="cpu")
+    request = _request()
+    request.approved_reference_ids = []
+    request.refresh_hash()
+
+    result = renderer.render(request)
+
+    assert len(pipeline.calls) == 1
+    assert Path(result.output_path).exists()
 
 
 def test_diffusers_renderer_applies_constrained_gpu_memory_policy(tmp_path):
