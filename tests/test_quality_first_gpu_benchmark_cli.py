@@ -76,7 +76,9 @@ def test_quality_first_entrypoint_routes_80gb_runner_to_a14b(monkeypatch, tmp_pa
         captured["profile"] = profile
         return _receipt()
 
-    monkeypatch.setattr(cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run)
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
     requests = [_request(index) for index in range(5)]
 
     cli.run_quality_first_production_benchmark(
@@ -101,7 +103,9 @@ def test_quality_first_entrypoint_preserves_5b_fallback_on_48gb_runner(
         captured["profile"] = profile
         return _receipt()
 
-    monkeypatch.setattr(cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run)
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
     requests = [_request(index) for index in range(5)]
 
     cli.run_quality_first_production_benchmark(

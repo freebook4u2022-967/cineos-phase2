@@ -110,7 +110,9 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="Hash-pinned approved reference JSON manifest",
     )
-    parser.add_argument("--output-dir", required=True, help="Benchmark artifact directory")
+    parser.add_argument(
+        "--output-dir", required=True, help="Benchmark artifact directory"
+    )
     parser.add_argument(
         "--benchmark-id",
         default="cineos-connected-production",
