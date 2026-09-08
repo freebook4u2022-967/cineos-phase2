@@ -191,7 +191,16 @@ class DiffusersVideoRenderer(BaseRenderer):
         if torch_dtype is not None:
             load_options["torch_dtype"] = torch_dtype
         if self.foundation.revision is not None:
-            load_options.setdefault("revision", self.foundation.revision)
+            requested_revision = load_options.get("revision")
+            if (
+                requested_revision is not None
+                and requested_revision != self.foundation.revision
+            ):
+                raise DiffusersVideoError(
+                    f"model revision override {requested_revision!r} does not match "
+                    f"declared foundation revision {self.foundation.revision!r}"
+                )
+            load_options["revision"] = self.foundation.revision
 
         self._pipeline = self._pipeline_factory(model_id, **load_options)
         self._configure_memory_runtime()
