@@ -102,6 +102,4 @@ def test_unpinned_foundation_keeps_explicit_revision_backward_compatible(tmp_pat
 
     renderer.load_model(device="cpu", revision="caller-selected-revision")
 
-    assert calls == [
-        ("declared/model", {"revision": "caller-selected-revision"})
-    ]
+    assert calls == [("declared/model", {"revision": "caller-selected-revision"})]
