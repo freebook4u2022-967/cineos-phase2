@@ -73,7 +73,9 @@ class FoundationExecutionProfile:
         if not self.supported_features:
             raise ValueError("foundation execution profiles require supported features")
         if not self.supported_features.issubset({"text_to_video", "image_to_video"}):
-            raise ValueError("foundation execution profile has unsupported feature tags")
+            raise ValueError(
+                "foundation execution profile has unsupported feature tags"
+            )
 
     def renderer(
         self,
