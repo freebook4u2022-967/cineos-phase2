@@ -190,10 +190,13 @@ def validate_production_quality_retry_gate(
                 raise ProductionRetryEvidenceError(
                     f"{shot_id} retry attempt indices are not contiguous"
                 )
-            if _sha256(
-                attempt.get("original_request_hash"),
-                field=f"{shot_id} attempt original_request_hash",
-            ) != original_hash:
+            if (
+                _sha256(
+                    attempt.get("original_request_hash"),
+                    field=f"{shot_id} attempt original_request_hash",
+                )
+                != original_hash
+            ):
                 raise ProductionRetryEvidenceError(
                     f"{shot_id} attempt changed original request lineage"
                 )
