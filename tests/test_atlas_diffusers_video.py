@@ -195,7 +195,8 @@ def test_diffusers_renderer_rejects_silent_multi_reference_reduction(tmp_path):
     renderer = DiffusersVideoRenderer(
         FoundationProvenance(model_id="declared/model"),
         output_dir=tmp_path,
-        reference_loader=lambda reference_id: loaded.append(reference_id) or reference_id,
+        reference_loader=lambda reference_id: loaded.append(reference_id)
+        or reference_id,
         pipeline_factory=lambda *_args, **_kwargs: pipeline,
         video_exporter=lambda *_args, **_kwargs: None,
     )
