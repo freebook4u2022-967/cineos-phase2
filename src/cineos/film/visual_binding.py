@@ -2,9 +2,11 @@
 
 Delivery encoding may transcode the approved shot artifacts, so byte equality cannot
 prove visual identity. This module independently decodes the ordered approved shots and
-final film to the same low-rate grayscale representation and requires strong pixel
-correlation with a tightly bounded frame-alignment search. It is an integrity gate, not
-an aesthetic-quality metric.
+final film to the same low-rate RGB representation and requires strong pixel
+correlation with a tightly bounded frame-alignment search. RGB is intentionally used
+instead of luma-only sampling so a re-signed delivery cannot silently substitute or
+radically alter chroma while preserving grayscale structure. It is an integrity gate,
+not an aesthetic-quality metric.
 """
 
 from __future__ import annotations
@@ -19,11 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-VISUAL_BINDING_SCHEMA = "cineos-production-visual-binding/0.1"
+VISUAL_BINDING_SCHEMA = "cineos-production-visual-binding/0.2"
 VISUAL_BINDING_SAMPLE_FPS = 2
 VISUAL_BINDING_WIDTH = 32
 VISUAL_BINDING_HEIGHT = 18
-VISUAL_BINDING_FRAME_BYTES = VISUAL_BINDING_WIDTH * VISUAL_BINDING_HEIGHT
+VISUAL_BINDING_CHANNELS = 3
+VISUAL_BINDING_FRAME_BYTES = (
+    VISUAL_BINDING_WIDTH * VISUAL_BINDING_HEIGHT * VISUAL_BINDING_CHANNELS
+)
 VISUAL_BINDING_MAX_LAG_FRAMES = 1
 MIN_VISUAL_BINDING_CORRELATION = 0.92
 MIN_VISUAL_BINDING_FRAMES = 4
@@ -42,6 +47,7 @@ class VisualBindingEvidence:
     sample_fps: int
     width: int
     height: int
+    channels: int
     compared_frames: int
     alignment_lag_frames: int
     correlation: float
@@ -60,6 +66,7 @@ class VisualBindingEvidence:
             "sample_fps": self.sample_fps,
             "width": self.width,
             "height": self.height,
+            "channels": self.channels,
             "compared_frames": self.compared_frames,
             "alignment_lag_frames": self.alignment_lag_frames,
             "correlation": self.correlation,
@@ -91,7 +98,7 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _decode_binding_luma(
+def _decode_binding_rgb(
     path: Path,
     *,
     duration_seconds: float | None = None,
@@ -127,12 +134,12 @@ def _decode_binding_luma(
             (
                 f"fps={VISUAL_BINDING_SAMPLE_FPS},"
                 f"scale={VISUAL_BINDING_WIDTH}:{VISUAL_BINDING_HEIGHT}:"
-                "flags=area,format=gray"
+                "flags=area,format=rgb24"
             ),
             "-f",
             "rawvideo",
             "-pix_fmt",
-            "gray",
+            "rgb24",
             "-",
         ]
     )
@@ -221,7 +228,7 @@ def measure_visual_binding(
     durations_seconds: Sequence[float] | None = None,
     minimum_correlation: float = MIN_VISUAL_BINDING_CORRELATION,
 ) -> VisualBindingEvidence:
-    """Measure whether final-film decoded video matches approved shots in order."""
+    """Measure whether final-film decoded RGB video matches approved shots in order."""
     if not approved_shots:
         raise VisualBindingError("visual binding requires at least one approved shot")
     if durations_seconds is not None and len(durations_seconds) != len(approved_shots):
@@ -241,10 +248,10 @@ def measure_visual_binding(
     decoded_parts = []
     for index, path in enumerate(source_paths):
         duration = None if durations_seconds is None else durations_seconds[index]
-        decoded_parts.append(_decode_binding_luma(path, duration_seconds=duration))
+        decoded_parts.append(_decode_binding_rgb(path, duration_seconds=duration))
     approved_video = b"".join(decoded_parts)
     final_path = Path(final_artifact).resolve()
-    final_video = _decode_binding_luma(final_path)
+    final_video = _decode_binding_rgb(final_path)
     correlation, lag, compared_frames = _best_alignment(approved_video, final_video)
     unsigned = {
         "schema": VISUAL_BINDING_SCHEMA,
@@ -253,6 +260,7 @@ def measure_visual_binding(
         "sample_fps": VISUAL_BINDING_SAMPLE_FPS,
         "width": VISUAL_BINDING_WIDTH,
         "height": VISUAL_BINDING_HEIGHT,
+        "channels": VISUAL_BINDING_CHANNELS,
         "compared_frames": compared_frames,
         "alignment_lag_frames": lag,
         "correlation": correlation,
@@ -265,6 +273,7 @@ def measure_visual_binding(
         sample_fps=VISUAL_BINDING_SAMPLE_FPS,
         width=VISUAL_BINDING_WIDTH,
         height=VISUAL_BINDING_HEIGHT,
+        channels=VISUAL_BINDING_CHANNELS,
         compared_frames=compared_frames,
         alignment_lag_frames=lag,
         correlation=correlation,
@@ -281,6 +290,7 @@ def measure_visual_binding(
 
 __all__ = [
     "MIN_VISUAL_BINDING_CORRELATION",
+    "VISUAL_BINDING_CHANNELS",
     "VISUAL_BINDING_FRAME_BYTES",
     "VISUAL_BINDING_MAX_LAG_FRAMES",
     "VISUAL_BINDING_SAMPLE_FPS",
