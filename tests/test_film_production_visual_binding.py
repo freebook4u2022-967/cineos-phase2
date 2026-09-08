@@ -17,6 +17,16 @@ def _frames(seed: int, count: int = 4) -> bytes:
     )
 
 
+def _swap_red_blue(payload: bytes) -> bytes:
+    transformed = bytearray(payload)
+    for index in range(0, len(transformed), 3):
+        transformed[index], transformed[index + 2] = (
+            transformed[index + 2],
+            transformed[index],
+        )
+    return bytes(transformed)
+
+
 def test_measure_visual_binding_accepts_ordered_transcoded_sequence(
     tmp_path, monkeypatch
 ):
@@ -31,7 +41,7 @@ def test_measure_visual_binding_accepts_ordered_transcoded_sequence(
     decoded = iter((first_frames, second_frames, first_frames + second_frames))
     monkeypatch.setattr(
         visual_binding,
-        "_decode_binding_luma",
+        "_decode_binding_rgb",
         lambda _path, duration_seconds=None: next(decoded),
     )
 
@@ -40,6 +50,7 @@ def test_measure_visual_binding_accepts_ordered_transcoded_sequence(
     assert evidence.accepted is True
     assert evidence.correlation == pytest.approx(1.0)
     assert evidence.alignment_lag_frames == 0
+    assert evidence.channels == 3
     assert evidence.source_sha256 == (
         hashlib.sha256(b"first").hexdigest(),
         hashlib.sha256(b"second").hexdigest(),
@@ -59,7 +70,7 @@ def test_measure_visual_binding_rejects_reordered_final_sequence(tmp_path, monke
     decoded = iter((first_frames, second_frames, second_frames + first_frames))
     monkeypatch.setattr(
         visual_binding,
-        "_decode_binding_luma",
+        "_decode_binding_rgb",
         lambda _path, duration_seconds=None: next(decoded),
     )
 
@@ -67,6 +78,28 @@ def test_measure_visual_binding_rejects_reordered_final_sequence(tmp_path, monke
         VisualBindingError, match="does not match approved connected shots"
     ):
         measure_visual_binding([first, second], final)
+
+
+def test_measure_visual_binding_rejects_chroma_channel_substitution(
+    tmp_path, monkeypatch
+):
+    first = tmp_path / "shot-1.mp4"
+    final = tmp_path / "film.mp4"
+    first.write_bytes(b"first")
+    final.write_bytes(b"final")
+    approved = _frames(701, count=8)
+    substituted = _swap_red_blue(approved)
+    decoded = iter((approved, substituted))
+    monkeypatch.setattr(
+        visual_binding,
+        "_decode_binding_rgb",
+        lambda _path, duration_seconds=None: next(decoded),
+    )
+
+    with pytest.raises(
+        VisualBindingError, match="does not match approved connected shots"
+    ):
+        measure_visual_binding([first], final)
 
 
 def test_delivery_gate_requires_visual_binding_for_native_connected_evidence(
