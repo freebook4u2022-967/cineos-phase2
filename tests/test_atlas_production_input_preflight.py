@@ -245,10 +245,10 @@ def test_gpu_workflow_preflights_before_foundation_snapshot_download() -> None:
         "Preflight connected production inputs before model acquisition"
     )
     snapshot = workflow.index(
-        "Prefetch and verify immutable foundation and QC snapshots"
+        "Prefetch and verify selected immutable foundation and QC snapshots"
     )
     benchmark = workflow.index(
-        "Run real connected GPU benchmark with production visual QC"
+        "Run quality-first connected GPU benchmark with production visual QC"
     )
 
     assert preflight < snapshot < benchmark
