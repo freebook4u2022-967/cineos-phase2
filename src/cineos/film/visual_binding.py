@@ -14,9 +14,10 @@ import json
 import math
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 VISUAL_BINDING_SCHEMA = "cineos-production-visual-binding/0.1"
 VISUAL_BINDING_SAMPLE_FPS = 2
@@ -84,7 +85,9 @@ def _file_hash(path: Path) -> str:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
     except OSError as exc:
-        raise VisualBindingError(f"cannot hash visual-binding artifact: {path}") from exc
+        raise VisualBindingError(
+            f"cannot hash visual-binding artifact: {path}"
+        ) from exc
     return digest.hexdigest()
 
 

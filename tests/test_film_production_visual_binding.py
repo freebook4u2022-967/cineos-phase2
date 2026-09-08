@@ -63,7 +63,9 @@ def test_measure_visual_binding_rejects_reordered_final_sequence(tmp_path, monke
         lambda _path, duration_seconds=None: next(decoded),
     )
 
-    with pytest.raises(VisualBindingError, match="does not match approved connected shots"):
+    with pytest.raises(
+        VisualBindingError, match="does not match approved connected shots"
+    ):
         measure_visual_binding([first, second], final)
 
 

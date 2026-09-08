@@ -63,7 +63,9 @@ class ProductionDeliveryEvidence:
                 self.audio_binding.to_dict() if self.audio_binding is not None else None
             ),
             "visual_binding": (
-                self.visual_binding.to_dict() if self.visual_binding is not None else None
+                self.visual_binding.to_dict()
+                if self.visual_binding is not None
+                else None
             ),
         }
 
