@@ -1,3 +1,5 @@
+"""Regression coverage for immutable Diffusers foundation revision routing."""
+
 import pytest
 
 from cineos.atlas.diffusers_video import (
