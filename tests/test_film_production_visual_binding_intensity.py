@@ -44,16 +44,16 @@ def test_visual_binding_accepts_small_transcode_intensity_drift(tmp_path, monkey
         evidence.maximum_mean_absolute_error
         == visual_binding.MAX_VISUAL_BINDING_MEAN_ABSOLUTE_ERROR
     )
-    assert evidence.sample_fps == 4
+    assert evidence.sample_fps == 8
     assert evidence.to_dict()["schema"] == "cineos-production-visual-binding/0.5"
 
 
-def test_visual_binding_accepts_minimum_one_second_sample_window(tmp_path, monkeypatch):
+def test_visual_binding_accepts_minimum_half_second_sample_window(tmp_path, monkeypatch):
     approved = _frames(815, count=4)
     evidence = _measure(tmp_path, monkeypatch, approved, approved)
 
     assert evidence.accepted is True
-    assert evidence.sample_fps == 4
+    assert evidence.sample_fps == 8
     assert evidence.approved_sampled_frames == 4
     assert evidence.final_sampled_frames == 4
     assert evidence.compared_frames == 4
