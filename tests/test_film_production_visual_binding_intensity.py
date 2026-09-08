@@ -38,6 +38,7 @@ def test_visual_binding_accepts_small_transcode_intensity_drift(tmp_path, monkey
 
     assert evidence.accepted is True
     assert evidence.correlation > 0.99
+    assert evidence.mean_absolute_error > 0
     assert evidence.mean_absolute_error < evidence.maximum_mean_absolute_error
     assert (
         evidence.maximum_mean_absolute_error
