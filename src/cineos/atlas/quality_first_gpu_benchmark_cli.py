@@ -12,6 +12,7 @@ import argparse
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from .gpu_benchmark_cli import (
     GPUProductionBenchmarkCLIError,
@@ -21,15 +22,97 @@ from .gpu_benchmark_cli import (
 )
 from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
 from .gpu_preflight import inspect_cuda_environment
+from .native_request import NativeShotRequest
+from .production_foundation_selection import (
+    ProductionFoundationSelection,
+    ProductionFoundationSelectionError,
+    select_strongest_production_foundation,
+)
 from .gpu_production_quality_retry import (
     ProductionGPUQualityRetryError,
     run_production_quality_retry_connected_gpu_benchmark,
 )
-from .native_request import NativeShotRequest
-from .production_foundation_selection import (
-    ProductionFoundationSelectionError,
-    select_strongest_production_foundation,
-)
+
+
+def _validate_per_shot_selection_binding(
+    receipt: Any,
+    selection: ProductionFoundationSelection,
+) -> None:
+    """Bind production shot evidence to the exact quality-first selection.
+
+    The aggregate connected receipt is useful evidence, but production acceptance
+    must not depend on its top-level profile/origin alone. Every real shot receipt
+    must independently carry the selected profile/origin, the exact pinned
+    foundation provenance returned by the renderer, and the CUDA device selected
+    from the live preflight used for quality-first routing.
+
+    ``shot_receipts`` remains optional here only for compatibility with legacy test
+    doubles and older serialized aggregate receipts. Real connected GPU receipts
+    always expose it; when present, malformed or substituted evidence fails closed.
+    """
+
+    shot_receipts = getattr(receipt, "shot_receipts", None)
+    if shot_receipts is None:
+        return
+    if not isinstance(shot_receipts, Sequence) or isinstance(
+        shot_receipts, (str, bytes)
+    ):
+        raise GPUProductionBenchmarkCLIError(
+            "connected benchmark shot receipts are malformed"
+        )
+    if not shot_receipts:
+        raise GPUProductionBenchmarkCLIError(
+            "connected benchmark contains no per-shot foundation evidence"
+        )
+
+    expected_profile = selection.profile
+    expected_provenance = expected_profile.provenance
+    expected_device = selection.plan.device
+    expected_dtype = selection.plan.dtype
+
+    for index, shot_receipt in enumerate(shot_receipts):
+        if getattr(shot_receipt, "profile_id", None) != expected_profile.profile_id:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} profile does not match quality-first selection"
+            )
+        if getattr(shot_receipt, "origin", None) != expected_profile.origin:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} origin does not match quality-first selection"
+            )
+
+        result = getattr(shot_receipt, "result", None)
+        if result is None or getattr(result, "foundation", None) != expected_provenance:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} foundation provenance does not match quality-first selection"
+            )
+
+        execution_plan = getattr(shot_receipt, "execution_plan", None)
+        if execution_plan is None:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} is missing GPU execution-plan evidence"
+            )
+        if getattr(execution_plan, "device", None) != expected_device:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} CUDA device does not match quality-first selection"
+            )
+        if getattr(execution_plan, "dtype", None) != expected_dtype:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} dtype does not match quality-first selection"
+            )
+
+        runtime = getattr(shot_receipt, "runtime_provenance", None)
+        if not isinstance(runtime, dict):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} is missing runtime provenance"
+            )
+        if runtime.get("cuda_device") != expected_device:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} runtime CUDA device does not match quality-first selection"
+            )
+        if runtime.get("dtype") != expected_dtype:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} runtime dtype does not match quality-first selection"
+            )
 
 
 def run_quality_first_production_benchmark(
@@ -92,6 +175,7 @@ def run_quality_first_production_benchmark(
             "connected benchmark receipt origin does not match quality-first selection: "
             f"selected={selection.profile.origin!r} receipt={receipt.origin!r}"
         )
+    _validate_per_shot_selection_binding(receipt, selection)
     if not receipt.production_gpu_evidence:
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark completed without default production CUDA evidence"
