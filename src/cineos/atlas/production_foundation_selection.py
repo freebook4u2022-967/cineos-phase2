@@ -1,8 +1,8 @@
 """Quality-first selection of pinned external video foundations for production.
 
-CINEOS owns this selection policy, not the pretrained weights.  The selector always
+CINEOS owns this selection policy, not the pretrained weights. The selector always
 tries the strongest approved pinned profile first and falls back only when observed
-GPU capacity cannot safely execute it.  Selection is evidence about runtime fit, not
+GPU capacity cannot safely execute it. Selection is evidence about runtime fit, not
 a claim that either external foundation is CINEOS-native.
 """
 
@@ -64,28 +64,54 @@ def _all_shots_are_image_conditioned(requests: Sequence[NativeShotRequest]) -> b
     )
 
 
+def _usable_vram_gb(device: GPUDeviceProfile) -> float:
+    return (
+        device.free_vram_gb
+        if device.free_vram_gb is not None
+        else device.total_vram_gb
+    )
+
+
+def _has_declared_vram_floor(
+    devices: tuple[GPUDeviceProfile, ...], profile: FoundationExecutionProfile
+) -> bool:
+    """Honor a profile's declared production floor before considering offload."""
+
+    return any(
+        _usable_vram_gb(device) >= profile.minimum_gpu_vram_gb for device in devices
+    )
+
+
 def select_strongest_production_foundation(
     devices: tuple[GPUDeviceProfile, ...],
     requests: Sequence[NativeShotRequest],
 ) -> ProductionFoundationSelection:
-    """Choose the strongest legally approved pinned foundation the runner can fit.
+    """Choose the strongest approved pinned foundation the runner can safely fit.
 
     Wan2.2 I2V A14B is preferred because it is the repository's quality-first profile,
-    but it is only eligible when every shot has approved image conditioning.  The
-    pinned Wan2.2 TI2V 5B profile remains the lower-memory fallback.  A fallback is
-    never silently relabeled as the stronger profile.
+    but it is only eligible when every shot has approved image conditioning and the
+    observed runner meets its declared 80 GB production floor. The generic GPU planner
+    may use offload below a model estimate, but doing that for A14B has not yet been
+    production-validated and therefore must not silently weaken this quality profile.
+    The pinned Wan2.2 TI2V 5B profile remains the transparent lower-memory fallback.
     """
 
     candidates: list[FoundationExecutionProfile] = []
     rejected: list[str] = []
 
-    if _all_shots_are_image_conditioned(requests):
-        candidates.append(WAN22_I2V_A14B_PROFILE)
-    else:
+    if not _all_shots_are_image_conditioned(requests):
         rejected.append(
             f"{WAN22_I2V_A14B_PROFILE.profile_id}: requires approved image "
             "conditioning on every shot"
         )
+    elif not _has_declared_vram_floor(devices, WAN22_I2V_A14B_PROFILE):
+        rejected.append(
+            f"{WAN22_I2V_A14B_PROFILE.profile_id}: observed usable VRAM is below "
+            f"declared {WAN22_I2V_A14B_PROFILE.minimum_gpu_vram_gb:.0f} GB "
+            "production floor"
+        )
+    else:
+        candidates.append(WAN22_I2V_A14B_PROFILE)
     candidates.append(WAN22_TI2V_5B_PROFILE)
 
     for index, profile in enumerate(candidates):
