@@ -63,39 +63,47 @@ def _request(index: int, *, refs=("hero", "partner")) -> NativeShotRequest:
     return request
 
 
-def _receipt(profile=WAN22_I2V_A14B_PROFILE):
-    return SimpleNamespace(
-        profile_id=profile.profile_id,
-        origin=profile.origin,
-        production_gpu_evidence=True,
-        production_quality_evidence=True,
-        evidence_tier="production-gpu-quality-gated",
-    )
-
-
 def _bound_shot_receipt(
     profile=WAN22_I2V_A14B_PROFILE,
     *,
+    request=None,
     foundation=None,
     device="cuda:0",
     dtype="bfloat16",
 ):
+    request = _request(0) if request is None else request
     return SimpleNamespace(
         profile_id=profile.profile_id,
         origin=profile.origin,
         result=SimpleNamespace(
-            foundation=profile.provenance if foundation is None else foundation
+            foundation=profile.provenance if foundation is None else foundation,
+            scene_id=request.scene_id,
+            shot_id=request.shot_id,
+            request_hash=request.content_hash,
         ),
         execution_plan=SimpleNamespace(device=device, dtype=dtype),
         runtime_provenance={"cuda_device": device, "dtype": dtype},
     )
 
 
-def _receipt_with_shots(profile=WAN22_I2V_A14B_PROFILE, shots=None):
-    receipt = _receipt(profile)
-    receipt.shot_receipts = tuple(
-        shots if shots is not None else [_bound_shot_receipt(profile) for _ in range(5)]
+def _receipt(profile=WAN22_I2V_A14B_PROFILE, *, requests=None):
+    requests = [_request(index) for index in range(5)] if requests is None else requests
+    return SimpleNamespace(
+        profile_id=profile.profile_id,
+        origin=profile.origin,
+        production_gpu_evidence=True,
+        production_quality_evidence=True,
+        evidence_tier="production-gpu-quality-gated",
+        shot_receipts=tuple(
+            _bound_shot_receipt(profile, request=request) for request in requests
+        ),
     )
+
+
+def _receipt_with_shots(profile=WAN22_I2V_A14B_PROFILE, shots=None, *, requests=None):
+    receipt = _receipt(profile, requests=requests)
+    if shots is not None:
+        receipt.shot_receipts = tuple(shots)
     return receipt
 
 
@@ -105,7 +113,7 @@ def test_quality_first_entrypoint_routes_80gb_runner_to_a14b(monkeypatch, tmp_pa
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
         captured["profile"] = profile
-        return _receipt(profile)
+        return _receipt(profile, requests=requests)
 
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
@@ -132,7 +140,7 @@ def test_quality_first_entrypoint_preserves_5b_fallback_on_48gb_runner(
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
         captured["profile"] = profile
-        return _receipt(profile)
+        return _receipt(profile, requests=requests)
 
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
@@ -158,7 +166,7 @@ def test_quality_first_entrypoint_rejects_receipt_for_different_profile(
     monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
-        return _receipt(WAN22_TI2V_5B_PROFILE)
+        return _receipt(WAN22_TI2V_5B_PROFILE, requests=requests)
 
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
@@ -181,7 +189,7 @@ def test_quality_first_entrypoint_rejects_receipt_for_different_origin(
     monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
-        receipt = _receipt(profile)
+        receipt = _receipt(profile, requests=requests)
         receipt.origin = "cineos_native"
         return receipt
 
@@ -200,17 +208,85 @@ def test_quality_first_entrypoint_rejects_receipt_for_different_origin(
         )
 
 
+def test_quality_first_entrypoint_rejects_missing_per_shot_evidence(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        receipt = _receipt(profile, requests=requests)
+        del receipt.shot_receipts
+        return receipt
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="missing per-shot"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
+
+
+def test_quality_first_entrypoint_rejects_truncated_per_shot_evidence(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        receipt = _receipt(profile, requests=requests)
+        receipt.shot_receipts = receipt.shot_receipts[:-1]
+        return receipt
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="evidence count"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
+
+
+def test_quality_first_entrypoint_rejects_replayed_shot_receipt(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        shots = [_bound_shot_receipt(profile, request=request) for request in requests]
+        shots[3] = _bound_shot_receipt(profile, request=requests[2])
+        return _receipt_with_shots(profile, shots, requests=requests)
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="shot identity"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
+
+
 def test_quality_first_entrypoint_rejects_substituted_per_shot_foundation(
     monkeypatch, tmp_path
 ):
     monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
-        shots = [_bound_shot_receipt(profile) for _ in range(5)]
+        shots = [_bound_shot_receipt(profile, request=request) for request in requests]
         shots[2] = _bound_shot_receipt(
-            profile, foundation=WAN22_TI2V_5B_PROFILE.provenance
+            profile,
+            request=requests[2],
+            foundation=WAN22_TI2V_5B_PROFILE.provenance,
         )
-        return _receipt_with_shots(profile, shots)
+        return _receipt_with_shots(profile, shots, requests=requests)
 
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
@@ -230,9 +306,9 @@ def test_quality_first_entrypoint_rejects_per_shot_device_drift(monkeypatch, tmp
     monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
-        shots = [_bound_shot_receipt(profile) for _ in range(5)]
-        shots[3] = _bound_shot_receipt(profile, device="cuda:1")
-        return _receipt_with_shots(profile, shots)
+        shots = [_bound_shot_receipt(profile, request=request) for request in requests]
+        shots[3] = _bound_shot_receipt(profile, request=requests[3], device="cuda:1")
+        return _receipt_with_shots(profile, shots, requests=requests)
 
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
