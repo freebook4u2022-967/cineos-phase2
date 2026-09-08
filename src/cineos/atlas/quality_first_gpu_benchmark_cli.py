@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from .artifact_transition_observer import SigLIP2ArtifactTransitionObserver
 from .gpu_benchmark_cli import (
     GPUProductionBenchmarkCLIError,
     _production_quality_evaluator,
@@ -24,7 +25,7 @@ from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
 from .gpu_preflight import inspect_cuda_environment
 from .gpu_production_quality_retry import (
     ProductionGPUQualityRetryError,
-    run_production_quality_retry_connected_gpu_benchmark,
+    run_production_continuity_quality_retry_connected_gpu_benchmark as run_production_quality_retry_connected_gpu_benchmark,
 )
 from .native_request import NativeShotRequest
 from .production_foundation_selection import (
@@ -32,6 +33,53 @@ from .production_foundation_selection import (
     ProductionFoundationSelectionError,
     select_strongest_production_foundation,
 )
+from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
+
+
+class _PinnedSigLIP2BoundaryFeatureAdapter:
+    """Share the already-loaded pinned shot-QC encoder with seam measurement.
+
+    SigLIP2 remains an external pretrained measurement foundation. This narrow
+    adapter deliberately reuses the exact production scorer instance so transition
+    QC does not load a second model copy into scarce renderer VRAM.
+    """
+
+    def __init__(self, scorer: Any) -> None:
+        if getattr(scorer, "semantic_measurement_evidence", False) is not True:
+            raise GPUProductionBenchmarkCLIError(
+                "production transition QC requires the attested pinned visual scorer"
+            )
+        if not callable(getattr(scorer, "_pil_frames", None)) or not callable(
+            getattr(scorer, "_encode_images", None)
+        ):
+            raise GPUProductionBenchmarkCLIError(
+                "production visual scorer cannot expose boundary feature measurements"
+            )
+        self.scorer = scorer
+        self.semantic_measurement_evidence = True
+
+    def encode_sample_features(self, sample):
+        return self.scorer._encode_images(self.scorer._pil_frames(sample))
+
+
+def _production_transition_evaluator(
+    quality_evaluator: Any,
+) -> ArtifactMeasuredTransitionQualityEvaluator:
+    """Build mandatory artifact-bound seam QC from the same pinned learned scorer."""
+
+    observer = getattr(quality_evaluator, "metric_extractor", None)
+    scorer = getattr(observer, "semantic_scorer", None)
+    if scorer is None:
+        raise GPUProductionBenchmarkCLIError(
+            "production quality evaluator is missing its pinned semantic scorer"
+        )
+    feature_adapter = _PinnedSigLIP2BoundaryFeatureAdapter(scorer)
+    transition_observer = SigLIP2ArtifactTransitionObserver(feature_adapter)
+    if transition_observer.production_measurement_evidence is not True:
+        raise GPUProductionBenchmarkCLIError(
+            "production transition observer did not attest measured evidence"
+        )
+    return ArtifactMeasuredTransitionQualityEvaluator(transition_observer)
 
 
 def _validate_per_shot_selection_binding(
@@ -159,6 +207,7 @@ def run_quality_first_production_benchmark(
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     quality_evaluator = _production_quality_evaluator(requests, reference_manifest)
+    transition_evaluator = _production_transition_evaluator(quality_evaluator)
 
     selection_manifest = output_root / "foundation-selection.json"
     selection_manifest.write_text(
@@ -173,6 +222,7 @@ def run_quality_first_production_benchmark(
             selection.profile,
             output_dir=output_root,
             quality_evaluator=quality_evaluator,
+            transition_evaluator=transition_evaluator,
             reference_manifest=reference_manifest,
             continuity_identity_refresh=continuity_identity_refresh,
         )
