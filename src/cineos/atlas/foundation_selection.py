@@ -11,9 +11,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from .foundation_profiles import (
-    FoundationExecutionProfile,
     WAN22_I2V_A14B_PROFILE,
     WAN22_TI2V_5B_PROFILE,
+    FoundationExecutionProfile,
 )
 
 FOUNDATION_EXECUTION_PROFILES: tuple[FoundationExecutionProfile, ...] = (
@@ -27,13 +27,18 @@ class FoundationSelectionError(RuntimeError):
 
 
 def _normalize_required_features(required_features: Iterable[str]) -> frozenset[str]:
-    normalized = frozenset(feature.strip() for feature in required_features if feature.strip())
+    normalized = frozenset(
+        feature.strip() for feature in required_features if feature.strip()
+    )
     if not normalized:
-        raise FoundationSelectionError("at least one required foundation feature is needed")
+        raise FoundationSelectionError(
+            "at least one required foundation feature is needed"
+        )
     unsupported = normalized - {"text_to_video", "image_to_video"}
     if unsupported:
         raise FoundationSelectionError(
-            "unsupported foundation feature requirement: " + ", ".join(sorted(unsupported))
+            "unsupported foundation feature requirement: "
+            + ", ".join(sorted(unsupported))
         )
     return normalized
 
