@@ -82,6 +82,16 @@ def run_quality_first_production_benchmark(
     except ProductionGPUQualityRetryError as exc:
         raise GPUProductionBenchmarkCLIError(str(exc)) from exc
 
+    if receipt.profile_id != selection.profile.profile_id:
+        raise GPUProductionBenchmarkCLIError(
+            "connected benchmark receipt profile does not match quality-first selection: "
+            f"selected={selection.profile.profile_id!r} receipt={receipt.profile_id!r}"
+        )
+    if receipt.origin != selection.profile.origin:
+        raise GPUProductionBenchmarkCLIError(
+            "connected benchmark receipt origin does not match quality-first selection: "
+            f"selected={selection.profile.origin!r} receipt={receipt.origin!r}"
+        )
     if not receipt.production_gpu_evidence:
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark completed without default production CUDA evidence"
