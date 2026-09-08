@@ -2,11 +2,14 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from cineos.atlas import quality_first_gpu_benchmark_cli as cli
 from cineos.atlas.foundation_profiles import (
     WAN22_I2V_A14B_PROFILE,
     WAN22_TI2V_5B_PROFILE,
 )
+from cineos.atlas.gpu_benchmark_cli import GPUProductionBenchmarkCLIError
 from cineos.atlas.gpu_preflight import GPUDeviceProfile
 from cineos.atlas.native_request import NativeShotRequest
 
@@ -60,8 +63,10 @@ def _request(index: int, *, refs=("hero", "partner")) -> NativeShotRequest:
     return request
 
 
-def _receipt():
+def _receipt(profile=WAN22_I2V_A14B_PROFILE):
     return SimpleNamespace(
+        profile_id=profile.profile_id,
+        origin=profile.origin,
         production_gpu_evidence=True,
         production_quality_evidence=True,
         evidence_tier="production-gpu-quality-gated",
@@ -74,7 +79,7 @@ def test_quality_first_entrypoint_routes_80gb_runner_to_a14b(monkeypatch, tmp_pa
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
         captured["profile"] = profile
-        return _receipt()
+        return _receipt(profile)
 
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
@@ -101,7 +106,7 @@ def test_quality_first_entrypoint_preserves_5b_fallback_on_48gb_runner(
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
         captured["profile"] = profile
-        return _receipt()
+        return _receipt(profile)
 
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
@@ -119,3 +124,51 @@ def test_quality_first_entrypoint_preserves_5b_fallback_on_48gb_runner(
     assert captured["profile"] is WAN22_TI2V_5B_PROFILE
     evidence = (tmp_path / "foundation-selection.json").read_text()
     assert '"fallback_used": true' in evidence
+
+
+def test_quality_first_entrypoint_rejects_receipt_for_different_profile(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        return _receipt(WAN22_TI2V_5B_PROFILE)
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+    requests = [_request(index) for index in range(5)]
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="receipt profile"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            requests,
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
+
+
+def test_quality_first_entrypoint_rejects_receipt_for_different_origin(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        receipt = _receipt(profile)
+        receipt.origin = "cineos_native"
+        return receipt
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+    requests = [_request(index) for index in range(5)]
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="receipt origin"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            requests,
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
