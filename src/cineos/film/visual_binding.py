@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 VISUAL_BINDING_SCHEMA = "cineos-production-visual-binding/0.5"
-VISUAL_BINDING_SAMPLE_FPS = 4
+VISUAL_BINDING_SAMPLE_FPS = 8
 VISUAL_BINDING_WIDTH = 32
 VISUAL_BINDING_HEIGHT = 18
 VISUAL_BINDING_CHANNELS = 3
