@@ -208,7 +208,9 @@ def test_quality_first_entrypoint_rejects_receipt_for_different_origin(
         )
 
 
-def test_quality_first_entrypoint_rejects_missing_per_shot_evidence(monkeypatch, tmp_path):
+def test_quality_first_entrypoint_rejects_missing_per_shot_evidence(
+    monkeypatch, tmp_path
+):
     monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
@@ -230,7 +232,9 @@ def test_quality_first_entrypoint_rejects_missing_per_shot_evidence(monkeypatch,
         )
 
 
-def test_quality_first_entrypoint_rejects_truncated_per_shot_evidence(monkeypatch, tmp_path):
+def test_quality_first_entrypoint_rejects_truncated_per_shot_evidence(
+    monkeypatch, tmp_path
+):
     monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
 
     def fake_run(benchmark_id, requests, profile, **kwargs):
