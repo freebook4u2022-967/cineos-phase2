@@ -204,7 +204,9 @@ def _mean_absolute_error(left: bytes, right: bytes) -> float:
         raise VisualBindingError(
             "visual-binding error metric requires equal non-empty pixel spans"
         )
-    value = sum(abs(left_value - right_value) for left_value, right_value in zip(left, right)) / len(left)
+    value = sum(
+        abs(left_value - right_value) for left_value, right_value in zip(left, right)
+    ) / len(left)
     if not math.isfinite(value):
         raise VisualBindingError("visual-binding mean absolute error is non-finite")
     return value
