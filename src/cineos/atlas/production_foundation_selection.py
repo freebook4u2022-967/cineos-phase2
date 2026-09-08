@@ -66,9 +66,7 @@ def _all_shots_are_image_conditioned(requests: Sequence[NativeShotRequest]) -> b
 
 def _usable_vram_gb(device: GPUDeviceProfile) -> float:
     return (
-        device.free_vram_gb
-        if device.free_vram_gb is not None
-        else device.total_vram_gb
+        device.free_vram_gb if device.free_vram_gb is not None else device.total_vram_gb
     )
 
 
