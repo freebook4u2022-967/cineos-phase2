@@ -31,7 +31,9 @@ class _ShotObserver:
         self.semantic_scorer = scorer
 
     def __call__(self, *args, **kwargs):
-        raise AssertionError("shot observer should not execute in this construction test")
+        raise AssertionError(
+            "shot observer should not execute in this construction test"
+        )
 
 
 def test_quality_first_transition_gate_reuses_attested_pinned_qc_encoder():
