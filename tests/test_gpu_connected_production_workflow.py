@@ -7,13 +7,12 @@ def _workflow_text() -> str:
     )
 
 
-def test_gpu_workflow_prefetches_and_verifies_pinned_foundation_revision():
+def test_gpu_workflow_prefetches_and_verifies_selected_pinned_foundation_revision():
     workflow = _workflow_text()
 
-    assert "Prefetch and verify immutable foundation and QC snapshots" in workflow
-    assert (
-        "from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE" in workflow
-    )
+    assert "Prefetch and verify selected immutable foundation and QC snapshots" in workflow
+    assert "from cineos.atlas.production_foundation_selection import (" in workflow
+    assert "select_strongest_production_foundation" in workflow
     assert "snapshot_download(" in workflow
     assert "repo_id=provenance.model_id" in workflow
     assert "revision=revision" in workflow
@@ -40,20 +39,18 @@ def test_gpu_workflow_uses_same_hf_cache_for_prefetch_and_render():
     assert workflow.count(cache_binding) == 2
 
 
-def test_gpu_workflow_uses_cineos_memory_planner_before_foundation_download():
+def test_gpu_workflow_selects_quality_first_plan_before_foundation_download():
     workflow = _workflow_text()
 
-    planner_import = "from cineos.atlas.gpu_preflight import ("
-    planner_call = "plan = select_gpu_execution("
-    model_requirement = (
-        "estimated_model_vram_gb=WAN22_TI2V_5B_PROFILE.minimum_gpu_vram_gb"
+    selection_step = "- name: Select strongest safe production foundation on live CUDA runner"
+    selection_call = "selection = select_strongest_production_foundation(devices, requests)"
+    prefetch_step = (
+        "- name: Prefetch and verify selected immutable foundation and QC snapshots"
     )
-    prefetch_step = "- name: Prefetch and verify immutable foundation and QC snapshots"
 
-    assert planner_import in workflow
-    assert planner_call in workflow
-    assert model_requirement in workflow
-    assert workflow.index(planner_call) < workflow.index(prefetch_step)
+    assert selection_step in workflow
+    assert selection_call in workflow
+    assert workflow.index(selection_step) < workflow.index(prefetch_step)
 
 
 def test_gpu_workflow_records_selected_memory_strategy_for_audit_logs():
@@ -66,12 +63,18 @@ def test_gpu_workflow_records_selected_memory_strategy_for_audit_logs():
         in workflow
     )
     assert 'print(f"fit_margin_gb={plan.fit_margin_gb:.2f}")' in workflow
+    assert 'print(f"foundation_model_id={selection.profile.provenance.model_id}")' in workflow
+    assert 'print(f"fallback_used={selection.fallback_used}")' in workflow
 
 
-def test_gpu_workflow_runs_production_cli_after_qc_snapshot_is_pinned():
+def test_gpu_workflow_runs_quality_first_cli_after_qc_snapshot_is_pinned():
     workflow = _workflow_text()
 
-    prefetch_step = "- name: Prefetch and verify immutable foundation and QC snapshots"
-    run_step = "- name: Run real connected GPU benchmark with production visual QC"
+    prefetch_step = (
+        "- name: Prefetch and verify selected immutable foundation and QC snapshots"
+    )
+    run_step = (
+        "- name: Run quality-first connected GPU benchmark with production visual QC"
+    )
     assert workflow.index(prefetch_step) < workflow.index(run_step)
-    assert "python -m cineos.atlas.gpu_benchmark_cli" in workflow
+    assert "python -m cineos.atlas.quality_first_gpu_benchmark_cli" in workflow
