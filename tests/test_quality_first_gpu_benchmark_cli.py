@@ -73,6 +73,32 @@ def _receipt(profile=WAN22_I2V_A14B_PROFILE):
     )
 
 
+def _bound_shot_receipt(
+    profile=WAN22_I2V_A14B_PROFILE,
+    *,
+    foundation=None,
+    device="cuda:0",
+    dtype="bfloat16",
+):
+    return SimpleNamespace(
+        profile_id=profile.profile_id,
+        origin=profile.origin,
+        result=SimpleNamespace(
+            foundation=profile.provenance if foundation is None else foundation
+        ),
+        execution_plan=SimpleNamespace(device=device, dtype=dtype),
+        runtime_provenance={"cuda_device": device, "dtype": dtype},
+    )
+
+
+def _receipt_with_shots(profile=WAN22_I2V_A14B_PROFILE, shots=None):
+    receipt = _receipt(profile)
+    receipt.shot_receipts = tuple(
+        shots if shots is not None else [_bound_shot_receipt(profile) for _ in range(5)]
+    )
+    return receipt
+
+
 def test_quality_first_entrypoint_routes_80gb_runner_to_a14b(monkeypatch, tmp_path):
     captured = {}
     monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
@@ -168,6 +194,54 @@ def test_quality_first_entrypoint_rejects_receipt_for_different_origin(
         cli.run_quality_first_production_benchmark(
             "quality-first",
             requests,
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
+
+
+def test_quality_first_entrypoint_rejects_substituted_per_shot_foundation(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        shots = [_bound_shot_receipt(profile) for _ in range(5)]
+        shots[2] = _bound_shot_receipt(
+            profile, foundation=WAN22_TI2V_5B_PROFILE.provenance
+        )
+        return _receipt_with_shots(profile, shots)
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="foundation provenance"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
+
+
+def test_quality_first_entrypoint_rejects_per_shot_device_drift(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        shots = [_bound_shot_receipt(profile) for _ in range(5)]
+        shots[3] = _bound_shot_receipt(profile, device="cuda:1")
+        return _receipt_with_shots(profile, shots)
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="CUDA device"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            [_request(index) for index in range(5)],
             output_dir=tmp_path,
             reference_manifest="references.json",
             devices=(_gpu(96.0, 90.0),),
