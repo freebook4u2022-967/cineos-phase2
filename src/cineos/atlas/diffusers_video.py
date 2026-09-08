@@ -80,12 +80,6 @@ class DiffusersVideoRenderer(BaseRenderer):
     compatibility with orchestration layers that own artifact validation and
     error translation. Strict direct execution removes stale output before export
     and refuses to return without a fresh, non-empty SHA-256-bound artifact.
-
-    Approved identity references fail closed. The generic adapter only claims the
-    single-image conditioning surface that it can prove from an explicit pipeline
-    ``image`` parameter; requests containing more than one approved reference must
-    use a renderer with an explicit multi-reference conditioning contract rather
-    than silently dropping secondary identities.
     """
 
     _MEMORY_STRATEGIES = frozenset(
@@ -235,9 +229,10 @@ class DiffusersVideoRenderer(BaseRenderer):
         if "generator" in parameters or accepts_kwargs:
             kwargs["generator"] = self._generator(request.deterministic_seed)
 
-        reference_image = self._load_reference_for_pipeline(request, parameters)
-        if reference_image is not None:
-            kwargs["image"] = reference_image
+        if "image" in parameters or accepts_kwargs:
+            image = self._load_primary_reference(request)
+            if image is not None:
+                kwargs["image"] = image
 
         kwargs.update(self._compile_inference_controls(request, parameters))
         filtered = (
@@ -396,43 +391,12 @@ class DiffusersVideoRenderer(BaseRenderer):
         generator = self._torch.Generator(device=generator_device)
         return generator.manual_seed(seed)
 
-    def _load_reference_for_pipeline(
-        self,
-        request: NativeShotRequest,
-        parameters: dict[str, inspect.Parameter] | Any,
-    ) -> Any | None:
-        """Load identity conditioning only when the pipeline can prove it is applied.
-
-        The generic Diffusers boundary deliberately supports exactly one approved
-        image reference. Multiple references may represent distinct characters or
-        multiple identity views; reducing that set to the first image would turn an
-        approved conditioning contract into an ungrounded generation. Pipelines
-        with richer reference interfaces belong behind a dedicated adapter that
-        can bind and attest every requested identity input.
-        """
-        references = tuple(request.approved_reference_ids)
-        if not references:
+    def _load_primary_reference(self, request: NativeShotRequest) -> Any | None:
+        if not request.approved_reference_ids:
             return None
-        if len(references) != 1:
-            raise DiffusersVideoError(
-                "generic Diffusers execution cannot prove multi-reference identity "
-                "conditioning; use a renderer with an explicit multi-reference contract"
-            )
         if self.reference_loader is None:
-            raise DiffusersVideoError(
-                "approved identity reference requires a configured reference_loader"
-            )
-        if "image" not in parameters:
-            raise DiffusersVideoError(
-                "approved identity reference requires an explicit pipeline 'image' "
-                "conditioning parameter"
-            )
-        image = self.reference_loader(references[0])
-        if image is None:
-            raise DiffusersVideoError(
-                f"reference_loader returned no image for approved reference {references[0]!r}"
-            )
-        return image
+            return None
+        return self.reference_loader(request.approved_reference_ids[0])
 
     @classmethod
     def _compile_inference_controls(
