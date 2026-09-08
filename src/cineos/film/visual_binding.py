@@ -5,10 +5,12 @@ prove visual identity. This module independently decodes the ordered approved sh
 final film to the same low-rate RGB representation and requires strong pixel
 correlation with a tightly bounded frame-alignment search. RGB is intentionally used
 instead of luma-only sampling so a re-signed delivery cannot silently substitute or
-radically alter chroma while preserving grayscale structure. The sampled duration must
-also match within the bounded alignment tolerance so approved footage cannot be padded
-with or truncated around unapproved video. It is an integrity gate, not an aesthetic-
-quality metric.
+radically alter chroma while preserving grayscale structure. Correlation is paired with
+a bounded mean absolute pixel error so affine brightness/contrast substitutions cannot
+pass merely because they preserve correlation. The sampled duration must also match
+within the bounded alignment tolerance so approved footage cannot be padded with or
+truncated around unapproved video. It is an integrity gate, not an aesthetic-quality
+metric.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-VISUAL_BINDING_SCHEMA = "cineos-production-visual-binding/0.3"
+VISUAL_BINDING_SCHEMA = "cineos-production-visual-binding/0.4"
 VISUAL_BINDING_SAMPLE_FPS = 2
 VISUAL_BINDING_WIDTH = 32
 VISUAL_BINDING_HEIGHT = 18
@@ -34,6 +36,7 @@ VISUAL_BINDING_FRAME_BYTES = (
 VISUAL_BINDING_MAX_LAG_FRAMES = 1
 VISUAL_BINDING_MAX_FRAME_DELTA = VISUAL_BINDING_MAX_LAG_FRAMES
 MIN_VISUAL_BINDING_CORRELATION = 0.92
+MAX_VISUAL_BINDING_MEAN_ABSOLUTE_ERROR = 24.0
 MIN_VISUAL_BINDING_FRAMES = 4
 
 
@@ -58,11 +61,16 @@ class VisualBindingEvidence:
     alignment_lag_frames: int
     correlation: float
     minimum_correlation: float
+    mean_absolute_error: float
+    maximum_mean_absolute_error: float
     evidence_sha256: str
 
     @property
     def accepted(self) -> bool:
-        return self.correlation >= self.minimum_correlation
+        return (
+            self.correlation >= self.minimum_correlation
+            and self.mean_absolute_error <= self.maximum_mean_absolute_error
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,6 +88,8 @@ class VisualBindingEvidence:
             "alignment_lag_frames": self.alignment_lag_frames,
             "correlation": self.correlation,
             "minimum_correlation": self.minimum_correlation,
+            "mean_absolute_error": self.mean_absolute_error,
+            "maximum_mean_absolute_error": self.maximum_mean_absolute_error,
             "accepted": self.accepted,
             "evidence_sha256": self.evidence_sha256,
         }
@@ -189,7 +199,18 @@ def _pixel_correlation(left: bytes, right: bytes) -> float:
     return max(-1.0, min(1.0, value))
 
 
-def _best_alignment(approved: bytes, encoded: bytes) -> tuple[float, int, int]:
+def _mean_absolute_error(left: bytes, right: bytes) -> float:
+    if len(left) != len(right) or not left:
+        raise VisualBindingError(
+            "visual-binding error metric requires equal non-empty pixel spans"
+        )
+    value = sum(abs(left_value - right_value) for left_value, right_value in zip(left, right)) / len(left)
+    if not math.isfinite(value):
+        raise VisualBindingError("visual-binding mean absolute error is non-finite")
+    return value
+
+
+def _best_alignment(approved: bytes, encoded: bytes) -> tuple[float, int, int, float]:
     frame_bytes = VISUAL_BINDING_FRAME_BYTES
     approved_frames = len(approved) // frame_bytes
     encoded_frames = len(encoded) // frame_bytes
@@ -200,7 +221,7 @@ def _best_alignment(approved: bytes, encoded: bytes) -> tuple[float, int, int]:
             f"approved_frames={approved_frames}, final_frames={encoded_frames}, "
             f"allowed_delta<={VISUAL_BINDING_MAX_FRAME_DELTA}"
         )
-    best: tuple[float, int, int] | None = None
+    best: tuple[float, int, int, float] | None = None
     for lag in range(-VISUAL_BINDING_MAX_LAG_FRAMES, VISUAL_BINDING_MAX_LAG_FRAMES + 1):
         if lag >= 0:
             left_start = lag * frame_bytes
@@ -216,11 +237,11 @@ def _best_alignment(approved: bytes, encoded: bytes) -> tuple[float, int, int]:
         if compared_frames < MIN_VISUAL_BINDING_FRAMES:
             continue
         span = compared_frames * frame_bytes
-        score = _pixel_correlation(
-            approved[left_start : left_start + span],
-            encoded[right_start : right_start + span],
-        )
-        candidate = (score, lag, compared_frames)
+        left_span = approved[left_start : left_start + span]
+        right_span = encoded[right_start : right_start + span]
+        score = _pixel_correlation(left_span, right_span)
+        mean_absolute_error = _mean_absolute_error(left_span, right_span)
+        candidate = (score, lag, compared_frames, mean_absolute_error)
         if best is None or score > best[0]:
             best = candidate
     if best is None:
@@ -243,6 +264,7 @@ def measure_visual_binding(
     *,
     durations_seconds: Sequence[float] | None = None,
     minimum_correlation: float = MIN_VISUAL_BINDING_CORRELATION,
+    maximum_mean_absolute_error: float = MAX_VISUAL_BINDING_MEAN_ABSOLUTE_ERROR,
 ) -> VisualBindingEvidence:
     """Measure whether final-film decoded RGB video matches approved shots in order."""
     if not approved_shots:
@@ -259,6 +281,16 @@ def measure_visual_binding(
         raise VisualBindingError(
             "visual-binding threshold must be in the interval (0, 1]"
         )
+    try:
+        max_error = float(maximum_mean_absolute_error)
+    except (TypeError, ValueError) as exc:
+        raise VisualBindingError(
+            "visual-binding maximum mean absolute error must be finite"
+        ) from exc
+    if not math.isfinite(max_error) or not 0.0 <= max_error <= 255.0:
+        raise VisualBindingError(
+            "visual-binding maximum mean absolute error must be in the interval [0, 255]"
+        )
 
     source_paths = tuple(Path(path).resolve() for path in approved_shots)
     decoded_parts = []
@@ -270,7 +302,9 @@ def measure_visual_binding(
     final_video = _decode_binding_rgb(final_path)
     approved_sampled_frames = len(approved_video) // VISUAL_BINDING_FRAME_BYTES
     final_sampled_frames = len(final_video) // VISUAL_BINDING_FRAME_BYTES
-    correlation, lag, compared_frames = _best_alignment(approved_video, final_video)
+    correlation, lag, compared_frames, mean_absolute_error = _best_alignment(
+        approved_video, final_video
+    )
     unsigned = {
         "schema": VISUAL_BINDING_SCHEMA,
         "source_sha256": [_file_hash(path) for path in source_paths],
@@ -286,7 +320,9 @@ def measure_visual_binding(
         "alignment_lag_frames": lag,
         "correlation": correlation,
         "minimum_correlation": threshold,
-        "accepted": correlation >= threshold,
+        "mean_absolute_error": mean_absolute_error,
+        "maximum_mean_absolute_error": max_error,
+        "accepted": correlation >= threshold and mean_absolute_error <= max_error,
     }
     evidence = VisualBindingEvidence(
         source_sha256=tuple(unsigned["source_sha256"]),
@@ -302,17 +338,21 @@ def measure_visual_binding(
         alignment_lag_frames=lag,
         correlation=correlation,
         minimum_correlation=threshold,
+        mean_absolute_error=mean_absolute_error,
+        maximum_mean_absolute_error=max_error,
         evidence_sha256=_evidence_hash(unsigned),
     )
     if not evidence.accepted:
         raise VisualBindingError(
             "final-film video does not match approved connected shots: "
-            f"correlation={correlation:.6f}, required>={threshold:.6f}"
+            f"correlation={correlation:.6f}, required>={threshold:.6f}; "
+            f"mean_absolute_error={mean_absolute_error:.6f}, allowed<={max_error:.6f}"
         )
     return evidence
 
 
 __all__ = [
+    "MAX_VISUAL_BINDING_MEAN_ABSOLUTE_ERROR",
     "MIN_VISUAL_BINDING_CORRELATION",
     "VISUAL_BINDING_CHANNELS",
     "VISUAL_BINDING_FRAME_BYTES",
