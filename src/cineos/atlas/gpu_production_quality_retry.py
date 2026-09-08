@@ -35,6 +35,10 @@ from .native_request import NativeShotRequest
 from .production_continuity_identity import compose_continuity_identity_board
 from .production_multi_reference import ProductionReferenceBoardAdapter
 from .production_references import ProductionReferenceError, ProductionReferenceLoader
+from .production_retry_evidence import (
+    ProductionRetryEvidenceError,
+    validate_production_quality_retry_gate,
+)
 from .quality_retry import QualityRetryPolicy
 from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
@@ -300,6 +304,13 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
     if not isinstance(gate, dict):
         _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError("continuity quality gate is missing")
+    try:
+        validate_production_quality_retry_gate(gate, receipt.shot_receipts)
+    except ProductionRetryEvidenceError as exc:
+        _remove_stale_manifest(manifest)
+        raise ProductionGPUQualityRetryError(
+            "production quality retry lineage is incomplete or inconsistent"
+        ) from exc
     if gate.get("transition_gate_applied") is not True:
         _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError(
