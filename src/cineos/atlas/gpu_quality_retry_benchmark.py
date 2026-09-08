@@ -29,6 +29,10 @@ from .gpu_foundation_smoke import (
     execute_foundation_gpu_shot,
 )
 from .native_request import NativeShotRequest
+from .production_retry_evidence import (
+    ProductionRetryEvidenceError,
+    validate_production_quality_retry_gate,
+)
 from .quality_retry import QualityRetryPolicy, build_quality_retry_request
 from .transition_quality import (
     TransitionQualityError,
@@ -336,6 +340,16 @@ def run_quality_retry_connected_gpu_benchmark(
         "accepted_transition_count": len(accepted_transition_reports),
         "accepted_transitions": accepted_transition_reports,
     }
+
+    try:
+        validate_production_quality_retry_gate(
+            payload["quality_retry_gate"], completed.shot_receipts
+        )
+    except ProductionRetryEvidenceError as exc:
+        _remove_stale_manifest(manifest)
+        raise GPUQualityRetryBenchmarkError(
+            "quality retry lineage failed internal evidence validation"
+        ) from exc
 
     temporary = manifest.with_suffix(manifest.suffix + ".tmp")
     try:
