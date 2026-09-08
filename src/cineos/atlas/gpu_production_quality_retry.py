@@ -245,6 +245,24 @@ def run_production_quality_retry_connected_gpu_benchmark(
             "production benchmark did not reach the production-gpu-quality-gated "
             "evidence tier"
         )
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _remove_stale_manifest(manifest)
+        raise ProductionGPUQualityRetryError(
+            "cannot verify production quality retry manifest"
+        ) from exc
+    gate = payload.get("quality_retry_gate")
+    if not isinstance(gate, dict):
+        _remove_stale_manifest(manifest)
+        raise ProductionGPUQualityRetryError("production quality retry gate is missing")
+    try:
+        validate_production_quality_retry_gate(gate, receipt.shot_receipts)
+    except ProductionRetryEvidenceError as exc:
+        _remove_stale_manifest(manifest)
+        raise ProductionGPUQualityRetryError(
+            "production quality retry lineage is incomplete or inconsistent"
+        ) from exc
     return receipt
 
 
@@ -304,13 +322,6 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
     if not isinstance(gate, dict):
         _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError("continuity quality gate is missing")
-    try:
-        validate_production_quality_retry_gate(gate, receipt.shot_receipts)
-    except ProductionRetryEvidenceError as exc:
-        _remove_stale_manifest(manifest)
-        raise ProductionGPUQualityRetryError(
-            "production quality retry lineage is incomplete or inconsistent"
-        ) from exc
     if gate.get("transition_gate_applied") is not True:
         _remove_stale_manifest(manifest)
         raise ProductionGPUQualityRetryError(
