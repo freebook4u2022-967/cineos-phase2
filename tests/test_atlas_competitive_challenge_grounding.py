@@ -190,6 +190,28 @@ def test_dialogue_lip_sync_rejects_conflicting_character_identity_aliases():
         request.validate_timing_integrity()
 
 
+def test_dialogue_lip_sync_rejects_duplicate_canonical_character_uuid():
+    request = _request(0)
+    request.characters = [
+        {"character_uuid": "lead"},
+        {"character_uuid": "lead"},
+    ]
+
+    with pytest.raises(ValueError, match="unique conditioned character identities"):
+        request.validate_timing_integrity()
+
+
+def test_dialogue_lip_sync_rejects_duplicate_identity_across_aliases():
+    request = _request(0)
+    request.characters = [
+        {"character_uuid": "lead"},
+        {"character_id": "lead"},
+    ]
+
+    with pytest.raises(ValueError, match="duplicate 'lead'"):
+        request.validate_timing_integrity()
+
+
 def test_dialogue_timing_legacy_without_competitive_tag_remains_compatible():
     request = _request(0)
     request.metadata.pop(cli.COMPETITIVE_CHALLENGE_METADATA_KEY)
