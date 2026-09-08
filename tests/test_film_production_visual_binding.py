@@ -51,11 +51,75 @@ def test_measure_visual_binding_accepts_ordered_transcoded_sequence(
     assert evidence.correlation == pytest.approx(1.0)
     assert evidence.alignment_lag_frames == 0
     assert evidence.channels == 3
+    assert evidence.approved_sampled_frames == 8
+    assert evidence.final_sampled_frames == 8
+    assert evidence.max_frame_delta == visual_binding.VISUAL_BINDING_MAX_FRAME_DELTA
     assert evidence.source_sha256 == (
         hashlib.sha256(b"first").hexdigest(),
         hashlib.sha256(b"second").hexdigest(),
     )
     assert evidence.final_artifact_sha256 == hashlib.sha256(b"final").hexdigest()
+
+
+def test_measure_visual_binding_accepts_one_frame_sampling_delta(tmp_path, monkeypatch):
+    first = tmp_path / "shot-1.mp4"
+    final = tmp_path / "film.mp4"
+    first.write_bytes(b"first")
+    final.write_bytes(b"final")
+    approved = _frames(43, count=8)
+    final_frames = approved[:-visual_binding.VISUAL_BINDING_FRAME_BYTES]
+    decoded = iter((approved, final_frames))
+    monkeypatch.setattr(
+        visual_binding,
+        "_decode_binding_rgb",
+        lambda _path, duration_seconds=None: next(decoded),
+    )
+
+    evidence = measure_visual_binding([first], final)
+
+    assert evidence.accepted is True
+    assert evidence.approved_sampled_frames == 8
+    assert evidence.final_sampled_frames == 7
+
+
+def test_measure_visual_binding_rejects_appended_unapproved_footage(
+    tmp_path, monkeypatch
+):
+    first = tmp_path / "shot-1.mp4"
+    final = tmp_path / "film.mp4"
+    first.write_bytes(b"first")
+    final.write_bytes(b"final")
+    approved = _frames(53, count=8)
+    appended = approved + _frames(59, count=2)
+    decoded = iter((approved, appended))
+    monkeypatch.setattr(
+        visual_binding,
+        "_decode_binding_rgb",
+        lambda _path, duration_seconds=None: next(decoded),
+    )
+
+    with pytest.raises(VisualBindingError, match="sampled duration does not match"):
+        measure_visual_binding([first], final)
+
+
+def test_measure_visual_binding_rejects_truncated_approved_footage(
+    tmp_path, monkeypatch
+):
+    first = tmp_path / "shot-1.mp4"
+    final = tmp_path / "film.mp4"
+    first.write_bytes(b"first")
+    final.write_bytes(b"final")
+    approved = _frames(61, count=8)
+    truncated = approved[: 6 * visual_binding.VISUAL_BINDING_FRAME_BYTES]
+    decoded = iter((approved, truncated))
+    monkeypatch.setattr(
+        visual_binding,
+        "_decode_binding_rgb",
+        lambda _path, duration_seconds=None: next(decoded),
+    )
+
+    with pytest.raises(VisualBindingError, match="sampled duration does not match"):
+        measure_visual_binding([first], final)
 
 
 def test_measure_visual_binding_rejects_reordered_final_sequence(tmp_path, monkeypatch):
