@@ -184,6 +184,11 @@ class NativeShotRequest:
                     continue
                 character_id = _conditioned_character_id(character, index=index)
                 if character_id is not None:
+                    if character_id in character_ids:
+                        raise ValueError(
+                            "competitive dialogue_lip_sync requires unique conditioned "
+                            f"character identities; duplicate {character_id!r}"
+                        )
                     character_ids.add(character_id)
             if not character_ids:
                 raise ValueError(
