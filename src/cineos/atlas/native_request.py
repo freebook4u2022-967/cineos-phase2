@@ -86,6 +86,40 @@ def _requires_competitive_dialogue_grounding(metadata: dict[str, Any]) -> bool:
     ) or _requires_seedance_dialogue_evidence(metadata)
 
 
+def _conditioned_character_id(character: dict[str, Any], *, index: int) -> str | None:
+    """Resolve canonical character identity while preserving the legacy alias.
+
+    Native CINEOS ``CharacterConditioning`` serializes ``character_uuid``. Early
+    hand-built benchmark requests used ``character_id`` instead. Competitive
+    dialogue grounding must accept both without allowing contradictory aliases to
+    make speaker binding ambiguous.
+    """
+
+    canonical = character.get("character_uuid")
+    legacy = character.get("character_id")
+    if canonical is not None and (
+        not isinstance(canonical, str) or not canonical.strip()
+    ):
+        raise ValueError(
+            f"characters[{index}].character_uuid must be non-empty when supplied"
+        )
+    if legacy is not None and (not isinstance(legacy, str) or not legacy.strip()):
+        raise ValueError(
+            f"characters[{index}].character_id must be non-empty when supplied"
+        )
+    if canonical is not None and legacy is not None:
+        if canonical.strip() != legacy.strip():
+            raise ValueError(
+                f"characters[{index}] has conflicting character_uuid/character_id"
+            )
+        return canonical.strip()
+    if canonical is not None:
+        return canonical.strip()
+    if legacy is not None:
+        return legacy.strip()
+    return None
+
+
 @dataclass(slots=True)
 class NativeShotRequest:
     shot_id: str
@@ -145,16 +179,16 @@ class NativeShotRequest:
 
         character_ids: set[str] = set()
         if require_dialogue_grounding:
-            for character in self.characters:
+            for index, character in enumerate(self.characters):
                 if not isinstance(character, dict):
                     continue
-                character_id = character.get("character_id")
-                if isinstance(character_id, str) and character_id.strip():
+                character_id = _conditioned_character_id(character, index=index)
+                if character_id is not None:
                     character_ids.add(character_id)
             if not character_ids:
                 raise ValueError(
                     "competitive dialogue_lip_sync requires at least one conditioned "
-                    "character_id"
+                    "character_uuid or legacy character_id"
                 )
 
         for index, cue in enumerate(dialogue_timing):
@@ -179,7 +213,7 @@ class NativeShotRequest:
                 if speaker_id not in character_ids:
                     raise ValueError(
                         f"performance.dialogue_timing[{index}].speaker_id {speaker_id!r} "
-                        "does not match a conditioned character_id"
+                        "does not match a conditioned character identity"
                     )
             start_seconds = _finite_nonnegative_number(
                 _dialogue_time(
