@@ -23,9 +23,7 @@ from .gpu_benchmark_cli import (
 )
 from .gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
 from .gpu_preflight import inspect_cuda_environment
-from .gpu_production_quality_retry import (
-    ProductionGPUQualityRetryError,
-)
+from .gpu_production_quality_retry import ProductionGPUQualityRetryError
 from .gpu_production_quality_retry import (
     run_production_continuity_quality_retry_connected_gpu_benchmark as run_production_quality_retry_connected_gpu_benchmark,
 )
@@ -35,6 +33,7 @@ from .production_foundation_selection import (
     ProductionFoundationSelectionError,
     select_strongest_production_foundation,
 )
+from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
 
 
@@ -209,7 +208,11 @@ def run_quality_first_production_benchmark(
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     quality_evaluator = _production_quality_evaluator(requests, reference_manifest)
-    transition_evaluator = _production_transition_evaluator(quality_evaluator)
+    transition_evaluator = (
+        _production_transition_evaluator(quality_evaluator)
+        if isinstance(quality_evaluator, ArtifactMeasuredSequenceQualityEvaluator)
+        else None
+    )
 
     selection_manifest = output_root / "foundation-selection.json"
     selection_manifest.write_text(
