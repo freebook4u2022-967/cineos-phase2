@@ -35,18 +35,14 @@ def _finite_nonnegative_number(value: Any, *, field_name: str) -> float:
     return normalized
 
 
-def _dialogue_time(
-    cue: dict[str, Any], *, canonical: str, legacy: str, index: int
-) -> Any:
+def _dialogue_time(cue: dict[str, Any], *, canonical: str, legacy: str, index: int) -> Any:
     """Read a canonical dialogue timestamp while accepting the 0.1 legacy alias."""
-
     canonical_value = cue.get(canonical)
     legacy_value = cue.get(legacy)
     if canonical_value is not None and legacy_value is not None:
         if canonical_value != legacy_value:
             raise ValueError(
-                f"performance.dialogue_timing[{index}] has conflicting "
-                f"{canonical}/{legacy} values"
+                f"performance.dialogue_timing[{index}] has conflicting {canonical}/{legacy} values"
             )
         return canonical_value
     return canonical_value if canonical_value is not None else legacy_value
@@ -60,25 +56,12 @@ def _challenge_declared(metadata: dict[str, Any], *, key: str, value: str) -> bo
 
 
 def _requires_seedance_dialogue_evidence(metadata: dict[str, Any]) -> bool:
-    """Return whether Seedance-style benchmark dialogue must be non-vacuous."""
-
     return _challenge_declared(
-        metadata,
-        key=_SEEDANCE_CHALLENGE_METADATA_KEY,
-        value=_SEEDANCE_DIALOGUE_CHALLENGE,
+        metadata, key=_SEEDANCE_CHALLENGE_METADATA_KEY, value=_SEEDANCE_DIALOGUE_CHALLENGE
     )
 
 
 def _requires_competitive_dialogue_grounding(metadata: dict[str, Any]) -> bool:
-    """Return whether supplied dialogue requires conditioned speaker grounding.
-
-    CINEOS historically used ``competitive_challenges=["dialogue_lip_sync"]`` while
-    the Seedance-style benchmark contract uses ``benchmark_challenges=["dialogue"]``.
-    Both require speaker grounding when cues are present. Seedance-style dialogue is
-    additionally required to contain cues at the native boundary; the legacy contract
-    retains its historical downstream structural preflight for empty cue lists.
-    """
-
     return _challenge_declared(
         metadata,
         key=_COMPETITIVE_CHALLENGE_METADATA_KEY,
@@ -87,31 +70,15 @@ def _requires_competitive_dialogue_grounding(metadata: dict[str, Any]) -> bool:
 
 
 def _conditioned_character_id(character: dict[str, Any], *, index: int) -> str | None:
-    """Resolve canonical character identity while preserving the legacy alias.
-
-    Native CINEOS ``CharacterConditioning`` serializes ``character_uuid``. Early
-    hand-built benchmark requests used ``character_id`` instead. Competitive
-    dialogue grounding must accept both without allowing contradictory aliases to
-    make speaker binding ambiguous.
-    """
-
     canonical = character.get("character_uuid")
     legacy = character.get("character_id")
-    if canonical is not None and (
-        not isinstance(canonical, str) or not canonical.strip()
-    ):
-        raise ValueError(
-            f"characters[{index}].character_uuid must be non-empty when supplied"
-        )
+    if canonical is not None and (not isinstance(canonical, str) or not canonical.strip()):
+        raise ValueError(f"characters[{index}].character_uuid must be non-empty when supplied")
     if legacy is not None and (not isinstance(legacy, str) or not legacy.strip()):
-        raise ValueError(
-            f"characters[{index}].character_id must be non-empty when supplied"
-        )
+        raise ValueError(f"characters[{index}].character_id must be non-empty when supplied")
     if canonical is not None and legacy is not None:
         if canonical.strip() != legacy.strip():
-            raise ValueError(
-                f"characters[{index}] has conflicting character_uuid/character_id"
-            )
+            raise ValueError(f"characters[{index}] has conflicting character_uuid/character_id")
         return canonical.strip()
     if canonical is not None:
         return canonical.strip()
@@ -139,39 +106,28 @@ class NativeShotRequest:
     content_hash: str = ""
 
     def validate_timing_integrity(self) -> None:
-        """Fail closed on malformed timing before hashing or renderer execution.
-
-        Timing evidence is part of the native request contract because dialogue/lip-sync
-        and final-film continuity cannot be measured honestly when frame rate, shot
-        duration, or dialogue intervals are non-finite or outside the shot timeline.
-        Optional legacy fields and the historic ``start``/``end`` dialogue aliases remain
-        compatible; when timing is supplied, it must be trustworthy. Seedance-style
-        benchmark dialogue additionally requires non-empty cues, and all competitive
-        dialogue cues must identify a character conditioned in the same native request.
-        """
-
+        """Fail closed on malformed timing while preserving 0.1 frame aliases."""
         duration_seconds: float | None = None
         if "duration_seconds" in self.renderer_requirements:
             duration_seconds = _finite_positive_number(
                 self.renderer_requirements["duration_seconds"],
                 field_name="renderer_requirements.duration_seconds",
             )
+        fps: float | None = None
         if "fps" in self.renderer_requirements:
-            _finite_positive_number(
-                self.renderer_requirements["fps"],
-                field_name="renderer_requirements.fps",
+            fps = _finite_positive_number(
+                self.renderer_requirements["fps"], field_name="renderer_requirements.fps"
             )
+        elif "fps" in self.camera:
+            fps = _finite_positive_number(self.camera["fps"], field_name="camera.fps")
 
-        require_dialogue_grounding = _requires_competitive_dialogue_grounding(
-            self.metadata
-        )
+        require_dialogue_grounding = _requires_competitive_dialogue_grounding(self.metadata)
         require_seedance_dialogue = _requires_seedance_dialogue_evidence(self.metadata)
         dialogue_timing = self.performance.get("dialogue_timing")
         if dialogue_timing in (None, []):
             if require_seedance_dialogue:
                 raise ValueError(
-                    "competitive dialogue benchmark requires non-empty "
-                    "performance.dialogue_timing"
+                    "competitive dialogue benchmark requires non-empty performance.dialogue_timing"
                 )
             return
         if not isinstance(dialogue_timing, list):
@@ -198,55 +154,71 @@ class NativeShotRequest:
 
         for index, cue in enumerate(dialogue_timing):
             if not isinstance(cue, dict):
-                raise ValueError(
-                    f"performance.dialogue_timing[{index}] must be a mapping"
-                )
+                raise ValueError(f"performance.dialogue_timing[{index}] must be a mapping")
             speaker_id = cue.get("speaker_id")
             if speaker_id is not None and (
                 not isinstance(speaker_id, str) or not speaker_id.strip()
             ):
                 raise ValueError(
-                    f"performance.dialogue_timing[{index}].speaker_id must be non-empty "
-                    "when supplied"
+                    f"performance.dialogue_timing[{index}].speaker_id must be non-empty when supplied"
                 )
             if require_dialogue_grounding:
                 if speaker_id is None:
                     raise ValueError(
-                        f"performance.dialogue_timing[{index}] requires speaker_id for "
-                        "competitive dialogue_lip_sync"
+                        f"performance.dialogue_timing[{index}] requires speaker_id for competitive dialogue_lip_sync"
                     )
                 if speaker_id not in character_ids:
                     raise ValueError(
                         f"performance.dialogue_timing[{index}].speaker_id {speaker_id!r} "
-                        "does not match a conditioned character identity"
+                        "does not match a conditioned character_id or character_uuid"
                     )
-            start_seconds = _finite_nonnegative_number(
-                _dialogue_time(
-                    cue,
-                    canonical="start_seconds",
-                    legacy="start",
-                    index=index,
-                ),
-                field_name=f"performance.dialogue_timing[{index}].start_seconds",
-            )
-            end_seconds = _finite_nonnegative_number(
-                _dialogue_time(
-                    cue,
-                    canonical="end_seconds",
-                    legacy="end",
-                    index=index,
-                ),
-                field_name=f"performance.dialogue_timing[{index}].end_seconds",
-            )
+
+            raw_start = _dialogue_time(cue, canonical="start_seconds", legacy="start", index=index)
+            raw_end = _dialogue_time(cue, canonical="end_seconds", legacy="end", index=index)
+            has_seconds = raw_start is not None or raw_end is not None
+            has_frames = "start_frame" in cue or "end_frame" in cue
+            if has_seconds and has_frames:
+                raise ValueError(
+                    f"performance.dialogue_timing[{index}] cannot mix seconds and frame timing"
+                )
+            if has_seconds:
+                start_seconds = _finite_nonnegative_number(
+                    raw_start, field_name=f"performance.dialogue_timing[{index}].start_seconds"
+                )
+                end_seconds = _finite_nonnegative_number(
+                    raw_end, field_name=f"performance.dialogue_timing[{index}].end_seconds"
+                )
+            elif has_frames:
+                start_frame = _finite_nonnegative_number(
+                    cue.get("start_frame"),
+                    field_name=f"performance.dialogue_timing[{index}].start_frame",
+                )
+                end_frame = _finite_nonnegative_number(
+                    cue.get("end_frame"),
+                    field_name=f"performance.dialogue_timing[{index}].end_frame",
+                )
+                if end_frame <= start_frame:
+                    raise ValueError(
+                        f"performance.dialogue_timing[{index}] must have end_frame greater than start_frame"
+                    )
+                if fps is None:
+                    continue
+                start_seconds = start_frame / fps
+                end_seconds = end_frame / fps
+            else:
+                if require_seedance_dialogue:
+                    raise ValueError(
+                        f"performance.dialogue_timing[{index}] requires seconds or frame timing"
+                    )
+                continue
+
             if end_seconds <= start_seconds:
                 raise ValueError(
-                    f"performance.dialogue_timing[{index}] must have end_seconds "
-                    "greater than start_seconds"
+                    f"performance.dialogue_timing[{index}] must have end_seconds greater than start_seconds"
                 )
             if duration_seconds is not None and end_seconds > duration_seconds:
                 raise ValueError(
-                    f"performance.dialogue_timing[{index}] extends beyond the shot "
-                    "duration"
+                    f"performance.dialogue_timing[{index}] extends beyond the shot duration"
                 )
 
     def payload(self) -> dict[str, Any]:
@@ -262,12 +234,7 @@ class NativeShotRequest:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def content_hash_is_current(self) -> bool:
-        """Return whether the stored hash matches the current semantic request payload."""
-
-        return (
-            bool(self.content_hash)
-            and self.content_hash == self._expected_content_hash()
-        )
+        return bool(self.content_hash) and self.content_hash == self._expected_content_hash()
 
     def refresh_hash(self) -> str:
         self.content_hash = self._expected_content_hash()
@@ -283,9 +250,7 @@ class NativeShotRequest:
 def compile_native_shot_request(package: ConditioningPackage) -> NativeShotRequest:
     """Compile an existing CINEOS ConditioningPackage into a native shot request."""
     if not package.character_conditioning and not package.approved_reference_ids:
-        raise ValueError(
-            "native shot request requires approved conditioning references"
-        )
+        raise ValueError("native shot request requires approved conditioning references")
 
     request = NativeShotRequest(
         shot_id=package.shot_id,
