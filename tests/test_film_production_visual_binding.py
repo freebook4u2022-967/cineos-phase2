@@ -67,7 +67,7 @@ def test_measure_visual_binding_accepts_one_frame_sampling_delta(tmp_path, monke
     first.write_bytes(b"first")
     final.write_bytes(b"final")
     approved = _frames(43, count=8)
-    final_frames = approved[:-visual_binding.VISUAL_BINDING_FRAME_BYTES]
+    final_frames = approved[: -visual_binding.VISUAL_BINDING_FRAME_BYTES]
     decoded = iter((approved, final_frames))
     monkeypatch.setattr(
         visual_binding,
