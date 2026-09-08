@@ -52,9 +52,13 @@ def validate_production_quality_retry_gate(
     if not isinstance(gate, Mapping):
         raise ProductionRetryEvidenceError("quality retry gate must be a mapping")
     if gate.get("schema") != "cineos-gpu-quality-retry-gate/0.2":
-        raise ProductionRetryEvidenceError("unsupported production quality retry schema")
+        raise ProductionRetryEvidenceError(
+            "unsupported production quality retry schema"
+        )
     if gate.get("accepted") is not True:
-        raise ProductionRetryEvidenceError("production quality retry gate is not accepted")
+        raise ProductionRetryEvidenceError(
+            "production quality retry gate is not accepted"
+        )
 
     policy = gate.get("policy")
     if not isinstance(policy, Mapping):
@@ -91,17 +95,25 @@ def validate_production_quality_retry_gate(
 
     for shot_position, (shot, receipt) in enumerate(zip(shots, receipts, strict=True)):
         if not isinstance(shot, Mapping):
-            raise ProductionRetryEvidenceError("quality retry shot entry must be a mapping")
+            raise ProductionRetryEvidenceError(
+                "quality retry shot entry must be a mapping"
+            )
         result = getattr(receipt, "result", None)
         if result is None:
-            raise ProductionRetryEvidenceError("accepted GPU receipt is missing result data")
+            raise ProductionRetryEvidenceError(
+                "accepted GPU receipt is missing result data"
+            )
 
         scene_id = _non_empty(shot.get("scene_id"), field="retry scene_id")
         shot_id = _non_empty(shot.get("shot_id"), field="retry shot_id")
         if scene_id != getattr(result, "scene_id", None):
-            raise ProductionRetryEvidenceError("retry scene_id does not match GPU receipt")
+            raise ProductionRetryEvidenceError(
+                "retry scene_id does not match GPU receipt"
+            )
         if shot_id != getattr(result, "shot_id", None):
-            raise ProductionRetryEvidenceError("retry shot_id does not match GPU receipt")
+            raise ProductionRetryEvidenceError(
+                "retry shot_id does not match GPU receipt"
+            )
 
         original_hash = _sha256(
             shot.get("original_request_hash"), field=f"{shot_id} original_request_hash"
@@ -157,15 +169,20 @@ def validate_production_quality_retry_gate(
         root_seed: int | None = None
         for index, attempt in enumerate(attempts):
             if not isinstance(attempt, Mapping):
-                raise ProductionRetryEvidenceError(f"{shot_id} attempt must be a mapping")
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} attempt must be a mapping"
+                )
             if attempt.get("attempt_index") != index:
                 raise ProductionRetryEvidenceError(
                     f"{shot_id} retry attempt indices are not contiguous"
                 )
-            if _sha256(
-                attempt.get("original_request_hash"),
-                field=f"{shot_id} attempt original_request_hash",
-            ) != original_hash:
+            if (
+                _sha256(
+                    attempt.get("original_request_hash"),
+                    field=f"{shot_id} attempt original_request_hash",
+                )
+                != original_hash
+            ):
                 raise ProductionRetryEvidenceError(
                     f"{shot_id} attempt changed original request lineage"
                 )
@@ -261,9 +278,10 @@ def validate_production_quality_retry_gate(
             raise ProductionRetryEvidenceError(
                 "accepted transition count does not cover every connected boundary"
             )
-        if not isinstance(accepted_transitions, list) or len(
-            accepted_transitions
-        ) != expected_transitions:
+        if (
+            not isinstance(accepted_transitions, list)
+            or len(accepted_transitions) != expected_transitions
+        ):
             raise ProductionRetryEvidenceError(
                 "accepted transition list does not cover every connected boundary"
             )
