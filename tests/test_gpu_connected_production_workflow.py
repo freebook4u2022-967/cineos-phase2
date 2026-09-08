@@ -10,7 +10,9 @@ def _workflow_text() -> str:
 def test_gpu_workflow_prefetches_and_verifies_selected_pinned_foundation_revision():
     workflow = _workflow_text()
 
-    assert "Prefetch and verify selected immutable foundation and QC snapshots" in workflow
+    assert (
+        "Prefetch and verify selected immutable foundation and QC snapshots" in workflow
+    )
     assert "from cineos.atlas.production_foundation_selection import (" in workflow
     assert "select_strongest_production_foundation" in workflow
     assert "snapshot_download(" in workflow
@@ -42,8 +44,12 @@ def test_gpu_workflow_uses_same_hf_cache_for_prefetch_and_render():
 def test_gpu_workflow_selects_quality_first_plan_before_foundation_download():
     workflow = _workflow_text()
 
-    selection_step = "- name: Select strongest safe production foundation on live CUDA runner"
-    selection_call = "selection = select_strongest_production_foundation(devices, requests)"
+    selection_step = (
+        "- name: Select strongest safe production foundation on live CUDA runner"
+    )
+    selection_call = (
+        "selection = select_strongest_production_foundation(devices, requests)"
+    )
     prefetch_step = (
         "- name: Prefetch and verify selected immutable foundation and QC snapshots"
     )
@@ -63,7 +69,10 @@ def test_gpu_workflow_records_selected_memory_strategy_for_audit_logs():
         in workflow
     )
     assert 'print(f"fit_margin_gb={plan.fit_margin_gb:.2f}")' in workflow
-    assert 'print(f"foundation_model_id={selection.profile.provenance.model_id}")' in workflow
+    assert (
+        'print(f"foundation_model_id={selection.profile.provenance.model_id}")'
+        in workflow
+    )
     assert 'print(f"fallback_used={selection.fallback_used}")' in workflow
 
 
