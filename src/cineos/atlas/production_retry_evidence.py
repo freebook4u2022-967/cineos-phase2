@@ -1,10 +1,9 @@
 """Fail-closed validation for production GPU reject/rerender evidence.
 
-The connected GPU receipt contains only accepted artifacts.  Production evidence
-must additionally prove how rejected attempts were corrected before those artifacts
-entered the connected-film chain.  This module validates the persisted quality
-retry gate against the exact accepted GPU receipts without changing renderer or
-foundation provenance.
+Connected GPU receipts contain only accepted artifacts. Production evidence must
+also prove the rejected attempts and corrections that preceded those artifacts.
+This policy validator binds the persisted retry gate to the exact accepted GPU
+receipts without changing renderer or foundation provenance.
 """
 
 from __future__ import annotations
@@ -17,37 +16,73 @@ class ProductionRetryEvidenceError(ValueError):
     """Raised when persisted production retry lineage is incomplete or inconsistent."""
 
 
-def _non_empty(value: Any, *, field: str) -> str:
+def _text(value: Any, *, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ProductionRetryEvidenceError(f"{field} must be a non-empty string")
-    return value
+    return value.strip()
 
 
 def _sha256(value: Any, *, field: str) -> str:
-    text = _non_empty(value, field=field)
-    if len(text) != 64:
+    digest = _text(value, field=field).lower()
+    if len(digest) != 64:
         raise ProductionRetryEvidenceError(f"{field} must be a SHA-256 digest")
     try:
-        int(text, 16)
+        int(digest, 16)
     except ValueError as exc:
         raise ProductionRetryEvidenceError(
             f"{field} must be a hexadecimal SHA-256 digest"
         ) from exc
-    return text.lower()
+    return digest
+
+
+def _transition_attempt_index(
+    transition: Mapping[str, Any],
+    *,
+    output_to_index: Mapping[str, int],
+    shot_id: str,
+) -> int:
+    """Resolve seam evidence to an attempt, supporting pre-index manifests.
+
+    Transition evidence has always been artifact-bound, while older gate payloads
+    did not persist ``attempt_index``. Prefer an explicit index when present and
+    independently cross-check it against the current artifact hash when available;
+    otherwise derive the index from that immutable artifact digest.
+    """
+
+    explicit = transition.get("attempt_index")
+    current_output = transition.get("current_output_sha256")
+    derived: int | None = None
+    if current_output is not None:
+        digest = _sha256(
+            current_output, field=f"{shot_id} transition current_output_sha256"
+        )
+        derived = output_to_index.get(digest)
+        if derived is None:
+            raise ProductionRetryEvidenceError(
+                f"{shot_id} transition references an unknown retry artifact"
+            )
+    if explicit is not None:
+        if not isinstance(explicit, int) or isinstance(explicit, bool):
+            raise ProductionRetryEvidenceError(
+                f"{shot_id} transition attempt index is invalid"
+            )
+        if derived is not None and explicit != derived:
+            raise ProductionRetryEvidenceError(
+                f"{shot_id} transition attempt index conflicts with artifact lineage"
+            )
+        return explicit
+    if derived is None:
+        raise ProductionRetryEvidenceError(
+            f"{shot_id} transition cannot be bound to a retry attempt"
+        )
+    return derived
 
 
 def validate_production_quality_retry_gate(
     gate: Mapping[str, Any],
     accepted_receipts: Sequence[Any],
 ) -> dict[str, Any]:
-    """Validate retry lineage against the exact accepted connected-shot receipts.
-
-    The validator intentionally understands both shot-quality rejection and
-    transition-quality rejection.  A non-final attempt may have passed per-shot QC
-    only when the transition attempt for that same index explicitly rejected it.
-    Accepted artifacts are never inferred from the manifest: their hashes and
-    request hashes must match the real GPU receipts supplied by the caller.
-    """
+    """Validate retry lineage against the exact accepted connected-shot receipts."""
 
     if not isinstance(gate, Mapping):
         raise ProductionRetryEvidenceError("quality retry gate must be a mapping")
@@ -104,8 +139,8 @@ def validate_production_quality_retry_gate(
                 "accepted GPU receipt is missing result data"
             )
 
-        scene_id = _non_empty(shot.get("scene_id"), field="retry scene_id")
-        shot_id = _non_empty(shot.get("shot_id"), field="retry shot_id")
+        scene_id = _text(shot.get("scene_id"), field="retry scene_id")
+        shot_id = _text(shot.get("shot_id"), field="retry shot_id")
         if scene_id != getattr(result, "scene_id", None):
             raise ProductionRetryEvidenceError(
                 "retry scene_id does not match GPU receipt"
@@ -142,6 +177,59 @@ def validate_production_quality_retry_gate(
                 f"{shot_id} attempts do not match attempt_count"
             )
 
+        normalized_attempts: list[tuple[Mapping[str, Any], str, str]] = []
+        seen_requests: set[str] = set()
+        output_to_index: dict[str, int] = {}
+        root_seed: int | None = None
+        for index, attempt in enumerate(attempts):
+            if not isinstance(attempt, Mapping):
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} attempt must be a mapping"
+                )
+            if attempt.get("attempt_index") != index:
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} retry attempt indices are not contiguous"
+                )
+            if _sha256(
+                attempt.get("original_request_hash"),
+                field=f"{shot_id} attempt original_request_hash",
+            ) != original_hash:
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} attempt changed original request lineage"
+                )
+            request_hash = _sha256(
+                attempt.get("effective_request_hash"),
+                field=f"{shot_id} attempt effective_request_hash",
+            )
+            output_hash = _sha256(
+                attempt.get("output_sha256"), field=f"{shot_id} attempt output_sha256"
+            )
+            if request_hash in seen_requests:
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} reused a request hash across retry attempts"
+                )
+            if output_hash in output_to_index:
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} reused an artifact hash across retry attempts"
+                )
+            seen_requests.add(request_hash)
+            output_to_index[output_hash] = index
+
+            seed = attempt.get("seed")
+            if not isinstance(seed, int) or isinstance(seed, bool):
+                raise ProductionRetryEvidenceError(f"{shot_id} retry seed is invalid")
+            if root_seed is None:
+                root_seed = seed
+            if seed != root_seed + seed_stride * index:
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} retry seed progression does not match policy"
+                )
+            if index == 0 and request_hash != original_hash:
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} first attempt does not use original request hash"
+                )
+            normalized_attempts.append((attempt, request_hash, output_hash))
+
         transition_attempts = shot.get("transition_attempts", [])
         if not isinstance(transition_attempts, list):
             raise ProductionRetryEvidenceError(
@@ -153,10 +241,12 @@ def validate_production_quality_retry_gate(
                 raise ProductionRetryEvidenceError(
                     f"{shot_id} transition attempt must be a mapping"
                 )
-            index = transition.get("attempt_index")
-            if not isinstance(index, int) or isinstance(index, bool):
+            index = _transition_attempt_index(
+                transition, output_to_index=output_to_index, shot_id=shot_id
+            )
+            if index < 0 or index >= attempt_count:
                 raise ProductionRetryEvidenceError(
-                    f"{shot_id} transition attempt index is invalid"
+                    f"{shot_id} transition attempt index is outside retry lineage"
                 )
             if index in transition_by_index:
                 raise ProductionRetryEvidenceError(
@@ -164,61 +254,9 @@ def validate_production_quality_retry_gate(
                 )
             transition_by_index[index] = transition
 
-        seen_request_hashes: set[str] = set()
-        seen_output_hashes: set[str] = set()
-        root_seed: int | None = None
-        for index, attempt in enumerate(attempts):
-            if not isinstance(attempt, Mapping):
-                raise ProductionRetryEvidenceError(
-                    f"{shot_id} attempt must be a mapping"
-                )
-            if attempt.get("attempt_index") != index:
-                raise ProductionRetryEvidenceError(
-                    f"{shot_id} retry attempt indices are not contiguous"
-                )
-            if (
-                _sha256(
-                    attempt.get("original_request_hash"),
-                    field=f"{shot_id} attempt original_request_hash",
-                )
-                != original_hash
-            ):
-                raise ProductionRetryEvidenceError(
-                    f"{shot_id} attempt changed original request lineage"
-                )
-            request_hash = _sha256(
-                attempt.get("effective_request_hash"),
-                field=f"{shot_id} attempt effective_request_hash",
-            )
-            output_hash = _sha256(
-                attempt.get("output_sha256"), field=f"{shot_id} attempt output_sha256"
-            )
-            if request_hash in seen_request_hashes:
-                raise ProductionRetryEvidenceError(
-                    f"{shot_id} reused a request hash across retry attempts"
-                )
-            if output_hash in seen_output_hashes:
-                raise ProductionRetryEvidenceError(
-                    f"{shot_id} reused an artifact hash across retry attempts"
-                )
-            seen_request_hashes.add(request_hash)
-            seen_output_hashes.add(output_hash)
-
-            seed = attempt.get("seed")
-            if not isinstance(seed, int) or isinstance(seed, bool):
-                raise ProductionRetryEvidenceError(f"{shot_id} retry seed is invalid")
-            if root_seed is None:
-                root_seed = seed
-            expected_seed = root_seed + seed_stride * index
-            if seed != expected_seed:
-                raise ProductionRetryEvidenceError(
-                    f"{shot_id} retry seed progression does not match policy"
-                )
-            if index == 0 and request_hash != original_hash:
-                raise ProductionRetryEvidenceError(
-                    f"{shot_id} first attempt does not use original request hash"
-                )
-
+        for index, (attempt, request_hash, output_hash) in enumerate(
+            normalized_attempts
+        ):
             is_final = index == attempt_count - 1
             transition = transition_by_index.get(index)
             shot_accepted = attempt.get("accepted") is True
@@ -258,7 +296,12 @@ def validate_production_quality_retry_gate(
                 raise ProductionRetryEvidenceError(
                     f"{shot_id} accepted transition did not pass"
                 )
-            if accepted_transition.get("attempt_index") != attempt_count - 1:
+            accepted_transition_index = _transition_attempt_index(
+                accepted_transition,
+                output_to_index=output_to_index,
+                shot_id=shot_id,
+            )
+            if accepted_transition_index != attempt_count - 1:
                 raise ProductionRetryEvidenceError(
                     f"{shot_id} accepted transition is not bound to final retry attempt"
                 )
@@ -272,9 +315,8 @@ def validate_production_quality_retry_gate(
     expected_transitions = max(0, len(receipts) - 1)
     applied = gate.get("transition_gate_applied") is True
     accepted_transitions = gate.get("accepted_transitions")
-    accepted_transition_count = gate.get("accepted_transition_count")
     if applied:
-        if accepted_transition_count != expected_transitions:
+        if gate.get("accepted_transition_count") != expected_transitions:
             raise ProductionRetryEvidenceError(
                 "accepted transition count does not cover every connected boundary"
             )
