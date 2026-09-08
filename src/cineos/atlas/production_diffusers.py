@@ -70,10 +70,11 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
     and return one composed conditioning image. Without that adapter, production
     requests fail closed rather than silently forwarding only the first reference.
 
-    Production prompt compilation also appends compact CINEOS-owned identity and
-    continuity constraints to any director-authored prompt. This prevents an
-    explicit prompt from accidentally suppressing structured CineDNA invariants or
-    reference-to-character lineage before external-foundation inference.
+    Production prompt compilation also appends compact CINEOS-owned identity,
+    continuity, performance, interaction, environment and camera constraints to
+    any director-authored prompt. This prevents an explicit prompt from accidentally
+    suppressing structured CineDNA or choreography before external-foundation
+    inference.
     """
 
     def __init__(
@@ -242,10 +243,11 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
         """Preserve director prompt while injecting structured production constraints.
 
         The base renderer historically returned ``metadata['prompt']`` verbatim when
-        present. For production that discards structured character identity and
-        continuity information exactly when a high-quality hand-authored prompt is
-        supplied. We retain that prompt, then append deterministic compact JSON with
-        only identity/continuity fields that materially affect connected-shot quality.
+        present. For production that can discard structured character identity,
+        continuity, performance and object-interaction information exactly when a
+        high-quality hand-authored prompt is supplied. We retain that prompt, then
+        append deterministic compact JSON containing the CINEOS-native constraints
+        that materially affect connected-shot quality.
         """
 
         base_prompt = DiffusersVideoRenderer._compile_prompt(request)
@@ -277,8 +279,24 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             structured["reference_board_order"] = list(request.approved_reference_ids)
         if character_constraints:
             structured["characters"] = character_constraints
+        if request.environment:
+            structured["environment"] = request.environment
+        if request.wardrobe:
+            structured["wardrobe"] = request.wardrobe
+        if request.props:
+            structured["props"] = request.props
         if request.continuity:
             structured["continuity"] = request.continuity
+        if request.performance:
+            structured["performance"] = request.performance
+
+        camera_constraints = {
+            key: request.camera[key]
+            for key in ("shot_size", "movement", "lens")
+            if key in request.camera and request.camera[key] not in (None, "", [], {})
+        }
+        if camera_constraints:
+            structured["camera"] = camera_constraints
 
         if not structured:
             return base_prompt
