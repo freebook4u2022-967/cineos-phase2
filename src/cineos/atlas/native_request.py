@@ -187,8 +187,8 @@ class NativeShotRequest:
                 if speaker_id not in character_ids:
                     raise ValueError(
                         f"performance.dialogue_timing[{index}].speaker_id {speaker_id!r} "
-                        "does not match a conditioned character identity "
-                        "(character_id or character_uuid)"
+                        "does not match a conditioned character_id; conditioned character "
+                        "identity may use character_id or character_uuid"
                     )
 
             raw_start = _dialogue_time(
