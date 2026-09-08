@@ -8,8 +8,8 @@ a claim that either external foundation is CINEOS-native.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from .foundation_profiles import (
     WAN22_I2V_A14B_PROFILE,
@@ -59,7 +59,9 @@ class ProductionFoundationSelection:
 
 
 def _all_shots_are_image_conditioned(requests: Sequence[NativeShotRequest]) -> bool:
-    return bool(requests) and all(request.approved_reference_ids for request in requests)
+    return bool(requests) and all(
+        request.approved_reference_ids for request in requests
+    )
 
 
 def select_strongest_production_foundation(
