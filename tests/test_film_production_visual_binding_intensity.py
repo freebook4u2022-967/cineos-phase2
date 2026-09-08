@@ -48,7 +48,9 @@ def test_visual_binding_accepts_small_transcode_intensity_drift(tmp_path, monkey
     assert evidence.to_dict()["schema"] == "cineos-production-visual-binding/0.5"
 
 
-def test_visual_binding_accepts_minimum_half_second_sample_window(tmp_path, monkeypatch):
+def test_visual_binding_accepts_minimum_half_second_sample_window(
+    tmp_path, monkeypatch
+):
     approved = _frames(815, count=4)
     evidence = _measure(tmp_path, monkeypatch, approved, approved)
 
