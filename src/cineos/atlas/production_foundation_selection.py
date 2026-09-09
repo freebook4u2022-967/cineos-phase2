@@ -39,11 +39,15 @@ class ProductionFoundationSelection:
     rejected_profiles: tuple[str, ...]
 
     def to_dict(self) -> dict[str, object]:
+        provenance = self.profile.provenance
         return {
             "profile_id": self.profile.profile_id,
             "origin": self.profile.origin,
-            "model_id": self.profile.provenance.model_id,
-            "revision": self.profile.provenance.revision,
+            "model_id": provenance.model_id,
+            "revision": provenance.revision,
+            "license_id": provenance.license_id,
+            "source_url": provenance.source_url,
+            "foundation_name": provenance.foundation_name,
             "fallback_used": self.fallback_used,
             "rejected_profiles": list(self.rejected_profiles),
             "execution_plan": {
