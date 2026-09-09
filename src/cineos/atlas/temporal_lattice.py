@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TypeVar
 
 
 class TemporalFramePlanError(ValueError):
@@ -32,9 +31,6 @@ class TemporalFramePlan:
     @property
     def requires_trim(self) -> bool:
         return self.generated_frames != self.export_frames
-
-
-T = TypeVar("T")
 
 
 def plan_temporal_frames(
@@ -106,7 +102,9 @@ def plan_temporal_frames(
     )
 
 
-def trim_generated_frames(frames: list[T], plan: TemporalFramePlan) -> list[T]:
+def trim_generated_frames[T](
+    frames: list[T], plan: TemporalFramePlan
+) -> list[T]:
     """Fail closed on foundation frame-count drift and return exact film frames."""
 
     actual = len(frames)
