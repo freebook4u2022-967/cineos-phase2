@@ -31,11 +31,15 @@ def _request(
     resolution: tuple[int, int] = (832, 480),
     fps: float = 16.0,
     duration: float = 5.0,
+    renderer_requirements: dict | None = None,
 ):
-    return SimpleNamespace(
+    request = SimpleNamespace(
         approved_reference_ids=tuple(refs),
         camera={"resolution": resolution, "fps": fps, "duration": duration},
     )
+    if renderer_requirements is not None:
+        request.renderer_requirements = renderer_requirements
+    return request
 
 
 def _a14b_request(*refs: str):
@@ -152,6 +156,76 @@ def test_rejects_all_profiles_for_unsupported_generation_resolution():
                 _request("hero", resolution=(1920, 1080), fps=24.0),
             ),
         )
+
+
+def test_rejects_camera_resolution_that_conflicts_with_native_renderer_requirements():
+    request = _request(
+        "hero",
+        renderer_requirements={
+            "supported_resolution": [1280, 720],
+            "supported_fps": 16.0,
+            "maximum_duration": 5.0,
+        },
+    )
+
+    with pytest.raises(
+        ProductionFoundationSelectionError,
+        match="camera resolution conflicts with renderer_requirements",
+    ):
+        select_strongest_production_foundation((_gpu(96.0, 90.0),), (request,))
+
+
+def test_rejects_camera_fps_that_conflicts_with_native_renderer_requirements():
+    request = _request(
+        "hero",
+        renderer_requirements={
+            "supported_resolution": [832, 480],
+            "supported_fps": 24.0,
+            "maximum_duration": 5.0,
+        },
+    )
+
+    with pytest.raises(
+        ProductionFoundationSelectionError,
+        match="camera fps conflicts with renderer_requirements",
+    ):
+        select_strongest_production_foundation((_gpu(96.0, 90.0),), (request,))
+
+
+def test_rejects_camera_duration_above_native_renderer_requirement_envelope():
+    request = _request(
+        "hero",
+        duration=5.0,
+        renderer_requirements={
+            "supported_resolution": [832, 480],
+            "supported_fps": 16.0,
+            "maximum_duration": 4.0,
+        },
+    )
+
+    with pytest.raises(
+        ProductionFoundationSelectionError,
+        match="camera duration exceeds renderer_requirements.maximum_duration",
+    ):
+        select_strongest_production_foundation((_gpu(96.0, 90.0),), (request,))
+
+
+def test_accepts_consistent_native_renderer_requirements():
+    request = _request(
+        "hero",
+        duration=4.0,
+        renderer_requirements={
+            "supported_resolution": [832, 480],
+            "supported_fps": 16.0,
+            "maximum_duration": 5.0,
+        },
+    )
+
+    selection = select_strongest_production_foundation(
+        (_gpu(96.0, 90.0),), (request,)
+    )
+
+    assert selection.profile is WAN22_I2V_A14B_PROFILE
 
 
 def test_fails_closed_when_no_approved_profile_can_fit():
