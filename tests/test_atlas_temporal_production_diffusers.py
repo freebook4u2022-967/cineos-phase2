@@ -26,13 +26,13 @@ class Pipeline:
     def to(self, _device):
         return self
 
-    def __call__(self, prompt, width, height, num_frames, generator=None):
+    def __call__(self, prompt, width, height, num_frames, generator=None, image=None):
         self.calls.append(num_frames)
         count = num_frames + self.returned_frame_delta
         return Output([f"frame-{index}" for index in range(count)])
 
 
-def _request(*, fps=24.0, duration=5.0):
+def _request(*, fps=24.0, duration=5.0, references=()):
     request = NativeShotRequest(
         shot_id="shot-temporal",
         scene_id="scene-temporal",
@@ -43,7 +43,7 @@ def _request(*, fps=24.0, duration=5.0):
         props=[],
         continuity={},
         performance={"facial_targets": [], "gesture_tracks": []},
-        approved_reference_ids=[],
+        approved_reference_ids=list(references),
         deterministic_seed=29,
         renderer_requirements={},
         metadata={"benchmark_challenges": ["fast_camera_movement"]},
@@ -63,6 +63,7 @@ def _renderer(tmp_path, profile, *, returned_frame_delta=0):
 
     renderer = profile.renderer(
         output_dir=tmp_path,
+        reference_loader=lambda reference_id: f"image:{reference_id}",
         pipeline_factory=lambda *_args, **_kwargs: pipeline,
         video_exporter=exporter,
     )
@@ -103,7 +104,9 @@ def test_wan_5b_requests_lattice_frames_then_exports_exact_film_duration(tmp_pat
 def test_wan_a14b_uses_81_native_frames_for_five_seconds_at_16fps(tmp_path):
     renderer, calls, exported = _renderer(tmp_path, WAN22_I2V_A14B_PROFILE)
 
-    result = renderer.render(_request(fps=16.0, duration=5.0))
+    result = renderer.render(
+        _request(fps=16.0, duration=5.0, references=("hero-front",))
+    )
 
     assert calls == [81]
     assert len(exported[0][0]) == 80
