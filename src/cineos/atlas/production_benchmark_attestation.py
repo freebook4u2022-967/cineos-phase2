@@ -149,7 +149,9 @@ def _validate_detailed_shot_binding(
     observed-free-VRAM fields may legitimately differ. Stable policy fields must not.
     """
 
-    selected_model = _required_string(selection, "model_id", label="foundation selection")
+    selected_model = _required_string(
+        selection, "model_id", label="foundation selection"
+    )
     selected_revision = _required_string(
         selection, "revision", label="foundation selection"
     )
@@ -182,7 +184,11 @@ def _validate_detailed_shot_binding(
 
     shots = connected.get("shots")
     shot_count = connected.get("shot_count")
-    if not isinstance(shot_count, int) or isinstance(shot_count, bool) or shot_count <= 0:
+    if (
+        not isinstance(shot_count, int)
+        or isinstance(shot_count, bool)
+        or shot_count <= 0
+    ):
         raise ProductionBenchmarkAttestationError(
             "connected benchmark has invalid shot_count"
         )
