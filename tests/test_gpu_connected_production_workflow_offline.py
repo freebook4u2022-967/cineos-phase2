@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 WORKFLOW = Path(".github/workflows/gpu-connected-production.yml")
 
 
@@ -26,7 +25,9 @@ def test_prefetch_remains_online_before_offline_execution_boundary():
     )[1].split(
         "- name: Run quality-first connected GPU benchmark with production visual QC",
         maxsplit=1,
-    )[0]
+    )[
+        0
+    ]
 
     assert "snapshot_download(" in prefetch_step
     assert "revision=revision" in prefetch_step
