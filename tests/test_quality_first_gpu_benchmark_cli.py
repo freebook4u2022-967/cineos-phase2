@@ -25,11 +25,22 @@ def _gpu(total: float, free: float | None = None) -> GPUDeviceProfile:
     )
 
 
-def _request(index: int, *, refs=("hero", "partner")) -> NativeShotRequest:
+def _request(
+    index: int,
+    *,
+    refs=("hero", "partner"),
+    resolution=(832, 480),
+    fps=16.0,
+) -> NativeShotRequest:
     request = NativeShotRequest(
         shot_id=f"shot-{index}",
         scene_id="quality-first",
-        camera={"movement": "whip_pan"},
+        camera={
+            "movement": "whip_pan",
+            "resolution": list(resolution),
+            "fps": fps,
+            "duration": 2.0,
+        },
         characters=[{"character_id": "hero"}, {"character_id": "partner"}],
         environment={"lighting": "day_to_night transition"},
         wardrobe=[],
@@ -44,7 +55,11 @@ def _request(index: int, *, refs=("hero", "partner")) -> NativeShotRequest:
         },
         approved_reference_ids=list(refs),
         deterministic_seed=7000 + index,
-        renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
+        renderer_requirements={
+            "supported_resolution": list(resolution),
+            "supported_fps": fps,
+            "maximum_duration": 2.0,
+        },
         metadata={
             "competitive_challenges": [
                 "identity_consistency",
@@ -186,7 +201,9 @@ def test_quality_first_entrypoint_preserves_5b_fallback_on_48gb_runner(
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
     )
-    requests = [_request(index) for index in range(5)]
+    requests = [
+        _request(index, resolution=(1280, 704), fps=24.0) for index in range(5)
+    ]
 
     cli.run_quality_first_production_benchmark(
         "quality-first",
