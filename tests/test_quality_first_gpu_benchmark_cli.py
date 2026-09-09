@@ -95,9 +95,7 @@ def _bound_shot_receipt(
             plan.memory_strategy if memory_strategy is None else memory_strategy
         ),
         enable_vae_tiling=(
-            plan.enable_vae_tiling
-            if enable_vae_tiling is None
-            else enable_vae_tiling
+            plan.enable_vae_tiling if enable_vae_tiling is None else enable_vae_tiling
         ),
         enable_vae_slicing=(
             plan.enable_vae_slicing
