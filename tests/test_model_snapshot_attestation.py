@@ -9,8 +9,8 @@ from cineos.atlas.model_snapshot_attestation import (
 )
 
 
-def _snapshot(tmp_path):
-    root = tmp_path / "snapshot"
+def _snapshot(tmp_path, name="snapshot"):
+    root = tmp_path / name
     (root / "unet").mkdir(parents=True)
     (root / "config.json").write_text('{"kind":"wan"}\n', encoding="utf-8")
     (root / "unet" / "weights.bin").write_bytes(b"pinned-weights")
@@ -44,18 +44,20 @@ def test_verify_rejects_mutated_weight_bytes(tmp_path):
 
 
 def test_verify_rejects_missing_or_added_files(tmp_path):
-    root = _snapshot(tmp_path)
-    approved = attest_model_snapshot(root, model_id="model", revision="rev")
-    (root / "config.json").unlink()
+    missing_root = _snapshot(tmp_path, "missing")
+    missing_approved = attest_model_snapshot(
+        missing_root, model_id="model", revision="rev"
+    )
+    (missing_root / "config.json").unlink()
 
     with pytest.raises(ModelSnapshotAttestationError, match="do not match"):
-        verify_model_snapshot(root, approved)
+        verify_model_snapshot(missing_root, missing_approved)
 
-    root = _snapshot(tmp_path)
-    approved = attest_model_snapshot(root, model_id="model", revision="rev")
-    (root / "unexpected.bin").write_bytes(b"unexpected")
+    added_root = _snapshot(tmp_path, "added")
+    added_approved = attest_model_snapshot(added_root, model_id="model", revision="rev")
+    (added_root / "unexpected.bin").write_bytes(b"unexpected")
     with pytest.raises(ModelSnapshotAttestationError, match="do not match"):
-        verify_model_snapshot(root, approved)
+        verify_model_snapshot(added_root, added_approved)
 
 
 def test_rejects_empty_snapshot_and_blank_provenance(tmp_path):
