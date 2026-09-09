@@ -50,13 +50,14 @@ def _five_b_request(*refs: str):
     return _request(*refs, resolution=(1280, 704), fps=24.0)
 
 
-def test_prefers_a14b_when_every_shot_is_image_conditioned_and_vram_floor_is_met():
+def test_prefers_a14b_when_every_shot_is_image_conditioned_and_resident_plan_is_validated():
     selection = select_strongest_production_foundation(
-        (_gpu(96.0, 90.0),),
+        (_gpu(100.0, 96.0),),
         (_a14b_request("hero"), _a14b_request("hero", "partner")),
     )
 
     assert selection.profile is WAN22_I2V_A14B_PROFILE
+    assert selection.plan.memory_strategy == "resident"
     assert selection.fallback_used is False
     assert selection.rejected_profiles == ()
     assert selection.to_dict()["origin"] == "external_pretrained_foundation"
@@ -64,7 +65,7 @@ def test_prefers_a14b_when_every_shot_is_image_conditioned_and_vram_floor_is_met
 
 def test_selection_manifest_persists_exact_external_foundation_provenance():
     selection = select_strongest_production_foundation(
-        (_gpu(96.0, 90.0),),
+        (_gpu(100.0, 96.0),),
         (_a14b_request("hero"), _a14b_request("hero", "partner")),
     )
 
@@ -103,6 +104,17 @@ def test_falls_back_to_5b_below_unvalidated_a14b_vram_floor():
     assert selection.profile is WAN22_TI2V_5B_PROFILE
     assert selection.fallback_used is True
     assert any("production floor" in reason for reason in selection.rejected_profiles)
+
+
+def test_fails_closed_when_a14b_floor_is_met_but_only_unvalidated_offload_is_available():
+    with pytest.raises(
+        ProductionFoundationSelectionError,
+        match="requires validated resident execution; generic planner selected model_cpu_offload",
+    ):
+        select_strongest_production_foundation(
+            (_gpu(96.0, 90.0),),
+            (_a14b_request("hero"), _a14b_request("hero", "partner")),
+        )
 
 
 def test_falls_back_to_5b_when_any_shot_lacks_image_conditioning():
@@ -221,9 +233,10 @@ def test_accepts_consistent_native_renderer_requirements():
         },
     )
 
-    selection = select_strongest_production_foundation((_gpu(96.0, 90.0),), (request,))
+    selection = select_strongest_production_foundation((_gpu(100.0, 96.0),), (request,))
 
     assert selection.profile is WAN22_I2V_A14B_PROFILE
+    assert selection.plan.memory_strategy == "resident"
 
 
 def test_fails_closed_when_no_approved_profile_can_fit():
