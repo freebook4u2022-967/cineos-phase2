@@ -10,7 +10,7 @@ from cineos.atlas.foundation_profiles import (
     WAN22_TI2V_5B_PROFILE,
 )
 from cineos.atlas.gpu_benchmark_cli import GPUProductionBenchmarkCLIError
-from cineos.atlas.gpu_preflight import GPUDeviceProfile
+from cineos.atlas.gpu_preflight import GPUDeviceProfile, plan_gpu_execution
 from cineos.atlas.native_request import NativeShotRequest
 
 
@@ -63,15 +63,58 @@ def _request(index: int, *, refs=("hero", "partner")) -> NativeShotRequest:
     return request
 
 
+def _default_execution_plan(profile):
+    device = _gpu(96.0, 90.0) if profile is WAN22_I2V_A14B_PROFILE else _gpu(48.0, 44.0)
+    return plan_gpu_execution(
+        device,
+        estimated_model_vram_gb=profile.minimum_gpu_vram_gb,
+    )
+
+
 def _bound_shot_receipt(
     profile=WAN22_I2V_A14B_PROFILE,
     *,
     request=None,
     foundation=None,
-    device="cuda:0",
-    dtype="bfloat16",
+    device=None,
+    dtype=None,
+    memory_strategy=None,
+    enable_vae_tiling=None,
+    enable_vae_slicing=None,
+    enable_attention_slicing=None,
+    estimated_model_vram_gb=None,
 ):
     request = _request(0) if request is None else request
+    plan = _default_execution_plan(profile)
+    actual_device = plan.device if device is None else device
+    actual_dtype = plan.dtype if dtype is None else dtype
+    execution_plan = SimpleNamespace(
+        device=actual_device,
+        dtype=actual_dtype,
+        memory_strategy=(
+            plan.memory_strategy if memory_strategy is None else memory_strategy
+        ),
+        enable_vae_tiling=(
+            plan.enable_vae_tiling
+            if enable_vae_tiling is None
+            else enable_vae_tiling
+        ),
+        enable_vae_slicing=(
+            plan.enable_vae_slicing
+            if enable_vae_slicing is None
+            else enable_vae_slicing
+        ),
+        enable_attention_slicing=(
+            plan.enable_attention_slicing
+            if enable_attention_slicing is None
+            else enable_attention_slicing
+        ),
+        estimated_model_vram_gb=(
+            plan.estimated_model_vram_gb
+            if estimated_model_vram_gb is None
+            else estimated_model_vram_gb
+        ),
+    )
     return SimpleNamespace(
         profile_id=profile.profile_id,
         origin=profile.origin,
@@ -81,8 +124,8 @@ def _bound_shot_receipt(
             shot_id=request.shot_id,
             request_hash=request.content_hash,
         ),
-        execution_plan=SimpleNamespace(device=device, dtype=dtype),
-        runtime_provenance={"cuda_device": device, "dtype": dtype},
+        execution_plan=execution_plan,
+        runtime_provenance={"cuda_device": actual_device, "dtype": actual_dtype},
     )
 
 
@@ -319,6 +362,60 @@ def test_quality_first_entrypoint_rejects_per_shot_device_drift(monkeypatch, tmp
     )
 
     with pytest.raises(GPUProductionBenchmarkCLIError, match="CUDA device"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
+
+
+def test_quality_first_entrypoint_rejects_memory_strategy_drift(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        shots = [_bound_shot_receipt(profile, request=request) for request in requests]
+        shots[1] = _bound_shot_receipt(
+            profile,
+            request=requests[1],
+            memory_strategy="sequential_cpu_offload",
+        )
+        return _receipt_with_shots(profile, shots, requests=requests)
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="memory_strategy"):
+        cli.run_quality_first_production_benchmark(
+            "quality-first",
+            [_request(index) for index in range(5)],
+            output_dir=tmp_path,
+            reference_manifest="references.json",
+            devices=(_gpu(96.0, 90.0),),
+        )
+
+
+def test_quality_first_entrypoint_rejects_renderer_memory_flag_drift(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
+
+    def fake_run(benchmark_id, requests, profile, **kwargs):
+        shots = [_bound_shot_receipt(profile, request=request) for request in requests]
+        shots[4] = _bound_shot_receipt(
+            profile,
+            request=requests[4],
+            enable_vae_tiling=False,
+        )
+        return _receipt_with_shots(profile, shots, requests=requests)
+
+    monkeypatch.setattr(
+        cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
+    )
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="enable_vae_tiling"):
         cli.run_quality_first_production_benchmark(
             "quality-first",
             [_request(index) for index in range(5)],
