@@ -68,6 +68,19 @@ def test_quality_first_accepts_exact_multi_reference_conditioning_lineage():
     _validate_conditioning_binding(result, request, shot_index=0)
 
 
+def test_quality_first_accepts_exact_single_reference_conditioning_lineage():
+    request = _request(("hero-front",))
+    result = _result(
+        request,
+        {
+            "mode": "single_reference",
+            "consumed_reference_ids": ["hero-front"],
+        },
+    )
+
+    _validate_conditioning_binding(result, request, shot_index=0)
+
+
 def test_quality_first_rejects_partial_reference_consumption():
     request = _request(("hero-front", "partner-front"))
     result = _result(
@@ -102,6 +115,22 @@ def test_quality_first_rejects_reordered_reference_consumption():
         GPUProductionBenchmarkCLIError, match="approved reference board"
     ):
         _validate_conditioning_binding(result, request, shot_index=1)
+
+
+def test_quality_first_rejects_wrong_single_reference_mode():
+    request = _request(("hero-front",))
+    result = _result(
+        request,
+        {
+            "mode": "multi_reference_adapter",
+            "consumed_reference_ids": ["hero-front"],
+            "adapter_id": "cineos.production.reference_board",
+            "adapter_version": "0.1.1",
+        },
+    )
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="single-reference"):
+        _validate_conditioning_binding(result, request, shot_index=3)
 
 
 def test_quality_first_rejects_missing_multi_reference_adapter_provenance():
