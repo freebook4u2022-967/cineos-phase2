@@ -93,11 +93,12 @@ def _validate_per_shot_selection_binding(
     Quality-first production acceptance must not depend on aggregate receipt fields
     alone. Every shot must independently prove the selected profile/origin, exact
     pinned foundation provenance, requested scene/shot identity and request hash,
-    plus the CUDA device/dtype chosen from the live quality-first preflight.
+    plus the full CUDA execution policy chosen from the live quality-first preflight.
 
     This is intentionally stricter than generic/legacy connected-receipt handling:
     the quality-first production entrypoint only accepts real per-shot evidence and
-    fails closed if it is absent, truncated, reordered or replayed.
+    fails closed if it is absent, truncated, reordered, replayed, or rendered with a
+    different memory/offload policy than the selected production plan.
     """
 
     shot_receipts = getattr(receipt, "shot_receipts", None)
@@ -118,8 +119,16 @@ def _validate_per_shot_selection_binding(
 
     expected_profile = selection.profile
     expected_provenance = expected_profile.provenance
-    expected_device = selection.plan.device
-    expected_dtype = selection.plan.dtype
+    expected_plan = selection.plan
+    expected_execution_fields = {
+        "device": expected_plan.device,
+        "dtype": expected_plan.dtype,
+        "memory_strategy": expected_plan.memory_strategy,
+        "enable_vae_tiling": expected_plan.enable_vae_tiling,
+        "enable_vae_slicing": expected_plan.enable_vae_slicing,
+        "enable_attention_slicing": expected_plan.enable_attention_slicing,
+        "estimated_model_vram_gb": expected_plan.estimated_model_vram_gb,
+    }
 
     for index, (shot_receipt, request) in enumerate(zip(shot_receipts, requests)):
         if getattr(shot_receipt, "profile_id", None) != expected_profile.profile_id:
@@ -154,25 +163,23 @@ def _validate_per_shot_selection_binding(
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} is missing GPU execution-plan evidence"
             )
-        if getattr(execution_plan, "device", None) != expected_device:
-            raise GPUProductionBenchmarkCLIError(
-                f"shot {index} CUDA device does not match quality-first selection"
-            )
-        if getattr(execution_plan, "dtype", None) != expected_dtype:
-            raise GPUProductionBenchmarkCLIError(
-                f"shot {index} dtype does not match quality-first selection"
-            )
+        for field, expected_value in expected_execution_fields.items():
+            if getattr(execution_plan, field, None) != expected_value:
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} GPU execution field {field!r} does not match "
+                    "quality-first selection"
+                )
 
         runtime = getattr(shot_receipt, "runtime_provenance", None)
         if not isinstance(runtime, dict):
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} is missing runtime provenance"
             )
-        if runtime.get("cuda_device") != expected_device:
+        if runtime.get("cuda_device") != expected_plan.device:
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} runtime CUDA device does not match quality-first selection"
             )
-        if runtime.get("dtype") != expected_dtype:
+        if runtime.get("dtype") != expected_plan.dtype:
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} runtime dtype does not match quality-first selection"
             )
