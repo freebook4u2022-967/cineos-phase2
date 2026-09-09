@@ -81,7 +81,9 @@ def test_i2v_only_foundation_rejects_root_shot_without_image(tmp_path):
     pipeline = ImagePipeline()
     renderer = _renderer(tmp_path, pipeline, features={"image_to_video"})
 
-    with pytest.raises(DiffusersVideoError, match="no resolved image conditioning source"):
+    with pytest.raises(
+        DiffusersVideoError, match="no resolved image conditioning source"
+    ):
         renderer.render(_request())
 
     assert pipeline.calls == []
