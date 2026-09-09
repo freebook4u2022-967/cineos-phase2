@@ -342,7 +342,9 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             self._conditioning_provenance["consumed_reference_sha256"] = [
                 reference_sha256
             ]
-            self._conditioning_provenance["conditioning_image_sha256"] = reference_sha256
+            self._conditioning_provenance["conditioning_image_sha256"] = (
+                reference_sha256
+            )
         return reference
 
     @staticmethod
