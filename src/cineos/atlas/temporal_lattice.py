@@ -102,9 +102,7 @@ def plan_temporal_frames(
     )
 
 
-def trim_generated_frames[T](
-    frames: list[T], plan: TemporalFramePlan
-) -> list[T]:
+def trim_generated_frames[T](frames: list[T], plan: TemporalFramePlan) -> list[T]:
     """Fail closed on foundation frame-count drift and return exact film frames."""
 
     actual = len(frames)
