@@ -118,6 +118,77 @@ def _camera_contract(
     return resolution, fps, duration
 
 
+def _renderer_requirement_mismatch(
+    request: NativeShotRequest,
+    *,
+    resolution: tuple[int, int],
+    fps: float,
+    duration: float,
+) -> str | None:
+    """Reject contradictory native capability metadata before model acquisition.
+
+    ``DiffusersVideoRenderer`` consumes the camera contract above. Native requests
+    compiled from a ``ConditioningPackage`` also carry renderer capability metadata.
+    Those fields are useful for routing and evidence, but must never disagree with
+    the values that are actually rendered. Otherwise a request could claim one FPS,
+    resolution or duration envelope while the GPU renderer silently executes another.
+
+    Missing fields remain backwards compatible for hand-authored legacy requests.
+    When present, resolution/FPS are exact requirements and ``maximum_duration`` is
+    an upper bound, matching ``RendererCapabilityRequirements`` semantics.
+    """
+
+    requirements: Any = getattr(request, "renderer_requirements", None)
+    if requirements in (None, {}):
+        return None
+    if not isinstance(requirements, dict):
+        return "renderer_requirements must be a mapping"
+
+    raw_resolution = requirements.get("supported_resolution")
+    if raw_resolution is not None:
+        if (
+            not isinstance(raw_resolution, (list, tuple))
+            or len(raw_resolution) != 2
+            or isinstance(raw_resolution[0], bool)
+            or isinstance(raw_resolution[1], bool)
+        ):
+            return "renderer_requirements.supported_resolution is malformed"
+        required_resolution = (int(raw_resolution[0]), int(raw_resolution[1]))
+        if required_resolution != resolution:
+            return (
+                "camera resolution conflicts with renderer_requirements: "
+                f"camera={resolution[0]}x{resolution[1]} "
+                f"required={required_resolution[0]}x{required_resolution[1]}"
+            )
+
+    raw_fps = requirements.get("supported_fps")
+    if raw_fps is not None:
+        if isinstance(raw_fps, bool):
+            return "renderer_requirements.supported_fps is malformed"
+        required_fps = float(raw_fps)
+        if required_fps <= 0:
+            return "renderer_requirements.supported_fps must be positive"
+        if required_fps != fps:
+            return (
+                "camera fps conflicts with renderer_requirements: "
+                f"camera={fps:g} required={required_fps:g}"
+            )
+
+    raw_maximum_duration = requirements.get("maximum_duration")
+    if raw_maximum_duration is not None:
+        if isinstance(raw_maximum_duration, bool):
+            return "renderer_requirements.maximum_duration is malformed"
+        maximum_duration = float(raw_maximum_duration)
+        if maximum_duration <= 0:
+            return "renderer_requirements.maximum_duration must be positive"
+        if duration > maximum_duration:
+            return (
+                "camera duration exceeds renderer_requirements.maximum_duration: "
+                f"camera={duration:g}s maximum={maximum_duration:g}s"
+            )
+    return None
+
+
 def _profile_request_mismatch(
     profile: FoundationExecutionProfile,
     requests: Sequence[NativeShotRequest],
@@ -134,8 +205,16 @@ def _profile_request_mismatch(
     for index, request in enumerate(requests):
         try:
             resolution, fps, duration = _camera_contract(request)
+            requirement_mismatch = _renderer_requirement_mismatch(
+                request,
+                resolution=resolution,
+                fps=fps,
+                duration=duration,
+            )
         except (TypeError, ValueError, OverflowError) as exc:
             return f"shot {index} has invalid renderer camera contract: {exc}"
+        if requirement_mismatch is not None:
+            return f"shot {index} has contradictory native render contract: {requirement_mismatch}"
 
         if resolution not in profile.resolutions:
             return (
