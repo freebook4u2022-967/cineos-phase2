@@ -88,6 +88,68 @@ def _production_transition_evaluator(
     return ArtifactMeasuredTransitionQualityEvaluator(transition_observer)
 
 
+def _validate_conditioning_binding(
+    result: Any,
+    request: NativeShotRequest,
+    *,
+    shot_index: int,
+) -> None:
+    """Bind production conditioning evidence to the exact approved reference board.
+
+    ProductionDiffusersVideoResult exposes ``conditioning_provenance``. When that
+    production field is present, quality-first acceptance fails closed unless it
+    proves that every approved reference was actually consumed in request order.
+    Generic/legacy result objects that predate this production evidence field retain
+    their historical compatibility outside the real production renderer boundary.
+    """
+
+    if not hasattr(result, "conditioning_provenance"):
+        return
+
+    conditioning = getattr(result, "conditioning_provenance", None)
+    expected_references = tuple(request.approved_reference_ids)
+    if not expected_references:
+        if conditioning not in (None, {}):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {shot_index} reports conditioning for a request with no approved references"
+            )
+        return
+
+    if not isinstance(conditioning, dict):
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} is missing production conditioning provenance"
+        )
+
+    consumed = conditioning.get("consumed_reference_ids")
+    if not isinstance(consumed, (list, tuple)) or tuple(consumed) != expected_references:
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} conditioning references do not match the approved reference board"
+        )
+
+    mode = conditioning.get("mode")
+    if len(expected_references) == 1:
+        if mode != "single_reference":
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {shot_index} single-reference conditioning mode is invalid"
+            )
+        return
+
+    if mode != "multi_reference_adapter":
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} multi-reference conditioning mode is invalid"
+        )
+    adapter_id = conditioning.get("adapter_id")
+    adapter_version = conditioning.get("adapter_version")
+    if not isinstance(adapter_id, str) or not adapter_id.strip():
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} multi-reference conditioning is missing adapter provenance"
+        )
+    if not isinstance(adapter_version, str) or not adapter_version.strip():
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} multi-reference conditioning is missing adapter provenance"
+        )
+
+
 def _validate_per_shot_selection_binding(
     receipt: Any,
     selection: ProductionFoundationSelection,
@@ -160,6 +222,7 @@ def _validate_per_shot_selection_binding(
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} request hash does not match requested shot"
             )
+        _validate_conditioning_binding(result, request, shot_index=index)
 
         execution_plan = getattr(shot_receipt, "execution_plan", None)
         if execution_plan is None:
