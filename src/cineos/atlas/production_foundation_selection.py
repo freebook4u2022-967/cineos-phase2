@@ -89,7 +89,9 @@ def _has_declared_vram_floor(
     )
 
 
-def _camera_contract(request: NativeShotRequest) -> tuple[tuple[int, int], float, float]:
+def _camera_contract(
+    request: NativeShotRequest,
+) -> tuple[tuple[int, int], float, float]:
     """Read the exact values consumed by the Diffusers renderer.
 
     The defaults intentionally mirror ``DiffusersVideoRenderer.render``. Keeping the
