@@ -75,6 +75,7 @@ def test_wan_profiles_declare_native_temporal_compression_lattice():
     assert WAN22_TI2V_5B_PROFILE.temporal_compression_ratio == 4
     assert WAN22_I2V_A14B_PROFILE.temporal_compression_ratio == 4
     assert WAN22_TI2V_5B_PROFILE.snapshot()["temporal_compression_ratio"] == 4
+    assert WAN22_I2V_A14B_PROFILE.snapshot()["temporal_compression_ratio"] == 4
 
 
 def test_wan_5b_requests_lattice_frames_then_exports_exact_film_duration(tmp_path):
