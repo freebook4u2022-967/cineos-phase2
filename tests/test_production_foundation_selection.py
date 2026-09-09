@@ -42,6 +42,38 @@ def test_prefers_a14b_when_every_shot_is_image_conditioned_and_vram_floor_is_met
     assert selection.to_dict()["origin"] == "external_pretrained_foundation"
 
 
+def test_selection_manifest_persists_exact_external_foundation_provenance():
+    selection = select_strongest_production_foundation(
+        (_gpu(96.0, 90.0),),
+        (_request("hero"), _request("hero", "partner")),
+    )
+
+    payload = selection.to_dict()
+    provenance = WAN22_I2V_A14B_PROFILE.provenance
+    assert payload["model_id"] == provenance.model_id
+    assert payload["revision"] == provenance.revision
+    assert payload["license_id"] == provenance.license_id
+    assert payload["source_url"] == provenance.source_url
+    assert payload["foundation_name"] == provenance.foundation_name
+    assert payload["origin"] == "external_pretrained_foundation"
+
+
+def test_fallback_manifest_keeps_5b_external_provenance_explicit():
+    selection = select_strongest_production_foundation(
+        (_gpu(48.0, 44.0),),
+        (_request("hero"), _request("hero")),
+    )
+
+    payload = selection.to_dict()
+    provenance = WAN22_TI2V_5B_PROFILE.provenance
+    assert payload["model_id"] == provenance.model_id
+    assert payload["revision"] == provenance.revision
+    assert payload["license_id"] == provenance.license_id
+    assert payload["source_url"] == provenance.source_url
+    assert payload["foundation_name"] == provenance.foundation_name
+    assert payload["origin"] == "external_pretrained_foundation"
+
+
 def test_falls_back_to_5b_below_unvalidated_a14b_vram_floor():
     selection = select_strongest_production_foundation(
         (_gpu(48.0, 44.0),),
