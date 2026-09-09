@@ -220,3 +220,31 @@ def test_dialogue_timing_legacy_without_competitive_tag_remains_compatible():
     ]
 
     request.validate_timing_integrity()
+
+
+def test_dialogue_timing_rejects_camera_duration_conflicting_with_renderer_contract():
+    request = _request(0)
+    request.camera["duration"] = 1.5
+
+    with pytest.raises(ValueError, match="camera.duration conflicts"):
+        request.validate_timing_integrity()
+
+
+def test_frame_dialogue_rejects_camera_fps_conflicting_with_renderer_contract():
+    request = _request(0)
+    request.camera["fps"] = 30.0
+    request.performance["dialogue_timing"] = [
+        {"speaker_id": "lead", "start_frame": 6, "end_frame": 24}
+    ]
+
+    with pytest.raises(ValueError, match="camera.fps conflicts"):
+        request.validate_timing_integrity()
+
+
+def test_camera_only_duration_bounds_dialogue_timing():
+    request = _request(0)
+    request.renderer_requirements.pop("duration_seconds")
+    request.camera["duration"] = 0.75
+
+    with pytest.raises(ValueError, match="extends beyond the shot duration"):
+        request.validate_timing_integrity()
