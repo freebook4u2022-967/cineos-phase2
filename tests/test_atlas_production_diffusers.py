@@ -371,6 +371,12 @@ def test_single_reference_result_attests_exact_conditioning_lineage(tmp_path):
     assert result.conditioning_provenance == {
         "mode": "single_reference",
         "consumed_reference_ids": ["hero-front"],
+        "consumed_reference_sha256": [
+            "96825f2795863a9820d76e164a27e40a3c569975c5159765ca88bbbeab1af86c"
+        ],
+        "conditioning_image_sha256": (
+            "96825f2795863a9820d76e164a27e40a3c569975c5159765ca88bbbeab1af86c"
+        ),
     }
 
 
@@ -395,9 +401,75 @@ def test_multi_reference_result_attests_adapter_provenance(tmp_path):
     assert result.conditioning_provenance == {
         "mode": "multi_reference_adapter",
         "consumed_reference_ids": ["hero-front", "partner-front"],
+        "consumed_reference_sha256": [
+            "96825f2795863a9820d76e164a27e40a3c569975c5159765ca88bbbeab1af86c",
+            "de1fc340a0ac2ac0f286b67693fc6894cd6c69ffa1c92f8fda9e31c702c29c87",
+        ],
+        "conditioning_image_sha256": (
+            "0f0dbd1fd57b18f4d303790ebb25974aa2fe690b0ef7ba74714027197ad78008"
+        ),
         "adapter_id": "cineos.reference-compositor",
         "adapter_version": "1.3.2",
     }
+
+
+def test_same_reference_id_with_changed_content_changes_conditioning_fingerprint(tmp_path):
+    state = {"version": "v1"}
+    renderer = _renderer(
+        tmp_path,
+        ImagePipeline(),
+        reference_loader=lambda reference_id: f"{reference_id}:{state['version']}",
+    )
+
+    first = renderer.render(_request())
+    state["version"] = "v2"
+    second = renderer.render(_request())
+
+    assert first.conditioning_provenance["consumed_reference_ids"] == ["hero-front"]
+    assert second.conditioning_provenance["consumed_reference_ids"] == ["hero-front"]
+    assert (
+        first.conditioning_provenance["consumed_reference_sha256"]
+        != second.conditioning_provenance["consumed_reference_sha256"]
+    )
+
+
+def test_multi_reference_fingerprints_preserve_approved_board_order(tmp_path):
+    def adapter(request, references):
+        return MultiReferenceConditioningResult(
+            image="|".join(references),
+            consumed_reference_ids=tuple(request.approved_reference_ids),
+            adapter_id="cineos.reference-compositor",
+            adapter_version="1.0",
+        )
+
+    renderer = _renderer(
+        tmp_path,
+        ImagePipeline(),
+        reference_loader=lambda reference_id: f"image:{reference_id}",
+        multi_reference_adapter=adapter,
+    )
+
+    first = renderer.render(_request(references=("hero-front", "partner-front")))
+    second = renderer.render(_request(references=("partner-front", "hero-front")))
+
+    assert first.conditioning_provenance["consumed_reference_sha256"] == list(
+        reversed(second.conditioning_provenance["consumed_reference_sha256"])
+    )
+    assert (
+        first.conditioning_provenance["conditioning_image_sha256"]
+        != second.conditioning_provenance["conditioning_image_sha256"]
+    )
+
+
+def test_unfingerprintable_conditioning_object_fails_closed(tmp_path):
+    renderer = _renderer(
+        tmp_path,
+        ImagePipeline(),
+        reference_loader=lambda _reference_id: object(),
+    )
+
+    with pytest.raises(DiffusersVideoError, match="cannot be deterministically fingerprinted"):
+        renderer.render(_request())
 
 
 def test_text_only_result_does_not_claim_visual_conditioning(tmp_path):
