@@ -20,8 +20,12 @@ def _snapshot(tmp_path, name="snapshot"):
 def test_snapshot_attestation_is_deterministic_and_revision_bound(tmp_path):
     root = _snapshot(tmp_path)
 
-    first = attest_model_snapshot(root, model_id="Wan-AI/Wan2.2-I2V-A14B", revision="abc123")
-    second = attest_model_snapshot(root, model_id="Wan-AI/Wan2.2-I2V-A14B", revision="abc123")
+    first = attest_model_snapshot(
+        root, model_id="Wan-AI/Wan2.2-I2V-A14B", revision="abc123"
+    )
+    second = attest_model_snapshot(
+        root, model_id="Wan-AI/Wan2.2-I2V-A14B", revision="abc123"
+    )
 
     assert first == second
     assert [item.path for item in first.files] == ["config.json", "unet/weights.bin"]

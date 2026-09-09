@@ -69,14 +69,18 @@ def attest_model_snapshot(
         raise ModelSnapshotAttestationError("model snapshot directory does not exist")
 
     entries: list[ModelSnapshotFile] = []
-    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+    for path in sorted(
+        root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()
+    ):
         if path.is_symlink():
             raise ModelSnapshotAttestationError(
                 f"model snapshot contains unsupported symlink: {path.relative_to(root).as_posix()}"
             )
         if path.is_file():
             relative = path.relative_to(root).as_posix()
-            entries.append(ModelSnapshotFile(relative, path.stat().st_size, _sha256(path)))
+            entries.append(
+                ModelSnapshotFile(relative, path.stat().st_size, _sha256(path))
+            )
     if not entries:
         raise ModelSnapshotAttestationError("model snapshot contains no files")
 
