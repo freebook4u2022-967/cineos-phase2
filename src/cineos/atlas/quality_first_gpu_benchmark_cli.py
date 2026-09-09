@@ -120,9 +120,7 @@ def _validate_per_shot_selection_binding(
     expected_profile = selection.profile
     expected_provenance = expected_profile.provenance
     expected_plan = selection.plan
-    expected_execution_fields = {
-        "device": expected_plan.device,
-        "dtype": expected_plan.dtype,
+    expected_policy_fields = {
         "memory_strategy": expected_plan.memory_strategy,
         "enable_vae_tiling": expected_plan.enable_vae_tiling,
         "enable_vae_slicing": expected_plan.enable_vae_slicing,
@@ -163,7 +161,15 @@ def _validate_per_shot_selection_binding(
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} is missing GPU execution-plan evidence"
             )
-        for field, expected_value in expected_execution_fields.items():
+        if getattr(execution_plan, "device", None) != expected_plan.device:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} CUDA device does not match quality-first selection"
+            )
+        if getattr(execution_plan, "dtype", None) != expected_plan.dtype:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} dtype does not match quality-first selection"
+            )
+        for field, expected_value in expected_policy_fields.items():
             if getattr(execution_plan, field, None) != expected_value:
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} GPU execution field {field!r} does not match "
