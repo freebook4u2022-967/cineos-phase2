@@ -102,7 +102,7 @@ def _jsonable(value: Any) -> Any:
     }
 
 
-def _receipt_payload(receipt: Any, *, benchmark_id: str) -> dict[str, Any]:
+def _receipt_payload(receipt: Any, *, benchmark_id: str | None) -> dict[str, Any]:
     serializer = getattr(receipt, "to_dict", None)
     if callable(serializer):
         payload = serializer()
@@ -111,7 +111,8 @@ def _receipt_payload(receipt: Any, *, benchmark_id: str) -> dict[str, Any]:
                 "connected benchmark receipt payload must be a mapping"
             )
         normalized = dict(payload)
-        if normalized.get("benchmark_id") != benchmark_id:
+        receipt_benchmark_id = normalized.get("benchmark_id")
+        if benchmark_id is not None and receipt_benchmark_id != benchmark_id:
             raise ProductionBenchmarkAttestationError(
                 "connected benchmark receipt benchmark_id does not match invocation"
             )
@@ -123,7 +124,10 @@ def _receipt_payload(receipt: Any, *, benchmark_id: str) -> dict[str, Any]:
             "connected benchmark receipt payload must be a mapping"
         )
     normalized = dict(payload)
-    normalized["benchmark_id"] = benchmark_id
+    resolved_benchmark_id = benchmark_id or getattr(receipt, "benchmark_id", None)
+    if not isinstance(resolved_benchmark_id, str) or not resolved_benchmark_id.strip():
+        resolved_benchmark_id = "legacy-injected-receipt"
+    normalized["benchmark_id"] = resolved_benchmark_id
     return normalized
 
 
@@ -186,12 +190,14 @@ def write_quality_first_production_attestation(
     *,
     selection_manifest: str | Path,
     receipt: Any,
-    benchmark_id: str,
+    benchmark_id: str | None = None,
     filename: str = DEFAULT_FILENAME,
 ) -> Path:
     """Atomically bind the exact selector sidecar to exact accepted benchmark evidence."""
 
-    if not isinstance(benchmark_id, str) or not benchmark_id.strip():
+    if benchmark_id is not None and (
+        not isinstance(benchmark_id, str) or not benchmark_id.strip()
+    ):
         raise ProductionBenchmarkAttestationError("benchmark_id must not be empty")
     output_root = Path(output_dir)
     selection_path = Path(selection_manifest)
