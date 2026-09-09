@@ -16,6 +16,23 @@ from cineos.atlas.production_benchmark_attestation import (
 PROFILE_ID = "wan2.2-i2v-a14b"
 ORIGIN = "external_pretrained_foundation"
 BENCHMARK_ID = "quality-first-production"
+MODEL_ID = "Wan-AI/Wan2.2-I2V-A14B-Diffusers"
+REVISION = "a" * 40
+
+
+def _execution_plan(device="cuda:0"):
+    return {
+        "device": device,
+        "dtype": "bfloat16",
+        "memory_strategy": "resident",
+        "enable_vae_tiling": False,
+        "enable_vae_slicing": False,
+        "enable_attention_slicing": False,
+        "estimated_model_vram_gb": 80.0,
+        "observed_total_vram_gb": 96.0,
+        "observed_free_vram_gb": 90.0,
+        "fit_margin_gb": 10.0,
+    }
 
 
 @dataclass
@@ -23,8 +40,39 @@ class _Receipt:
     profile_id: str = PROFILE_ID
     origin: str = ORIGIN
     benchmark_id: str = BENCHMARK_ID
+    shot_model_id: str = MODEL_ID
+    shot_revision: str = REVISION
+    shot_device: str = "cuda:0"
+    runtime_device: str = "cuda:0"
 
     def to_dict(self):
+        shots = []
+        for index in range(5):
+            shots.append(
+                {
+                    "shot_id": f"shot-{index}",
+                    "scene_id": "scene-1",
+                    "request_hash": f"{index + 20:064x}",
+                    "output_sha256": f"{index + 1:064x}",
+                    "profile_id": self.profile_id,
+                    "origin": self.origin,
+                    "foundation": {
+                        "model_id": self.shot_model_id,
+                        "revision": self.shot_revision,
+                        "license_id": "Apache-2.0",
+                        "source_url": "https://huggingface.co/Wan-AI/Wan2.2-I2V-A14B-Diffusers",
+                        "foundation_name": "Wan2.2 I2V A14B",
+                    },
+                    "execution_plan": _execution_plan(self.shot_device),
+                    "runtime_provenance": {
+                        "schema": "cineos-gpu-runtime-provenance/0.1",
+                        "runtime_mode": "default",
+                        "production_default_runtime": True,
+                        "cuda_device": self.runtime_device,
+                        "dtype": "bfloat16",
+                    },
+                }
+            )
         return {
             "schema": "cineos-gpu-connected-benchmark/0.3",
             "benchmark_id": self.benchmark_id,
@@ -35,10 +83,7 @@ class _Receipt:
             "production_gpu_evidence": True,
             "production_quality_evidence": True,
             "evidence_tier": "production-gpu-quality-gated",
-            "shots": [
-                {"shot_id": f"shot-{index}", "output_sha256": f"{index + 1:064x}"}
-                for index in range(5)
-            ],
+            "shots": shots,
         }
 
 
@@ -46,19 +91,11 @@ def _selection_payload():
     return {
         "profile_id": PROFILE_ID,
         "origin": ORIGIN,
-        "model_id": "Wan-AI/Wan2.2-I2V-A14B-Diffusers",
-        "revision": "a" * 40,
+        "model_id": MODEL_ID,
+        "revision": REVISION,
         "fallback_used": False,
         "rejected_profiles": [],
-        "execution_plan": {
-            "device": "cuda:0",
-            "dtype": "bfloat16",
-            "memory_strategy": "resident",
-            "estimated_model_vram_gb": 80.0,
-            "observed_total_vram_gb": 96.0,
-            "observed_free_vram_gb": 90.0,
-            "fit_margin_gb": 10.0,
-        },
+        "execution_plan": _execution_plan(),
     }
 
 
@@ -82,6 +119,7 @@ def test_attestation_binds_selection_sidecar_to_connected_benchmark(tmp_path):
     )
 
     evidence = verify_quality_first_production_attestation(attestation_path)
+    assert evidence["schema"] == "cineos-quality-first-production-attestation/0.2"
     assert evidence["benchmark_id"] == BENCHMARK_ID
     assert evidence["foundation_selection"]["profile_id"] == PROFILE_ID
     assert evidence["connected_benchmark"]["shot_count"] == 5
@@ -141,6 +179,51 @@ def test_attestation_rejects_selection_and_receipt_profile_mismatch(tmp_path):
             tmp_path,
             selection_manifest=selection_path,
             receipt=_Receipt(profile_id="wan2.2-ti2v-5b"),
+            benchmark_id=BENCHMARK_ID,
+        )
+
+
+def test_attestation_rejects_per_shot_foundation_revision_substitution(tmp_path):
+    selection_path = _write_selection(tmp_path)
+
+    with pytest.raises(
+        ProductionBenchmarkAttestationError,
+        match="revision does not match foundation selection",
+    ):
+        write_quality_first_production_attestation(
+            tmp_path,
+            selection_manifest=selection_path,
+            receipt=_Receipt(shot_revision="b" * 40),
+            benchmark_id=BENCHMARK_ID,
+        )
+
+
+def test_attestation_rejects_per_shot_execution_device_drift(tmp_path):
+    selection_path = _write_selection(tmp_path)
+
+    with pytest.raises(
+        ProductionBenchmarkAttestationError,
+        match="execution field 'device' does not match foundation selection",
+    ):
+        write_quality_first_production_attestation(
+            tmp_path,
+            selection_manifest=selection_path,
+            receipt=_Receipt(shot_device="cuda:1", runtime_device="cuda:1"),
+            benchmark_id=BENCHMARK_ID,
+        )
+
+
+def test_attestation_rejects_runtime_device_drift(tmp_path):
+    selection_path = _write_selection(tmp_path)
+
+    with pytest.raises(
+        ProductionBenchmarkAttestationError,
+        match="runtime CUDA device does not match foundation selection",
+    ):
+        write_quality_first_production_attestation(
+            tmp_path,
+            selection_manifest=selection_path,
+            receipt=_Receipt(runtime_device="cuda:1"),
             benchmark_id=BENCHMARK_ID,
         )
 
