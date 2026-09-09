@@ -118,21 +118,51 @@ class NativeShotRequest:
     content_hash: str = ""
 
     def validate_timing_integrity(self) -> None:
-        """Fail closed on malformed timing while preserving 0.1 frame aliases."""
-        duration_seconds: float | None = None
+        """Fail closed on malformed timing while preserving 0.1 frame aliases.
+
+        ``camera`` is the timing authority consumed by the current Diffusers runtime.
+        ``renderer_requirements`` may independently carry the same contract for
+        capability selection. When both declare FPS or duration they must agree;
+        otherwise dialogue can validate against one timeline while inference renders
+        another. A camera-only duration/FPS is therefore also used to bound dialogue.
+        """
+        requirement_duration: float | None = None
         if "duration_seconds" in self.renderer_requirements:
-            duration_seconds = _finite_positive_number(
+            requirement_duration = _finite_positive_number(
                 self.renderer_requirements["duration_seconds"],
                 field_name="renderer_requirements.duration_seconds",
             )
-        fps: float | None = None
+        camera_duration: float | None = None
+        if "duration" in self.camera:
+            camera_duration = _finite_positive_number(
+                self.camera["duration"], field_name="camera.duration"
+            )
+        if requirement_duration is not None and camera_duration is not None:
+            if not math.isclose(
+                requirement_duration, camera_duration, rel_tol=0.0, abs_tol=1e-9
+            ):
+                raise ValueError(
+                    "camera.duration conflicts with renderer_requirements.duration_seconds"
+                )
+        duration_seconds = (
+            camera_duration if camera_duration is not None else requirement_duration
+        )
+
+        requirement_fps: float | None = None
         if "fps" in self.renderer_requirements:
-            fps = _finite_positive_number(
+            requirement_fps = _finite_positive_number(
                 self.renderer_requirements["fps"],
                 field_name="renderer_requirements.fps",
             )
-        elif "fps" in self.camera:
-            fps = _finite_positive_number(self.camera["fps"], field_name="camera.fps")
+        camera_fps: float | None = None
+        if "fps" in self.camera:
+            camera_fps = _finite_positive_number(
+                self.camera["fps"], field_name="camera.fps"
+            )
+        if requirement_fps is not None and camera_fps is not None:
+            if not math.isclose(requirement_fps, camera_fps, rel_tol=0.0, abs_tol=1e-9):
+                raise ValueError("camera.fps conflicts with renderer_requirements.fps")
+        fps = camera_fps if camera_fps is not None else requirement_fps
 
         require_dialogue_grounding = _requires_competitive_dialogue_grounding(
             self.metadata
