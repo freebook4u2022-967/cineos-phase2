@@ -139,6 +139,18 @@ def _required_string(mapping: Mapping[str, Any], field: str, *, label: str) -> s
     return value
 
 
+def _shot_foundation(shot: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    foundation = shot.get("foundation")
+    if isinstance(foundation, Mapping):
+        return foundation
+    result = shot.get("result")
+    if isinstance(result, Mapping):
+        nested = result.get("foundation")
+        if isinstance(nested, Mapping):
+            return nested
+    return None
+
+
 def _validate_detailed_shot_binding(
     selection: Mapping[str, Any], connected: Mapping[str, Any]
 ) -> None:
@@ -183,7 +195,13 @@ def _validate_detailed_shot_binding(
             )
 
     shots = connected.get("shots")
-    shot_count = connected.get("shot_count")
+    if shots is None:
+        shots = connected.get("shot_receipts")
+    if not isinstance(shots, Sequence) or isinstance(shots, (str, bytes, bytearray)):
+        raise ProductionBenchmarkAttestationError(
+            "connected benchmark is missing per-shot evidence"
+        )
+    shot_count = connected.get("shot_count", len(shots))
     if (
         not isinstance(shot_count, int)
         or isinstance(shot_count, bool)
@@ -191,10 +209,6 @@ def _validate_detailed_shot_binding(
     ):
         raise ProductionBenchmarkAttestationError(
             "connected benchmark has invalid shot_count"
-        )
-    if not isinstance(shots, Sequence) or isinstance(shots, (str, bytes, bytearray)):
-        raise ProductionBenchmarkAttestationError(
-            "connected benchmark is missing per-shot evidence"
         )
     if len(shots) != shot_count:
         raise ProductionBenchmarkAttestationError(
@@ -217,8 +231,8 @@ def _validate_detailed_shot_binding(
                 f"connected benchmark shot {index} origin does not match foundation selection"
             )
 
-        foundation = shot.get("foundation")
-        if not isinstance(foundation, Mapping):
+        foundation = _shot_foundation(shot)
+        if foundation is None:
             raise ProductionBenchmarkAttestationError(
                 f"connected benchmark shot {index} is missing foundation provenance"
             )
