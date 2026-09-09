@@ -21,7 +21,6 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-
 SCHEMA = "cineos-quality-first-production-attestation/0.1"
 DEFAULT_FILENAME = "quality-first-production-attestation.json"
 
