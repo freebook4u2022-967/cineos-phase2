@@ -234,6 +234,27 @@ def _profile_request_mismatch(
     return None
 
 
+def _execution_plan_mismatch(
+    profile: FoundationExecutionProfile,
+    plan: GPUExecutionPlan,
+) -> str | None:
+    """Reject execution modes that are not validated for a production profile.
+
+    The A14B profile's declared 80 GB floor describes the approved resident-quality
+    path. The generic GPU planner deliberately supports CPU offload for model-agnostic
+    workloads, but CINEOS has not validated A14B offload as equivalent production
+    execution. Until a separately benchmarked offload profile exists, accepting one
+    here would turn a capacity estimate into an unsupported production claim.
+    """
+
+    if profile is WAN22_I2V_A14B_PROFILE and plan.memory_strategy != "resident":
+        return (
+            "requires validated resident execution; generic planner selected "
+            f"{plan.memory_strategy}"
+        )
+    return None
+
+
 def select_strongest_production_foundation(
     devices: tuple[GPUDeviceProfile, ...],
     requests: Sequence[NativeShotRequest],
@@ -283,6 +304,10 @@ def select_strongest_production_foundation(
             )
         except GPUPreflightError as exc:
             rejected.append(f"{profile.profile_id}: {exc}")
+            continue
+        execution_mismatch = _execution_plan_mismatch(profile, plan)
+        if execution_mismatch is not None:
+            rejected.append(f"{profile.profile_id}: {execution_mismatch}")
             continue
         return ProductionFoundationSelection(
             profile=profile,
