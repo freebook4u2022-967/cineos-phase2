@@ -201,9 +201,7 @@ def test_quality_first_entrypoint_preserves_5b_fallback_on_48gb_runner(
     monkeypatch.setattr(
         cli, "run_production_quality_retry_connected_gpu_benchmark", fake_run
     )
-    requests = [
-        _request(index, resolution=(1280, 704), fps=24.0) for index in range(5)
-    ]
+    requests = [_request(index, resolution=(1280, 704), fps=24.0) for index in range(5)]
 
     cli.run_quality_first_production_benchmark(
         "quality-first",
