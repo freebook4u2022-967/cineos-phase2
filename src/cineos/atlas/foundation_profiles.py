@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from .diffusers_video import DiffusersVideoRenderer, FoundationProvenance
-from .production_continuity_identity import (
-    ProductionContinuityIdentityDiffusersVideoRenderer,
-)
 from .reference_board import compose_reference_board
+from .temporal_lattice import plan_temporal_frames
+from .temporal_production_diffusers import (
+    TemporalLatticeProductionDiffusersVideoRenderer,
+)
 
 EXTERNAL_PRETRAINED_FOUNDATION = "external_pretrained_foundation"
 WAN22_TI2V_5B_DIFFUSERS_REVISION = "4c6ca6c2ded5c79550a3ca25555efc561112891a"
@@ -35,6 +36,7 @@ class FoundationExecutionProfile:
     minimum_gpu_vram_gb: float
     supported_features: frozenset[str] = frozenset({"text_to_video", "image_to_video"})
     origin: str = EXTERNAL_PRETRAINED_FOUNDATION
+    temporal_compression_ratio: int | None = None
 
     def __post_init__(self) -> None:
         if not self.profile_id.strip():
@@ -76,6 +78,15 @@ class FoundationExecutionProfile:
             raise ValueError(
                 "foundation execution profile has unsupported feature tags"
             )
+        if self.temporal_compression_ratio is not None:
+            if (
+                isinstance(self.temporal_compression_ratio, bool)
+                or not isinstance(self.temporal_compression_ratio, int)
+                or self.temporal_compression_ratio <= 0
+            ):
+                raise ValueError(
+                    "temporal_compression_ratio must be a positive integer when supplied"
+                )
 
     def renderer(
         self,
@@ -103,7 +114,14 @@ class FoundationExecutionProfile:
             if multi_reference_adapter is None
             else multi_reference_adapter
         )
-        return ProductionContinuityIdentityDiffusersVideoRenderer(
+        max_generation_frames = None
+        if self.temporal_compression_ratio is not None:
+            max_generation_frames = plan_temporal_frames(
+                self.duration_range[1],
+                max(self.fps),
+                temporal_compression_ratio=self.temporal_compression_ratio,
+            ).generated_frames
+        return TemporalLatticeProductionDiffusersVideoRenderer(
             self.provenance,
             output_dir=output_dir,
             resolutions=self.resolutions,
@@ -115,6 +133,8 @@ class FoundationExecutionProfile:
             continuity_identity_adapter=continuity_identity_adapter,
             pipeline_factory=pipeline_factory,
             video_exporter=video_exporter,
+            temporal_compression_ratio=self.temporal_compression_ratio,
+            max_generation_frames=max_generation_frames,
         )
 
     def snapshot(self) -> dict[str, Any]:
@@ -128,6 +148,7 @@ class FoundationExecutionProfile:
             "duration_range": list(self.duration_range),
             "minimum_gpu_vram_gb": self.minimum_gpu_vram_gb,
             "supported_features": sorted(self.supported_features),
+            "temporal_compression_ratio": self.temporal_compression_ratio,
         }
 
 
@@ -144,6 +165,7 @@ WAN22_TI2V_5B_PROFILE = FoundationExecutionProfile(
     fps=(24.0,),
     duration_range=(1.0, 5.0),
     minimum_gpu_vram_gb=24.0,
+    temporal_compression_ratio=4,
 )
 
 # Quality-first, higher-compute option for identity-conditioned production shots.
@@ -166,6 +188,7 @@ WAN22_I2V_A14B_PROFILE = FoundationExecutionProfile(
     duration_range=(1.0, 5.0),
     minimum_gpu_vram_gb=80.0,
     supported_features=frozenset({"image_to_video"}),
+    temporal_compression_ratio=4,
 )
 
 
