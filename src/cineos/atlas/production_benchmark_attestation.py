@@ -21,7 +21,8 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "cineos-quality-first-production-attestation/0.1"
+LEGACY_SCHEMA = "cineos-quality-first-production-attestation/0.1"
+SCHEMA = "cineos-quality-first-production-attestation/0.2"
 DEFAULT_FILENAME = "quality-first-production-attestation.json"
 
 
@@ -131,8 +132,131 @@ def _receipt_payload(receipt: Any, *, benchmark_id: str | None) -> dict[str, Any
     return normalized
 
 
-def _validate_cross_binding(
+def _required_string(mapping: Mapping[str, Any], field: str, *, label: str) -> str:
+    value = mapping.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ProductionBenchmarkAttestationError(f"{label} is missing {field}")
+    return value
+
+
+def _validate_detailed_shot_binding(
     selection: Mapping[str, Any], connected: Mapping[str, Any]
+) -> None:
+    """Bind each accepted shot to the exact selected foundation and execution policy.
+
+    Selection happens from a live preflight before the renderer opens. The renderer
+    intentionally performs a second live preflight at session open, so volatile
+    observed-free-VRAM fields may legitimately differ. Stable policy fields must not.
+    """
+
+    selected_model = _required_string(selection, "model_id", label="foundation selection")
+    selected_revision = _required_string(
+        selection, "revision", label="foundation selection"
+    )
+    if len(selected_revision) != 40 or any(
+        character not in "0123456789abcdef" for character in selected_revision.lower()
+    ):
+        raise ProductionBenchmarkAttestationError(
+            "foundation selection revision must be an immutable 40-character hash"
+        )
+
+    selected_plan = selection.get("execution_plan")
+    if not isinstance(selected_plan, Mapping):
+        raise ProductionBenchmarkAttestationError(
+            "foundation selection is missing execution_plan"
+        )
+    required_plan_fields = (
+        "device",
+        "dtype",
+        "memory_strategy",
+        "enable_vae_tiling",
+        "enable_vae_slicing",
+        "enable_attention_slicing",
+        "estimated_model_vram_gb",
+    )
+    for field in required_plan_fields:
+        if field not in selected_plan:
+            raise ProductionBenchmarkAttestationError(
+                f"foundation selection execution_plan is missing {field}"
+            )
+
+    shots = connected.get("shots")
+    shot_count = connected.get("shot_count")
+    if not isinstance(shot_count, int) or isinstance(shot_count, bool) or shot_count <= 0:
+        raise ProductionBenchmarkAttestationError(
+            "connected benchmark has invalid shot_count"
+        )
+    if not isinstance(shots, Sequence) or isinstance(shots, (str, bytes, bytearray)):
+        raise ProductionBenchmarkAttestationError(
+            "connected benchmark is missing per-shot evidence"
+        )
+    if len(shots) != shot_count:
+        raise ProductionBenchmarkAttestationError(
+            "connected benchmark per-shot evidence count does not match shot_count"
+        )
+
+    selected_profile = selection["profile_id"]
+    selected_origin = selection["origin"]
+    for index, shot in enumerate(shots):
+        if not isinstance(shot, Mapping):
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} evidence is malformed"
+            )
+        if shot.get("profile_id") != selected_profile:
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} profile_id does not match foundation selection"
+            )
+        if shot.get("origin") != selected_origin:
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} origin does not match foundation selection"
+            )
+
+        foundation = shot.get("foundation")
+        if not isinstance(foundation, Mapping):
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} is missing foundation provenance"
+            )
+        if foundation.get("model_id") != selected_model:
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} model_id does not match foundation selection"
+            )
+        if foundation.get("revision") != selected_revision:
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} revision does not match foundation selection"
+            )
+
+        execution_plan = shot.get("execution_plan")
+        if not isinstance(execution_plan, Mapping):
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} is missing execution_plan"
+            )
+        for field in required_plan_fields:
+            if execution_plan.get(field) != selected_plan.get(field):
+                raise ProductionBenchmarkAttestationError(
+                    f"connected benchmark shot {index} execution field {field!r} "
+                    "does not match foundation selection"
+                )
+
+        runtime = shot.get("runtime_provenance")
+        if not isinstance(runtime, Mapping):
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} is missing runtime provenance"
+            )
+        if runtime.get("cuda_device") != selected_plan.get("device"):
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} runtime CUDA device does not match foundation selection"
+            )
+        if runtime.get("dtype") != selected_plan.get("dtype"):
+            raise ProductionBenchmarkAttestationError(
+                f"connected benchmark shot {index} runtime dtype does not match foundation selection"
+            )
+
+
+def _validate_cross_binding(
+    selection: Mapping[str, Any],
+    connected: Mapping[str, Any],
+    *,
+    require_detailed_shot_binding: bool,
 ) -> None:
     for field in ("profile_id", "origin"):
         selected = selection.get(field)
@@ -163,6 +287,8 @@ def _validate_cross_binding(
         raise ProductionBenchmarkAttestationError(
             "connected benchmark is not production-gpu-quality-gated"
         )
+    if require_detailed_shot_binding:
+        _validate_detailed_shot_binding(selection, connected)
 
 
 def remove_stale_quality_first_attestation(
@@ -212,7 +338,11 @@ def write_quality_first_production_attestation(
 
     selection = _load_mapping(selection_path, label="foundation selection")
     connected = _receipt_payload(receipt, benchmark_id=benchmark_id)
-    _validate_cross_binding(selection, connected)
+    _validate_cross_binding(
+        selection,
+        connected,
+        require_detailed_shot_binding=True,
+    )
 
     body: dict[str, Any] = {
         "schema": SCHEMA,
@@ -258,7 +388,8 @@ def verify_quality_first_production_attestation(path: str | Path) -> dict[str, A
 
     attestation_path = Path(path)
     payload = _load_mapping(attestation_path, label="quality-first attestation")
-    if payload.get("schema") != SCHEMA:
+    schema = payload.get("schema")
+    if schema not in {LEGACY_SCHEMA, SCHEMA}:
         raise ProductionBenchmarkAttestationError(
             "unsupported quality-first production attestation schema"
         )
@@ -312,7 +443,11 @@ def verify_quality_first_production_attestation(path: str | Path) -> dict[str, A
         raise ProductionBenchmarkAttestationError(
             "connected benchmark digest does not match attestation"
         )
-    _validate_cross_binding(selection, connected_dict)
+    _validate_cross_binding(
+        selection,
+        connected_dict,
+        require_detailed_shot_binding=(schema == SCHEMA),
+    )
     if connected_dict.get("benchmark_id") != payload.get("benchmark_id"):
         raise ProductionBenchmarkAttestationError(
             "attestation benchmark_id does not match connected benchmark"
@@ -322,7 +457,9 @@ def verify_quality_first_production_attestation(path: str | Path) -> dict[str, A
 
 __all__ = [
     "DEFAULT_FILENAME",
+    "LEGACY_SCHEMA",
     "ProductionBenchmarkAttestationError",
+    "SCHEMA",
     "remove_stale_quality_first_attestation",
     "verify_quality_first_production_attestation",
     "write_quality_first_production_attestation",
