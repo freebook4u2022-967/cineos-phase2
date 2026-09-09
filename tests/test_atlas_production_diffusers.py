@@ -413,7 +413,9 @@ def test_multi_reference_result_attests_adapter_provenance(tmp_path):
     }
 
 
-def test_same_reference_id_with_changed_content_changes_conditioning_fingerprint(tmp_path):
+def test_same_reference_id_with_changed_content_changes_conditioning_fingerprint(
+    tmp_path,
+):
     state = {"version": "v1"}
     renderer = _renderer(
         tmp_path,
@@ -468,7 +470,9 @@ def test_unfingerprintable_conditioning_object_fails_closed(tmp_path):
         reference_loader=lambda _reference_id: object(),
     )
 
-    with pytest.raises(DiffusersVideoError, match="cannot be deterministically fingerprinted"):
+    with pytest.raises(
+        DiffusersVideoError, match="cannot be deterministically fingerprinted"
+    ):
         renderer.render(_request())
 
 
