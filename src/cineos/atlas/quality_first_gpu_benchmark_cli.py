@@ -121,7 +121,10 @@ def _validate_conditioning_binding(
         )
 
     consumed = conditioning.get("consumed_reference_ids")
-    if not isinstance(consumed, (list, tuple)) or tuple(consumed) != expected_references:
+    if (
+        not isinstance(consumed, (list, tuple))
+        or tuple(consumed) != expected_references
+    ):
         raise GPUProductionBenchmarkCLIError(
             f"shot {shot_index} conditioning references do not match the approved reference board"
         )

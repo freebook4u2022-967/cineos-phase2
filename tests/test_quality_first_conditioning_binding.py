@@ -80,7 +80,9 @@ def test_quality_first_rejects_partial_reference_consumption():
         },
     )
 
-    with pytest.raises(GPUProductionBenchmarkCLIError, match="approved reference board"):
+    with pytest.raises(
+        GPUProductionBenchmarkCLIError, match="approved reference board"
+    ):
         _validate_conditioning_binding(result, request, shot_index=2)
 
 
@@ -96,7 +98,9 @@ def test_quality_first_rejects_reordered_reference_consumption():
         },
     )
 
-    with pytest.raises(GPUProductionBenchmarkCLIError, match="approved reference board"):
+    with pytest.raises(
+        GPUProductionBenchmarkCLIError, match="approved reference board"
+    ):
         _validate_conditioning_binding(result, request, shot_index=1)
 
 
