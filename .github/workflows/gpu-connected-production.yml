@@ -154,6 +154,8 @@ jobs:
       - name: Run quality-first connected GPU benchmark with production visual QC
         env:
           HF_HOME: ${{ runner.temp }}/cineos-hf-cache
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
           CONTINUITY_IDENTITY_REFRESH: ${{ inputs.continuity_identity_refresh }}
         run: |
           refresh_args=()
