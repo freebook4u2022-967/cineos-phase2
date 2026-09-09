@@ -28,6 +28,11 @@ from .gpu_production_quality_retry import (
     run_production_continuity_quality_retry_connected_gpu_benchmark as run_production_quality_retry_connected_gpu_benchmark,
 )
 from .native_request import NativeShotRequest
+from .production_benchmark_attestation import (
+    ProductionBenchmarkAttestationError,
+    remove_stale_quality_first_attestation,
+    write_quality_first_production_attestation,
+)
 from .production_foundation_selection import (
     ProductionFoundationSelection,
     ProductionFoundationSelectionError,
@@ -220,6 +225,11 @@ def run_quality_first_production_benchmark(
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
+    try:
+        remove_stale_quality_first_attestation(output_root)
+    except ProductionBenchmarkAttestationError as exc:
+        raise GPUProductionBenchmarkCLIError(str(exc)) from exc
+
     quality_evaluator = _production_quality_evaluator(requests, reference_manifest)
     transition_evaluator = (
         _production_transition_evaluator(quality_evaluator)
@@ -270,6 +280,15 @@ def run_quality_first_production_benchmark(
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark did not reach production-gpu-quality-gated evidence tier"
         )
+
+    try:
+        write_quality_first_production_attestation(
+            output_root,
+            selection_manifest=selection_manifest,
+            receipt=receipt,
+        )
+    except ProductionBenchmarkAttestationError as exc:
+        raise GPUProductionBenchmarkCLIError(str(exc)) from exc
     return receipt
 
 
