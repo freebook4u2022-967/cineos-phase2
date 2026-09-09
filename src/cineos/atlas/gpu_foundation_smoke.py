@@ -52,7 +52,7 @@ class GPUFoundationExecutionReceipt:
     runtime_provenance: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "shot_id": self.result.shot_id,
             "scene_id": self.result.scene_id,
             "request_hash": self.result.request_hash,
@@ -80,6 +80,10 @@ class GPUFoundationExecutionReceipt:
             },
             "runtime_provenance": self.runtime_provenance,
         }
+        conditioning = getattr(self.result, "conditioning_provenance", None)
+        if conditioning is not None:
+            payload["conditioning_provenance"] = dict(conditioning)
+        return payload
 
 
 def _expected_artifact_path(request: NativeShotRequest, output_dir: str | Path) -> Path:
