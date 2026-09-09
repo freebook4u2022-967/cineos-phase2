@@ -188,8 +188,11 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
     def render(self, request: Any) -> ProductionDiffusersVideoResult:
         self._prepared_multi_reference_image = None
         self._conditioning_provenance = None
-        if isinstance(request, NativeShotRequest) and request.approved_reference_ids:
-            self._verify_reference_conditioning_path(request)
+        if isinstance(request, NativeShotRequest):
+            if self._foundation_requires_image_conditioning():
+                self._verify_mandatory_image_conditioning_path()
+            if request.approved_reference_ids:
+                self._verify_reference_conditioning_path(request)
         try:
             result = super().render(request)
             return ProductionDiffusersVideoResult(
@@ -211,6 +214,28 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
         finally:
             self._prepared_multi_reference_image = None
             self._conditioning_provenance = None
+
+    def _foundation_requires_image_conditioning(self) -> bool:
+        """Return whether the declared production capability contract is I2V-only."""
+
+        features = frozenset(self.capabilities.supported_features)
+        return "image_to_video" in features and "text_to_video" not in features
+
+    def _verify_mandatory_image_conditioning_path(self) -> None:
+        """Reject an I2V-only foundation that cannot receive an image at inference."""
+
+        if self._pipeline is None:
+            raise DiffusersVideoError("renderer model is not loaded")
+        parameters = inspect.signature(self._pipeline.__call__).parameters
+        accepts_kwargs = any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
+        if "image" not in parameters and not accepts_kwargs:
+            raise DiffusersVideoError(
+                "production foundation is image-to-video only, but the loaded "
+                "pipeline does not expose image conditioning"
+            )
 
     def _verify_reference_conditioning_path(self, request: NativeShotRequest) -> None:
         self._validate_character_reference_lineage(request)
@@ -336,6 +361,11 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             raise DiffusersVideoError(
                 "approved identity reference could not be resolved for production "
                 f"shot {request.shot_id!r}"
+            )
+        if reference is None and self._foundation_requires_image_conditioning():
+            raise DiffusersVideoError(
+                "production foundation is image-to-video only, but this shot has no "
+                "resolved image conditioning source"
             )
         if reference is not None and self._conditioning_provenance is not None:
             reference_sha256 = _conditioning_content_sha256(reference)
