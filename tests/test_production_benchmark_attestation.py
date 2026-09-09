@@ -13,7 +13,6 @@ from cineos.atlas.production_benchmark_attestation import (
     write_quality_first_production_attestation,
 )
 
-
 PROFILE_ID = "wan2.2-i2v-a14b"
 ORIGIN = "external_pretrained_foundation"
 BENCHMARK_ID = "quality-first-production"
