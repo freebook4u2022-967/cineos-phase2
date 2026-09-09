@@ -26,14 +26,30 @@ def _gpu(total: float, free: float | None = None) -> GPUDeviceProfile:
     )
 
 
-def _request(*refs: str):
-    return SimpleNamespace(approved_reference_ids=tuple(refs))
+def _request(
+    *refs: str,
+    resolution: tuple[int, int] = (832, 480),
+    fps: float = 16.0,
+    duration: float = 5.0,
+):
+    return SimpleNamespace(
+        approved_reference_ids=tuple(refs),
+        camera={"resolution": resolution, "fps": fps, "duration": duration},
+    )
+
+
+def _a14b_request(*refs: str):
+    return _request(*refs, resolution=(832, 480), fps=16.0)
+
+
+def _five_b_request(*refs: str):
+    return _request(*refs, resolution=(1280, 704), fps=24.0)
 
 
 def test_prefers_a14b_when_every_shot_is_image_conditioned_and_vram_floor_is_met():
     selection = select_strongest_production_foundation(
         (_gpu(96.0, 90.0),),
-        (_request("hero"), _request("hero", "partner")),
+        (_a14b_request("hero"), _a14b_request("hero", "partner")),
     )
 
     assert selection.profile is WAN22_I2V_A14B_PROFILE
@@ -45,7 +61,7 @@ def test_prefers_a14b_when_every_shot_is_image_conditioned_and_vram_floor_is_met
 def test_selection_manifest_persists_exact_external_foundation_provenance():
     selection = select_strongest_production_foundation(
         (_gpu(96.0, 90.0),),
-        (_request("hero"), _request("hero", "partner")),
+        (_a14b_request("hero"), _a14b_request("hero", "partner")),
     )
 
     payload = selection.to_dict()
@@ -61,7 +77,7 @@ def test_selection_manifest_persists_exact_external_foundation_provenance():
 def test_fallback_manifest_keeps_5b_external_provenance_explicit():
     selection = select_strongest_production_foundation(
         (_gpu(48.0, 44.0),),
-        (_request("hero"), _request("hero")),
+        (_five_b_request("hero"), _five_b_request("hero")),
     )
 
     payload = selection.to_dict()
@@ -77,7 +93,7 @@ def test_fallback_manifest_keeps_5b_external_provenance_explicit():
 def test_falls_back_to_5b_below_unvalidated_a14b_vram_floor():
     selection = select_strongest_production_foundation(
         (_gpu(48.0, 44.0),),
-        (_request("hero"), _request("hero")),
+        (_five_b_request("hero"), _five_b_request("hero")),
     )
 
     assert selection.profile is WAN22_TI2V_5B_PROFILE
@@ -88,12 +104,54 @@ def test_falls_back_to_5b_below_unvalidated_a14b_vram_floor():
 def test_falls_back_to_5b_when_any_shot_lacks_image_conditioning():
     selection = select_strongest_production_foundation(
         (_gpu(96.0, 90.0),),
-        (_request("hero"), _request()),
+        (_five_b_request("hero"), _five_b_request()),
     )
 
     assert selection.profile is WAN22_TI2V_5B_PROFILE
     assert selection.fallback_used is True
     assert any("image conditioning" in reason for reason in selection.rejected_profiles)
+
+
+def test_high_vram_runner_does_not_select_a14b_for_5b_generation_contract():
+    selection = select_strongest_production_foundation(
+        (_gpu(96.0, 90.0),),
+        (_five_b_request("hero"), _five_b_request("hero", "partner")),
+    )
+
+    assert selection.profile is WAN22_TI2V_5B_PROFILE
+    assert selection.fallback_used is True
+    assert any(
+        "unsupported resolution 1280x704" in reason
+        for reason in selection.rejected_profiles
+    )
+
+
+def test_rejects_a14b_when_exact_request_fps_is_not_profile_supported():
+    with pytest.raises(
+        ProductionFoundationSelectionError,
+        match="unsupported fps 24",
+    ):
+        select_strongest_production_foundation(
+            (_gpu(96.0, 90.0),),
+            (
+                _request("hero", resolution=(832, 480), fps=24.0),
+                _request("hero", resolution=(832, 480), fps=24.0),
+            ),
+        )
+
+
+def test_rejects_all_profiles_for_unsupported_generation_resolution():
+    with pytest.raises(
+        ProductionFoundationSelectionError,
+        match="unsupported resolution 1920x1080",
+    ):
+        select_strongest_production_foundation(
+            (_gpu(96.0, 90.0),),
+            (
+                _request("hero", resolution=(1920, 1080), fps=24.0),
+                _request("hero", resolution=(1920, 1080), fps=24.0),
+            ),
+        )
 
 
 def test_fails_closed_when_no_approved_profile_can_fit():
@@ -103,5 +161,5 @@ def test_fails_closed_when_no_approved_profile_can_fit():
     ):
         select_strongest_production_foundation(
             (_gpu(4.0, 3.0),),
-            (_request("hero"), _request("hero")),
+            (_five_b_request("hero"), _five_b_request("hero")),
         )
