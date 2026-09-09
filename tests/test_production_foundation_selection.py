@@ -221,9 +221,7 @@ def test_accepts_consistent_native_renderer_requirements():
         },
     )
 
-    selection = select_strongest_production_foundation(
-        (_gpu(96.0, 90.0),), (request,)
-    )
+    selection = select_strongest_production_foundation((_gpu(96.0, 90.0),), (request,))
 
     assert selection.profile is WAN22_I2V_A14B_PROFILE
 
