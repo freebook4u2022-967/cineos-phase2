@@ -9,10 +9,12 @@ references cannot actually reach the foundation pipeline.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .diffusers_video import (
@@ -54,6 +56,101 @@ class ProductionDiffusersVideoResult(DiffusersVideoResult):
 MultiReferenceAdapter = Callable[
     [NativeShotRequest, Sequence[Any]], MultiReferenceConditioningResult
 ]
+
+
+def _conditioning_content_sha256(value: Any) -> str:
+    """Fingerprint the exact decoded conditioning content sent toward inference.
+
+    The fingerprint is intentionally content-oriented rather than tied to an asset
+    filename. Production loaders commonly return PIL images, numpy arrays or torch
+    tensors after decoding; hashing that consumed representation catches an asset
+    replacement even when its logical reference ID and source path stay unchanged.
+    Simple bytes/paths are supported for lower-level loaders and strings remain
+    supported for lightweight test/dry-run boundaries.
+    """
+
+    header: dict[str, Any]
+    payload: bytes
+
+    if isinstance(value, bytes):
+        header = {"kind": "bytes"}
+        payload = value
+    elif isinstance(value, bytearray):
+        header = {"kind": "bytes"}
+        payload = bytes(value)
+    elif isinstance(value, memoryview):
+        header = {"kind": "bytes"}
+        payload = value.tobytes()
+    elif isinstance(value, Path):
+        if not value.is_file():
+            raise DiffusersVideoError(
+                f"conditioning reference path does not exist: {value}"
+            )
+        header = {"kind": "file-bytes"}
+        payload = value.read_bytes()
+    elif isinstance(value, str):
+        path = Path(value)
+        if path.is_file():
+            header = {"kind": "file-bytes"}
+            payload = path.read_bytes()
+        else:
+            header = {"kind": "string"}
+            payload = value.encode("utf-8")
+    else:
+        candidate = value
+        if all(hasattr(candidate, attr) for attr in ("detach", "cpu")):
+            try:
+                candidate = candidate.detach().cpu()
+                if hasattr(candidate, "contiguous"):
+                    candidate = candidate.contiguous()
+                if hasattr(candidate, "numpy"):
+                    candidate = candidate.numpy()
+            except Exception as exc:  # pragma: no cover - backend-specific guard
+                raise DiffusersVideoError(
+                    "conditioning tensor could not be normalized for fingerprinting"
+                ) from exc
+
+        tobytes = getattr(candidate, "tobytes", None)
+        if not callable(tobytes):
+            raise DiffusersVideoError(
+                "production conditioning content cannot be deterministically "
+                f"fingerprinted: {type(value).__name__}"
+            )
+        try:
+            payload = tobytes()
+        except Exception as exc:  # pragma: no cover - backend-specific guard
+            raise DiffusersVideoError(
+                "production conditioning content could not be serialized for "
+                "fingerprinting"
+            ) from exc
+        if not isinstance(payload, bytes):
+            payload = bytes(payload)
+
+        shape = getattr(candidate, "shape", None)
+        size = getattr(candidate, "size", None)
+        if callable(size):
+            size = None
+        header = {
+            "kind": "decoded-array",
+            "type": type(candidate).__name__,
+            "dtype": str(getattr(candidate, "dtype", "")),
+            "mode": str(getattr(candidate, "mode", "")),
+            "shape": list(shape) if shape is not None else None,
+            "size": list(size) if isinstance(size, tuple) else size,
+        }
+
+    digest = hashlib.sha256()
+    digest.update(
+        json.dumps(
+            header,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    )
+    digest.update(b"\x00")
+    digest.update(payload)
+    return digest.hexdigest()
 
 
 class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
@@ -185,6 +282,7 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
         assert self.reference_loader is not None
 
         resolved: list[Any] = []
+        resolved_sha256: list[str] = []
         for reference_id in request.approved_reference_ids:
             reference = self.reference_loader(reference_id)
             if reference is None:
@@ -193,6 +291,7 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                     f"shot {request.shot_id!r}: {reference_id!r}"
                 )
             resolved.append(reference)
+            resolved_sha256.append(_conditioning_content_sha256(reference))
 
         result = self.multi_reference_adapter(request, tuple(resolved))
         if not isinstance(result, MultiReferenceConditioningResult):
@@ -217,6 +316,8 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
         self._conditioning_provenance = {
             "mode": "multi_reference_adapter",
             "consumed_reference_ids": list(result.consumed_reference_ids),
+            "consumed_reference_sha256": resolved_sha256,
+            "conditioning_image_sha256": _conditioning_content_sha256(result.image),
             "adapter_id": result.adapter_id.strip(),
             "adapter_version": result.adapter_version.strip(),
         }
@@ -236,6 +337,12 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                 "approved identity reference could not be resolved for production "
                 f"shot {request.shot_id!r}"
             )
+        if reference is not None and self._conditioning_provenance is not None:
+            reference_sha256 = _conditioning_content_sha256(reference)
+            self._conditioning_provenance["consumed_reference_sha256"] = [
+                reference_sha256
+            ]
+            self._conditioning_provenance["conditioning_image_sha256"] = reference_sha256
         return reference
 
     @staticmethod
