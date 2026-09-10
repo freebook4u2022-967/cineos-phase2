@@ -88,6 +88,18 @@ def _production_transition_evaluator(
     return ArtifactMeasuredTransitionQualityEvaluator(transition_observer)
 
 
+def _is_sha256_hexdigest(value: Any) -> bool:
+    """Return whether ``value`` is a canonical SHA-256 hexadecimal digest."""
+
+    if not isinstance(value, str) or len(value) != 64 or value != value.lower():
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
 def _validate_conditioning_binding(
     result: Any,
     request: NativeShotRequest,
@@ -98,9 +110,11 @@ def _validate_conditioning_binding(
 
     ProductionDiffusersVideoResult exposes ``conditioning_provenance``. When that
     production field is present, quality-first acceptance fails closed unless it
-    proves that every approved reference was actually consumed in request order.
-    Generic/legacy result objects that predate this production evidence field retain
-    their historical compatibility outside the real production renderer boundary.
+    proves that every approved reference was actually consumed in request order and
+    carries renderer-computed content fingerprints for both the consumed references
+    and the exact image supplied to the external foundation. Generic/legacy result
+    objects that predate this production evidence field retain their historical
+    compatibility outside the real production renderer boundary.
     """
 
     if not hasattr(result, "conditioning_provenance"):
@@ -129,17 +143,45 @@ def _validate_conditioning_binding(
             f"shot {shot_index} conditioning references do not match the approved reference board"
         )
 
+    consumed_hashes = conditioning.get("consumed_reference_sha256")
+    if (
+        not isinstance(consumed_hashes, (list, tuple))
+        or len(consumed_hashes) != len(expected_references)
+        or any(not _is_sha256_hexdigest(digest) for digest in consumed_hashes)
+    ):
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} conditioning reference fingerprints are missing or invalid"
+        )
+    if len(set(consumed_hashes)) != len(consumed_hashes):
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} conditioning references resolve to duplicate consumed content"
+        )
+
+    conditioning_image_hash = conditioning.get("conditioning_image_sha256")
+    if not _is_sha256_hexdigest(conditioning_image_hash):
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} conditioning image fingerprint is missing or invalid"
+        )
+
     mode = conditioning.get("mode")
     if len(expected_references) == 1:
         if mode != "single_reference":
             raise GPUProductionBenchmarkCLIError(
                 f"shot {shot_index} single-reference conditioning mode is invalid"
             )
+        if conditioning_image_hash != consumed_hashes[0]:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {shot_index} single-reference conditioning image does not match consumed content"
+            )
         return
 
     if mode != "multi_reference_adapter":
         raise GPUProductionBenchmarkCLIError(
             f"shot {shot_index} multi-reference conditioning mode is invalid"
+        )
+    if conditioning_image_hash in consumed_hashes:
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} multi-reference adapter returned an unchanged source reference"
         )
     adapter_id = conditioning.get("adapter_id")
     adapter_version = conditioning.get("adapter_version")
