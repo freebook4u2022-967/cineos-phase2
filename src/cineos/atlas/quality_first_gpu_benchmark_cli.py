@@ -296,7 +296,10 @@ def _validate_per_shot_selection_binding(
             )
 
         expected_hashes: tuple[str, ...] | None = None
-        if hasattr(result, "conditioning_provenance") and request.approved_reference_ids:
+        if (
+            hasattr(result, "conditioning_provenance")
+            and request.approved_reference_ids
+        ):
             if reference_manifest is None:
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} has production conditioning evidence without an approved reference manifest"
@@ -357,7 +360,10 @@ def _validate_per_shot_selection_binding(
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} runtime is missing approved reference asset provenance"
                 )
-            if reference_assets.get("manifest_sha256") != reference_loader.manifest_sha256:
+            if (
+                reference_assets.get("manifest_sha256")
+                != reference_loader.manifest_sha256
+            ):
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} runtime reference manifest does not match approved manifest"
                 )
