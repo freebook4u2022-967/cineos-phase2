@@ -119,10 +119,9 @@ def _validated_preflight(payload: Mapping[str, Any]) -> tuple[list[str], str]:
             "connected benchmark preflight is missing ordered shot IDs"
         )
     ordered_ids = list(ordered)
-    if (
-        any(not isinstance(item, str) or not item for item in ordered_ids)
-        or len(set(ordered_ids)) != len(ordered_ids)
-    ):
+    if any(not isinstance(item, str) or not item for item in ordered_ids) or len(
+        set(ordered_ids)
+    ) != len(ordered_ids):
         raise ProductionRequestBundleAttestationError(
             "connected benchmark preflight has invalid ordered shot IDs"
         )
@@ -145,7 +144,9 @@ def validate_request_bundle_preflight(
 ) -> dict[str, Any]:
     """Recompute the preflight bundle binding from exact requests before inference."""
 
-    preflight = _load_mapping(Path(preflight_path), label="connected benchmark preflight")
+    preflight = _load_mapping(
+        Path(preflight_path), label="connected benchmark preflight"
+    )
     expected_ids, expected_hash = _validated_preflight(preflight)
     try:
         requests = load_native_requests(requests_path)
@@ -171,7 +172,9 @@ def validate_request_bundle_preflight(
     }
 
 
-def _render_bundle_binding(quality_attestation: Mapping[str, Any]) -> tuple[list[str], str]:
+def _render_bundle_binding(
+    quality_attestation: Mapping[str, Any],
+) -> tuple[list[str], str]:
     connected = quality_attestation.get("connected_benchmark")
     if not isinstance(connected, Mapping):
         raise ProductionRequestBundleAttestationError(
@@ -285,7 +288,9 @@ def verify_production_request_bundle_attestation(path: str | Path) -> dict[str, 
     """Verify the root and both bound sidecars without needing the original requests."""
 
     attestation_path = Path(path)
-    payload = _load_mapping(attestation_path, label="production request-bundle attestation")
+    payload = _load_mapping(
+        attestation_path, label="production request-bundle attestation"
+    )
     if payload.get("schema") != SCHEMA:
         raise ProductionRequestBundleAttestationError(
             "unsupported production request-bundle attestation schema"
@@ -304,7 +309,10 @@ def verify_production_request_bundle_attestation(path: str | Path) -> dict[str, 
 
     preflight_name = payload.get("preflight_manifest")
     quality_name = payload.get("quality_attestation")
-    if preflight_name != PREFLIGHT_FILENAME or quality_name != QUALITY_ATTESTATION_FILENAME:
+    if (
+        preflight_name != PREFLIGHT_FILENAME
+        or quality_name != QUALITY_ATTESTATION_FILENAME
+    ):
         raise ProductionRequestBundleAttestationError(
             "production request-bundle attestation has unexpected sidecar names"
         )
@@ -325,7 +333,9 @@ def verify_production_request_bundle_attestation(path: str | Path) -> dict[str, 
         quality = verify_quality_first_production_attestation(quality_path)
     except ProductionBenchmarkAttestationError as exc:
         raise ProductionRequestBundleAttestationError(str(exc)) from exc
-    if quality.get("attestation_sha256") != payload.get("quality_attestation_root_sha256"):
+    if quality.get("attestation_sha256") != payload.get(
+        "quality_attestation_root_sha256"
+    ):
         raise ProductionRequestBundleAttestationError(
             "quality attestation root does not match request-bundle attestation"
         )
