@@ -48,9 +48,13 @@ jobs:
 
       - name: Preflight connected production inputs before model acquisition
         run: |
+          output_dir="${{ runner.temp }}/cineos-connected-production"
+          mkdir -p "$output_dir"
           python -m cineos.atlas.production_input_preflight \
             --requests "${{ inputs.requests_path }}" \
-            --reference-manifest "${{ inputs.reference_manifest_path }}"
+            --reference-manifest "${{ inputs.reference_manifest_path }}" \
+            | tee "$output_dir/production-input-preflight.json"
+          test -s "$output_dir/production-input-preflight.json"
 
       - name: Select strongest safe production foundation on live CUDA runner
         run: |
