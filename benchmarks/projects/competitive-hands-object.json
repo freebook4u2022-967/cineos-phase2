@@ -1,0 +1,1 @@
+{"fixture_version":"1.0","case_id":"competitive-hands-object","deterministic":true,"benchmark_challenges":["multi_character","prop_continuity"],"minimum_character_count":2,"object_interaction_required":true,"real_inference_required":true}

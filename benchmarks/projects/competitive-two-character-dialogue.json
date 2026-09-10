@@ -1,0 +1,1 @@
+{"fixture_version":"1.0","case_id":"competitive-two-character-dialogue","deterministic":true,"benchmark_challenges":["multi_character","dialogue","identity_lock"],"minimum_character_count":2,"real_inference_required":true}

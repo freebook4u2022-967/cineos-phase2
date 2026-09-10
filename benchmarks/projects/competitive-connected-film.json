@@ -1,0 +1,1 @@
+{"fixture_version":"1.0","case_id":"competitive-connected-film","deterministic":true,"benchmark_challenges":["identity_lock","scene_memory","automatic_qc","audio","film_assembly"],"minimum_connected_shots":5,"maximum_connected_shots":10,"real_inference_required":true}

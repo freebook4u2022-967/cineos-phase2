@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from cineos.benchmarks.exceptions import BenchmarkError
@@ -32,6 +35,34 @@ def test_seedance_competitive_suite_covers_required_difficult_cases():
         "competitive-qc-rerender",
         "competitive-connected-film",
     }
+
+
+def test_default_competitive_fixtures_exist_and_bind_to_declared_cases():
+    suite = seedance_competitive_suite()
+
+    for case in suite.cases:
+        fixture_path = Path(case.project_fixture)
+        assert fixture_path.is_file(), f"missing benchmark fixture: {fixture_path}"
+        payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+        assert payload["case_id"] == case.case_id
+        assert payload["deterministic"] is True
+        assert payload["real_inference_required"] is True
+        assert tuple(payload["benchmark_challenges"]) == case.renderer_requirements
+
+    dialogue = json.loads(
+        Path("benchmarks/projects/competitive-two-character-dialogue.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert dialogue["minimum_character_count"] >= 2
+
+    connected = json.loads(
+        Path("benchmarks/projects/competitive-connected-film.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert connected["minimum_connected_shots"] == suite.metadata["minimum_connected_shots"]
+    assert connected["maximum_connected_shots"] == suite.metadata["maximum_connected_shots"]
 
 
 def test_connected_film_gate_requires_complete_film_signals():
