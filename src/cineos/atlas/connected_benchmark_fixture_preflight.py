@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from .gpu_benchmark_cli import (
-    GPUProductionBenchmarkCLIError,
     REQUIRED_COMPETITIVE_CHALLENGES,
+    GPUProductionBenchmarkCLIError,
     load_native_requests,
 )
 
@@ -175,7 +175,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.benchmark_fixture,
         )
     except ConnectedBenchmarkFixturePreflightError as exc:
-        raise SystemExit(f"connected benchmark fixture preflight failed: {exc}") from exc
+        raise SystemExit(
+            f"connected benchmark fixture preflight failed: {exc}"
+        ) from exc
     print(json.dumps(result, sort_keys=True))
     return 0
 

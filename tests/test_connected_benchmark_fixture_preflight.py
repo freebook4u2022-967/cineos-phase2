@@ -9,7 +9,6 @@ from cineos.atlas.connected_benchmark_fixture_preflight import (
 )
 from cineos.atlas.gpu_benchmark_cli import REQUIRED_COMPETITIVE_CHALLENGES
 
-
 _FIXTURE_PATH = Path("benchmarks/projects/competitive-connected-film.json")
 
 
@@ -88,7 +87,9 @@ def test_connected_fixture_rejects_wrong_case_identity(tmp_path):
     payload = _payload()
     payload["case_id"] = "competitive-identity-closeup"
 
-    with pytest.raises(ConnectedBenchmarkFixturePreflightError, match="case_id must be"):
+    with pytest.raises(
+        ConnectedBenchmarkFixturePreflightError, match="case_id must be"
+    ):
         validate_connected_benchmark_fixture(
             _write_fixture(tmp_path, payload), shot_count=5
         )
