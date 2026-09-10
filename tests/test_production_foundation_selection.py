@@ -239,6 +239,14 @@ def test_accepts_consistent_native_renderer_requirements():
     assert selection.plan.memory_strategy == "resident"
 
 
+def test_rejects_empty_connected_shot_set_before_gpu_or_model_acquisition():
+    with pytest.raises(
+        ProductionFoundationSelectionError,
+        match="requires at least one native shot request",
+    ):
+        select_strongest_production_foundation((_gpu(100.0, 96.0),), ())
+
+
 def test_fails_closed_when_no_approved_profile_can_fit():
     with pytest.raises(
         ProductionFoundationSelectionError,

@@ -274,6 +274,11 @@ def select_strongest_production_foundation(
     lower-memory fallback only when the same native shot contract is compatible.
     """
 
+    if not requests:
+        raise ProductionFoundationSelectionError(
+            "production foundation selection requires at least one native shot request"
+        )
+
     candidates: list[FoundationExecutionProfile] = []
     rejected: list[str] = []
 
