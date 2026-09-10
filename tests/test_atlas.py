@@ -159,9 +159,7 @@ def test_session_rejects_stale_negotiated_cast_size_before_render() -> None:
 
     session = RendererSession(TwoCharacterRenderer())
     session.start()
-    session.negotiate(
-        resolution=(1920, 1080), duration=2, fps=24, character_count=1
-    )
+    session.negotiate(resolution=(1920, 1080), duration=2, fps=24, character_count=1)
     with pytest.raises(
         CapabilityError,
         match="request character_count 2 does not match negotiated character_count 1",
