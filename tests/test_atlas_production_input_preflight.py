@@ -117,7 +117,7 @@ def test_preflight_validates_connected_graph_and_reference_before_model_io(
     requests = _requests()
     result = preflight_production_inputs(requests, _manifest(tmp_path))
 
-    assert result["schema"] == "cineos-production-input-preflight/0.4"
+    assert result["schema"] == "cineos-production-input-preflight/0.5"
     assert result["shot_count"] == 5
     assert result["request_bundle_sha256"] == _bundle_sha256(requests)
     assert result["request_content_hashes"] == [
