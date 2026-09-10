@@ -18,18 +18,37 @@ def _request(index: int) -> NativeShotRequest:
             "duration": 2.0,
             "movement": "tracking",
         },
-        characters=[{"character_id": "hero"}],
-        environment={"lighting": "daylight"},
+        characters=[{"character_id": "hero"}, {"character_id": "partner"}],
+        environment={"lighting": "day_to_night transition"},
         wardrobe=[],
-        props=[],
+        props=[{"prop_id": "case", "action": "throwing"}],
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
-        performance={"action": "walking"},
-        approved_reference_ids=["hero-reference"],
+        performance={
+            "action": "walk while throwing case",
+            "gesture_tracks": [{"character_id": "hero", "action": "gripping"}],
+            "dialogue_timing": [
+                {"speaker_id": "hero", "start_seconds": 0.1, "end_seconds": 0.8}
+            ],
+        },
+        approved_reference_ids=["hero-reference", "partner-reference"],
         deterministic_seed=9100 + index,
         renderer_requirements={
             "supported_resolution": [832, 480],
             "supported_fps": 16.0,
             "maximum_duration": 2.0,
+        },
+        metadata={
+            "competitive_challenges": [
+                "identity_consistency",
+                "multi_character_interaction",
+                "hands_anatomy",
+                "walking_running",
+                "dialogue_lip_sync",
+                "object_interaction",
+                "fast_camera_movement",
+                "lighting_changes",
+                "physics",
+            ]
         },
     )
     request.refresh_hash()
