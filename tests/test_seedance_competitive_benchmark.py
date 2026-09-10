@@ -61,8 +61,14 @@ def test_default_competitive_fixtures_exist_and_bind_to_declared_cases():
             encoding="utf-8"
         )
     )
-    assert connected["minimum_connected_shots"] == suite.metadata["minimum_connected_shots"]
-    assert connected["maximum_connected_shots"] == suite.metadata["maximum_connected_shots"]
+    assert (
+        connected["minimum_connected_shots"]
+        == suite.metadata["minimum_connected_shots"]
+    )
+    assert (
+        connected["maximum_connected_shots"]
+        == suite.metadata["maximum_connected_shots"]
+    )
 
 
 def test_connected_film_gate_requires_complete_film_signals():
