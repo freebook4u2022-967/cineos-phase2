@@ -8,6 +8,10 @@ from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.production_diffusers import ProductionDiffusersVideoResult
 from cineos.atlas.quality_first_gpu_benchmark_cli import _validate_conditioning_binding
 
+REF_A = "1" * 64
+REF_B = "2" * 64
+COMPOSED = "3" * 64
+
 
 def _request(refs):
     request = NativeShotRequest(
@@ -60,6 +64,8 @@ def test_quality_first_accepts_exact_multi_reference_conditioning_lineage():
         {
             "mode": "multi_reference_adapter",
             "consumed_reference_ids": ["hero-front", "partner-front"],
+            "consumed_reference_sha256": [REF_A, REF_B],
+            "conditioning_image_sha256": COMPOSED,
             "adapter_id": "cineos.production.reference_board",
             "adapter_version": "0.1.1",
         },
@@ -75,6 +81,8 @@ def test_quality_first_accepts_exact_single_reference_conditioning_lineage():
         {
             "mode": "single_reference",
             "consumed_reference_ids": ["hero-front"],
+            "consumed_reference_sha256": [REF_A],
+            "conditioning_image_sha256": REF_A,
         },
     )
 
@@ -124,6 +132,8 @@ def test_quality_first_rejects_wrong_single_reference_mode():
         {
             "mode": "multi_reference_adapter",
             "consumed_reference_ids": ["hero-front"],
+            "consumed_reference_sha256": [REF_A],
+            "conditioning_image_sha256": REF_A,
             "adapter_id": "cineos.production.reference_board",
             "adapter_version": "0.1.1",
         },
@@ -140,6 +150,8 @@ def test_quality_first_rejects_missing_multi_reference_adapter_provenance():
         {
             "mode": "multi_reference_adapter",
             "consumed_reference_ids": ["hero-front", "partner-front"],
+            "consumed_reference_sha256": [REF_A, REF_B],
+            "conditioning_image_sha256": COMPOSED,
             "adapter_id": "",
             "adapter_version": "0.1.1",
         },
