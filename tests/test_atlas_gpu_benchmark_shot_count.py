@@ -26,6 +26,19 @@ def _request(index: int) -> NativeShotRequest:
             "gesture_tracks": [
                 {"character_id": "lead", "action": "gripping with both hands"}
             ],
+            "interaction_cues": [
+                {
+                    "participant_ids": ["lead", "partner"],
+                    "action": "lead hands the case to partner",
+                }
+            ],
+            "object_interaction_cues": [
+                {
+                    "character_id": "lead",
+                    "prop_id": "case",
+                    "action": "lead handing the case to partner",
+                }
+            ],
             "dialogue_timing": [
                 {"speaker_id": "lead", "start_seconds": 0.2, "end_seconds": 1.0}
             ],
@@ -97,10 +110,10 @@ def test_direct_production_runner_rejects_invalid_count_before_qc_model_load(
         match=rf"requires 5-10 shots; received {shot_count}",
     ):
         run_production_benchmark(
-            "production-evidence",
+            "shot-count",
             [_request(index) for index in range(shot_count)],
-            output_dir=tmp_path / "renders",
-            reference_manifest="approved-references.json",
+            output_dir=tmp_path,
+            reference_manifest="references.json",
         )
 
     assert qc_loaded is False
