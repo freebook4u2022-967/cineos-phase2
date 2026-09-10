@@ -280,9 +280,8 @@ def _validate_multi_character_interaction_conditioning(
                 f"shot {index} interaction cue {cue_index} must be an object"
             )
         participants = cue.get("participant_ids")
-        if (
-            not isinstance(participants, Sequence)
-            or isinstance(participants, (str, bytes))
+        if not isinstance(participants, Sequence) or isinstance(
+            participants, (str, bytes)
         ):
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} interaction cue {cue_index} requires participant_ids"
