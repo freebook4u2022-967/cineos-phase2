@@ -61,10 +61,8 @@ def _quality_payload(requests, *, order=None):
         "connected_benchmark": {
             "shots": [
                 {
-                    "result": {
-                        "shot_id": request.shot_id,
-                        "request_hash": request.content_hash,
-                    }
+                    "shot_id": request.shot_id,
+                    "request_hash": request.content_hash,
                 }
                 for request in ordered
             ]
@@ -109,9 +107,7 @@ def test_inference_gate_rejects_request_content_changed_after_preflight(
         validate_request_bundle_preflight("requests.json", preflight)
 
 
-def test_final_attestation_binds_preflight_to_accepted_render_receipts(
-    monkeypatch, tmp_path
-):
+def test_final_attestation_binds_real_flattened_gpu_receipts(monkeypatch, tmp_path):
     requests = _requests()
     preflight = _write_preflight(tmp_path, requests)
     quality_payload = _quality_payload(requests)
@@ -152,6 +148,33 @@ def test_final_attestation_rejects_reordered_accepted_renders(monkeypatch, tmp_p
     with pytest.raises(
         ProductionRequestBundleAttestationError,
         match="accepted render order does not match",
+    ):
+        write_production_request_bundle_attestation(
+            tmp_path,
+            requests_path="requests.json",
+            preflight_path=preflight,
+            quality_attestation_path=quality,
+        )
+
+
+def test_final_attestation_rejects_substituted_render_request_hash(
+    monkeypatch, tmp_path
+):
+    requests = _requests()
+    preflight = _write_preflight(tmp_path, requests)
+    quality_payload = _quality_payload(requests)
+    quality_payload["connected_benchmark"]["shots"][3]["request_hash"] = "b" * 64
+    quality = _write_quality(tmp_path, quality_payload)
+    monkeypatch.setattr(bundle_attestation, "load_native_requests", lambda _: requests)
+    monkeypatch.setattr(
+        bundle_attestation,
+        "verify_quality_first_production_attestation",
+        lambda _: quality_payload,
+    )
+
+    with pytest.raises(
+        ProductionRequestBundleAttestationError,
+        match="request hashes do not match",
     ):
         write_production_request_bundle_attestation(
             tmp_path,
