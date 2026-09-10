@@ -79,7 +79,7 @@ def _request(
 
 
 def _default_execution_plan(profile):
-    device = _gpu(96.0, 90.0) if profile is WAN22_I2V_A14B_PROFILE else _gpu(48.0, 44.0)
+    device = _gpu(100.0, 96.0) if profile is WAN22_I2V_A14B_PROFILE else _gpu(48.0, 44.0)
     return plan_gpu_execution(
         device,
         estimated_model_vram_gb=profile.minimum_gpu_vram_gb,
@@ -163,7 +163,9 @@ def _receipt_with_shots(profile=WAN22_I2V_A14B_PROFILE, shots=None, *, requests=
     return receipt
 
 
-def test_quality_first_entrypoint_routes_80gb_runner_to_a14b(monkeypatch, tmp_path):
+def test_quality_first_entrypoint_routes_validated_resident_runner_to_a14b(
+    monkeypatch, tmp_path
+):
     captured = {}
     monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: object())
 
@@ -181,7 +183,7 @@ def test_quality_first_entrypoint_routes_80gb_runner_to_a14b(monkeypatch, tmp_pa
         requests,
         output_dir=tmp_path,
         reference_manifest="references.json",
-        devices=(_gpu(96.0, 90.0),),
+        devices=(_gpu(100.0, 96.0),),
     )
 
     assert captured["profile"] is WAN22_I2V_A14B_PROFILE
@@ -235,7 +237,7 @@ def test_quality_first_entrypoint_rejects_receipt_for_different_profile(
             requests,
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
 
 
@@ -260,7 +262,7 @@ def test_quality_first_entrypoint_rejects_receipt_for_different_origin(
             requests,
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
 
 
@@ -284,7 +286,7 @@ def test_quality_first_entrypoint_rejects_missing_per_shot_evidence(
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
 
 
@@ -308,7 +310,7 @@ def test_quality_first_entrypoint_rejects_truncated_per_shot_evidence(
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
 
 
@@ -330,7 +332,7 @@ def test_quality_first_entrypoint_rejects_replayed_shot_receipt(monkeypatch, tmp
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
 
 
@@ -358,7 +360,7 @@ def test_quality_first_entrypoint_rejects_substituted_per_shot_foundation(
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
 
 
@@ -380,7 +382,7 @@ def test_quality_first_entrypoint_rejects_per_shot_device_drift(monkeypatch, tmp
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
 
 
@@ -406,7 +408,7 @@ def test_quality_first_entrypoint_rejects_memory_strategy_drift(monkeypatch, tmp
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
 
 
@@ -420,7 +422,7 @@ def test_quality_first_entrypoint_rejects_renderer_memory_flag_drift(
         shots[4] = _bound_shot_receipt(
             profile,
             request=requests[4],
-            enable_vae_tiling=False,
+            enable_vae_tiling=True,
         )
         return _receipt_with_shots(profile, shots, requests=requests)
 
@@ -434,5 +436,5 @@ def test_quality_first_entrypoint_rejects_renderer_memory_flag_drift(
             [_request(index) for index in range(5)],
             output_dir=tmp_path,
             reference_manifest="references.json",
-            devices=(_gpu(96.0, 90.0),),
+            devices=(_gpu(100.0, 96.0),),
         )
