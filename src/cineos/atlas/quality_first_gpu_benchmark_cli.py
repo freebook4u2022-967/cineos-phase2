@@ -38,6 +38,7 @@ from .production_foundation_selection import (
     ProductionFoundationSelectionError,
     select_strongest_production_foundation,
 )
+from .production_references import ProductionReferenceError, ProductionReferenceLoader
 from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
 
@@ -105,6 +106,7 @@ def _validate_conditioning_binding(
     request: NativeShotRequest,
     *,
     shot_index: int,
+    expected_reference_hashes: Sequence[str] | None = None,
 ) -> None:
     """Bind production conditioning evidence to the exact approved reference board.
 
@@ -112,9 +114,13 @@ def _validate_conditioning_binding(
     production field is present, quality-first acceptance fails closed unless it
     proves that every approved reference was actually consumed in request order and
     carries renderer-computed content fingerprints for both the consumed references
-    and the exact image supplied to the external foundation. Generic/legacy result
-    objects that predate this production evidence field retain their historical
-    compatibility outside the real production renderer boundary.
+    and the exact image supplied to the external foundation. When immutable manifest
+    digests are supplied by the production entrypoint, the renderer-computed hashes
+    must also match those approved bytes exactly; a correct reference ID alone is not
+    sufficient evidence of identity conditioning.
+
+    Generic/legacy result objects that predate this production evidence field retain
+    their historical compatibility outside the real production renderer boundary.
     """
 
     if not hasattr(result, "conditioning_provenance"):
@@ -156,6 +162,19 @@ def _validate_conditioning_binding(
         raise GPUProductionBenchmarkCLIError(
             f"shot {shot_index} conditioning references resolve to duplicate consumed content"
         )
+
+    if expected_reference_hashes is not None:
+        approved_hashes = tuple(expected_reference_hashes)
+        if len(approved_hashes) != len(expected_references) or any(
+            not _is_sha256_hexdigest(digest) for digest in approved_hashes
+        ):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {shot_index} approved reference fingerprints are missing or invalid"
+            )
+        if tuple(consumed_hashes) != approved_hashes:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {shot_index} consumed reference content does not match approved manifest bytes"
+            )
 
     conditioning_image_hash = conditioning.get("conditioning_image_sha256")
     if not _is_sha256_hexdigest(conditioning_image_hash):
@@ -199,6 +218,8 @@ def _validate_per_shot_selection_binding(
     receipt: Any,
     selection: ProductionFoundationSelection,
     requests: Sequence[NativeShotRequest],
+    *,
+    reference_manifest: str | Path | None = None,
 ) -> None:
     """Bind every production shot receipt to the exact selected request and runtime.
 
@@ -206,6 +227,11 @@ def _validate_per_shot_selection_binding(
     alone. Every shot must independently prove the selected profile/origin, exact
     pinned foundation provenance, requested scene/shot identity and request hash,
     plus the full CUDA execution policy chosen from the live quality-first preflight.
+
+    When production conditioning provenance is present, this validator also reopens
+    the immutable approved-reference manifest and binds both its exact digest and each
+    consumed reference digest to the per-shot runtime evidence. This prevents a
+    substituted image from being accepted merely because it retained an approved ID.
 
     This is intentionally stricter than generic/legacy connected-receipt handling:
     the quality-first production entrypoint only accepts real per-shot evidence and
@@ -239,6 +265,7 @@ def _validate_per_shot_selection_binding(
         "enable_attention_slicing": expected_plan.enable_attention_slicing,
         "estimated_model_vram_gb": expected_plan.estimated_model_vram_gb,
     }
+    reference_loader: ProductionReferenceLoader | None = None
 
     for index, (shot_receipt, request) in enumerate(zip(shot_receipts, requests)):
         if getattr(shot_receipt, "profile_id", None) != expected_profile.profile_id:
@@ -267,7 +294,29 @@ def _validate_per_shot_selection_binding(
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} request hash does not match requested shot"
             )
-        _validate_conditioning_binding(result, request, shot_index=index)
+
+        expected_hashes: tuple[str, ...] | None = None
+        if hasattr(result, "conditioning_provenance") and request.approved_reference_ids:
+            if reference_manifest is None:
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} has production conditioning evidence without an approved reference manifest"
+                )
+            try:
+                if reference_loader is None:
+                    reference_loader = ProductionReferenceLoader(reference_manifest)
+                expected_hashes = tuple(
+                    reference_loader.reference_sha256(reference_id)
+                    for reference_id in request.approved_reference_ids
+                )
+            except ProductionReferenceError as exc:
+                raise GPUProductionBenchmarkCLIError(str(exc)) from exc
+
+        _validate_conditioning_binding(
+            result,
+            request,
+            shot_index=index,
+            expected_reference_hashes=expected_hashes,
+        )
 
         execution_plan = getattr(shot_receipt, "execution_plan", None)
         if execution_plan is None:
@@ -302,6 +351,16 @@ def _validate_per_shot_selection_binding(
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} runtime dtype does not match quality-first selection"
             )
+        if expected_hashes is not None and reference_loader is not None:
+            reference_assets = runtime.get("reference_assets")
+            if not isinstance(reference_assets, dict):
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} runtime is missing approved reference asset provenance"
+                )
+            if reference_assets.get("manifest_sha256") != reference_loader.manifest_sha256:
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} runtime reference manifest does not match approved manifest"
+                )
 
 
 def run_quality_first_production_benchmark(
@@ -375,7 +434,12 @@ def run_quality_first_production_benchmark(
             "connected benchmark receipt origin does not match quality-first selection: "
             f"selected={selection.profile.origin!r} receipt={receipt.origin!r}"
         )
-    _validate_per_shot_selection_binding(receipt, selection, requests)
+    _validate_per_shot_selection_binding(
+        receipt,
+        selection,
+        requests,
+        reference_manifest=reference_manifest,
+    )
     if not receipt.production_gpu_evidence:
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark completed without default production CUDA evidence"
