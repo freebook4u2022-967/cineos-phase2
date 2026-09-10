@@ -242,6 +242,78 @@ def _normalized_terms(value: Any) -> set[str]:
     return terms
 
 
+def _conditioned_character_ids(request: NativeShotRequest) -> set[str]:
+    """Return explicit conditioned character identities using the canonical alias rules."""
+
+    identities: set[str] = set()
+    for character in request.characters:
+        if not isinstance(character, Mapping):
+            continue
+        canonical = character.get("character_uuid")
+        legacy = character.get("character_id")
+        identity = canonical if canonical not in (None, "") else legacy
+        if isinstance(identity, str) and identity.strip():
+            identities.add(identity.strip())
+    return identities
+
+
+def _validate_multi_character_interaction_conditioning(
+    request: NativeShotRequest, *, index: int
+) -> None:
+    """Require an explicit two-plus-character interaction cue for the benchmark claim."""
+
+    interaction_cues = request.performance.get("interaction_cues")
+    if (
+        not isinstance(interaction_cues, Sequence)
+        or isinstance(interaction_cues, (str, bytes))
+        or not interaction_cues
+    ):
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {index} declares multi_character_interaction but contains no explicit "
+            "interaction_cues performance conditioning"
+        )
+
+    conditioned_ids = _conditioned_character_ids(request)
+    for cue_index, cue in enumerate(interaction_cues):
+        if not isinstance(cue, Mapping):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} interaction cue {cue_index} must be an object"
+            )
+        participants = cue.get("participant_ids")
+        if (
+            not isinstance(participants, Sequence)
+            or isinstance(participants, (str, bytes))
+        ):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} interaction cue {cue_index} requires participant_ids"
+            )
+        participant_ids = [
+            participant.strip()
+            for participant in participants
+            if isinstance(participant, str) and participant.strip()
+        ]
+        if len(participant_ids) != len(participants) or len(set(participant_ids)) < 2:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} interaction cue {cue_index} requires at least two "
+                "distinct participant_ids"
+            )
+        unknown_ids = sorted(set(participant_ids) - conditioned_ids)
+        if unknown_ids:
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} interaction cue {cue_index} references unconditioned "
+                f"character identities: {', '.join(unknown_ids)}"
+            )
+        action = cue.get("action")
+        description = cue.get("description")
+        if not any(
+            isinstance(value, str) and value.strip() for value in (action, description)
+        ):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} interaction cue {cue_index} requires a non-empty "
+                "action or description"
+            )
+
+
 def _has_locomotion_conditioning(request: NativeShotRequest) -> bool:
     """Return true only when native performance conditioning asks for walk/run motion."""
 
@@ -319,6 +391,7 @@ def _validate_challenge_structure(
                     "contain at least two characters with two distinct approved "
                     "identity references"
                 )
+            _validate_multi_character_interaction_conditioning(request, index=index)
 
         if "object_interaction" in tags and not request.props:
             raise GPUProductionBenchmarkCLIError(
