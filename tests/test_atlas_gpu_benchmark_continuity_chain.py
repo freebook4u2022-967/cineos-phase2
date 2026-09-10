@@ -128,7 +128,9 @@ def test_direct_runner_rejects_disconnected_chain_before_qc_model_load(
         evaluator_loaded = True
         return object()
 
-    monkeypatch.setattr(cli, "_production_quality_evaluator", unexpected_quality_evaluator)
+    monkeypatch.setattr(
+        cli, "_production_quality_evaluator", unexpected_quality_evaluator
+    )
     requests = [_request(index) for index in range(5)]
     requests[2] = _request(2, predecessor="shot-0")
 
