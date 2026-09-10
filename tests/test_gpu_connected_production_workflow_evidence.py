@@ -22,11 +22,20 @@ def test_gpu_workflow_binds_model_acquisition_to_persisted_selection() -> None:
     workflow = _workflow()
 
     assert "foundation-selection-preacquisition.json" in workflow
-    assert 'SELECTION_PATH: ${{ runner.temp }}/cineos-connected-production/foundation-selection-preacquisition.json' in workflow
-    assert 'selection = json.loads(Path(os.environ["SELECTION_PATH"]).read_text(encoding="utf-8"))' in workflow
+    assert (
+        "SELECTION_PATH: ${{ runner.temp }}/cineos-connected-production/foundation-selection-preacquisition.json"
+        in workflow
+    )
+    assert (
+        'selection = json.loads(Path(os.environ["SELECTION_PATH"]).read_text(encoding="utf-8"))'
+        in workflow
+    )
     assert 'model_id = selection.get("model_id")' in workflow
     assert 'revision = selection.get("revision")' in workflow
-    assert "select_strongest_production_foundation(\n              inspect_cuda_environment(), requests\n          )" not in workflow
+    assert (
+        "select_strongest_production_foundation(\n              inspect_cuda_environment(), requests\n          )"
+        not in workflow
+    )
 
 
 def test_gpu_workflow_rejects_foundation_drift_after_acquisition() -> None:
