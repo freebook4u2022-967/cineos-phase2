@@ -7,7 +7,6 @@ import pytest
 from cineos.atlas.gpu_benchmark_cli import GPUProductionBenchmarkCLIError
 from cineos.atlas.quality_first_gpu_benchmark_cli import _validate_conditioning_binding
 
-
 REF_A = "1" * 64
 REF_B = "2" * 64
 COMPOSED = "3" * 64
@@ -71,7 +70,9 @@ def test_multi_reference_rejects_missing_or_malformed_consumed_hashes() -> None:
 
 
 def test_multi_reference_rejects_duplicate_consumed_content() -> None:
-    with pytest.raises(GPUProductionBenchmarkCLIError, match="duplicate consumed content"):
+    with pytest.raises(
+        GPUProductionBenchmarkCLIError, match="duplicate consumed content"
+    ):
         _validate_conditioning_binding(
             _result(
                 {
@@ -89,7 +90,9 @@ def test_multi_reference_rejects_duplicate_consumed_content() -> None:
 
 
 def test_multi_reference_rejects_adapter_returning_one_source_unchanged() -> None:
-    with pytest.raises(GPUProductionBenchmarkCLIError, match="unchanged source reference"):
+    with pytest.raises(
+        GPUProductionBenchmarkCLIError, match="unchanged source reference"
+    ):
         _validate_conditioning_binding(
             _result(
                 {
