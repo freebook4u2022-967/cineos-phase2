@@ -201,7 +201,9 @@ def test_object_interaction_challenge_rejects_conflicting_prop_identity_aliases(
     requests[0].props = [{"prop_uuid": "case", "prop_id": "other-case"}]
     requests[0].refresh_hash()
 
-    with pytest.raises(GPUProductionBenchmarkCLIError, match="conflicting prop_uuid/prop_id"):
+    with pytest.raises(
+        GPUProductionBenchmarkCLIError, match="conflicting prop_uuid/prop_id"
+    ):
         cli._validate_connected_sequence(requests)
 
 
