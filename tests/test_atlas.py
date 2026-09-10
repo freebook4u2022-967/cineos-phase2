@@ -143,6 +143,67 @@ def test_session_forwards_character_count_to_capability_negotiation() -> None:
         )
 
 
+def test_session_rejects_stale_negotiated_cast_size_before_render() -> None:
+    class TwoCharacterRenderer(StubRenderer):
+        @property
+        def capabilities(self) -> RendererCapabilities:
+            return RendererCapabilities(
+                supported_resolution=(Resolution(1920, 1080),),
+                supported_duration=Range(1, 10),
+                supported_fps=(24,),
+                maximum_character_count=2,
+            )
+
+    class Request:
+        characters = [{"character_uuid": "hero"}, {"character_uuid": "partner"}]
+
+    session = RendererSession(TwoCharacterRenderer())
+    session.start()
+    session.negotiate(
+        resolution=(1920, 1080), duration=2, fps=24, character_count=1
+    )
+    with pytest.raises(
+        CapabilityError,
+        match="request character_count 2 does not match negotiated character_count 1",
+    ):
+        session.render(Request())
+    assert not any(
+        isinstance(call, tuple) and call[0] == "render"
+        for call in session._adapter.renderer.calls
+    )
+
+
+def test_session_enforces_actual_cast_capacity_for_legacy_negotiation() -> None:
+    class TwoCharacterRenderer(StubRenderer):
+        @property
+        def capabilities(self) -> RendererCapabilities:
+            return RendererCapabilities(
+                supported_resolution=(Resolution(1920, 1080),),
+                supported_duration=Range(1, 10),
+                supported_fps=(24,),
+                maximum_character_count=2,
+            )
+
+    class Request:
+        characters = [
+            {"character_uuid": "hero"},
+            {"character_uuid": "partner"},
+            {"character_uuid": "antagonist"},
+        ]
+
+    renderer = TwoCharacterRenderer()
+    session = RendererSession(renderer)
+    session.start()
+    session.negotiate(resolution=(1920, 1080), duration=2, fps=24)
+    with pytest.raises(
+        CapabilityError, match="request character_count 3 exceeds maximum 2"
+    ):
+        session.render(Request())
+    assert not any(
+        isinstance(call, tuple) and call[0] == "render" for call in renderer.calls
+    )
+
+
 def test_registry_normalizes_names_and_creates_fresh_renderers() -> None:
     registry = RendererRegistry()
     registry.register(" Stub ", StubRenderer)
