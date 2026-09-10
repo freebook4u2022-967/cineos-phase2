@@ -228,7 +228,7 @@ def test_lighting_changes_challenge_accepts_metadata_transition():
 def test_physics_challenge_rejects_static_prop_presence():
     requests = _requests()
     requests[0].performance["action"] = "walk while holding case"
-    requests[0].props = [{"prop_id": "case"}]
+    requests[0].props = [{"prop_id": "case", "interaction": "holding"}]
     requests[0].refresh_hash()
 
     with pytest.raises(GPUProductionBenchmarkCLIError, match="physical-interaction"):
