@@ -38,6 +38,21 @@ def test_gpu_workflow_binds_model_acquisition_to_persisted_selection() -> None:
     )
 
 
+def test_gpu_workflow_cryptographically_binds_acquired_foundation_bytes() -> None:
+    workflow = _workflow()
+
+    assert "foundation-snapshot-integrity.json" in workflow
+    assert "write_foundation_snapshot_manifest" in workflow
+    assert "CINEOS_FOUNDATION_SNAPSHOT" in workflow
+    assert "CINEOS_FOUNDATION_INTEGRITY_MANIFEST" in workflow
+    assert "Verify acquired foundation bytes immediately before inference" in workflow
+    assert "Verify foundation bytes remained unchanged through inference" in workflow
+    assert workflow.count("verify_foundation_snapshot_manifest") >= 4
+    assert "foundation_tree_sha256" in workflow
+    assert 'HF_HUB_OFFLINE: "1"' in workflow
+    assert 'TRANSFORMERS_OFFLINE: "1"' in workflow
+
+
 def test_gpu_workflow_rejects_foundation_drift_after_acquisition() -> None:
     workflow = _workflow()
 
