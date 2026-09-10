@@ -15,6 +15,9 @@ from .native_request import NativeShotRequest
 from .production_diffusers import MultiReferenceConditioningResult
 
 MULTI_REFERENCE_RUNTIME_SCHEMA = "cineos-production-multi-reference-runtime/0.1"
+PRODUCTION_REFERENCE_BOARD_ADAPTER_ID = "cineos.production.reference_board"
+PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION = "0.1.1"
+PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES = 4
 
 
 class ProductionMultiReferenceError(RuntimeError):
@@ -34,9 +37,9 @@ class ProductionReferenceBoardAdapter:
     request appear fully conditioned while one distinct character is absent.
     """
 
-    adapter_id = "cineos.production.reference_board"
-    adapter_version = "0.1.1"
-    maximum_references = 4
+    adapter_id = PRODUCTION_REFERENCE_BOARD_ADAPTER_ID
+    adapter_version = PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION
+    maximum_references = PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES
 
     def __call__(
         self, request: NativeShotRequest, references: Sequence[Any]
@@ -61,7 +64,7 @@ class ProductionReferenceBoardAdapter:
             raise ProductionMultiReferenceError(
                 "multi-reference board requires at least two approved references"
             )
-        if len(references) > self.maximum_references:
+        if len(references) > PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES:
             raise ProductionMultiReferenceError(
                 "production reference board supports at most four identities per shot"
             )
@@ -121,8 +124,8 @@ class ProductionReferenceBoardAdapter:
         return MultiReferenceConditioningResult(
             image=board,
             consumed_reference_ids=expected_ids,
-            adapter_id=self.adapter_id,
-            adapter_version=self.adapter_version,
+            adapter_id=PRODUCTION_REFERENCE_BOARD_ADAPTER_ID,
+            adapter_version=PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION,
         )
 
     def runtime_provenance(self) -> dict[str, Any]:
@@ -132,9 +135,9 @@ class ProductionReferenceBoardAdapter:
                 "cineos.atlas.production_multi_reference."
                 "ProductionReferenceBoardAdapter"
             ),
-            "adapter_id": self.adapter_id,
-            "adapter_version": self.adapter_version,
-            "maximum_references": self.maximum_references,
+            "adapter_id": PRODUCTION_REFERENCE_BOARD_ADAPTER_ID,
+            "adapter_version": PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION,
+            "maximum_references": PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES,
             "composition": "deterministic_contain_fit_reference_board",
             "requires_unique_reference_ids": True,
         }
@@ -143,7 +146,12 @@ class ProductionReferenceBoardAdapter:
 def bind_production_multi_reference_runtime(
     runtime: Mapping[str, Any], adapter: Any | None
 ) -> dict[str, Any]:
-    """Promote only the exact first-party adapter to production runtime evidence."""
+    """Promote only the exact first-party adapter to production runtime evidence.
+
+    Exact type identity is intentional. An injected subclass can override execution
+    while still satisfying ``isinstance`` and must therefore remain an injected
+    boundary rather than being mislabeled as the CINEOS-owned default runtime.
+    """
 
     normalized = dict(runtime)
     boundaries = normalized.get("injected_boundaries")
@@ -153,7 +161,7 @@ def bind_production_multi_reference_runtime(
         )
     updated = dict(boundaries)
     updated["multi_reference_adapter"] = adapter is not None
-    if isinstance(adapter, ProductionReferenceBoardAdapter):
+    if type(adapter) is ProductionReferenceBoardAdapter:
         updated["multi_reference_adapter"] = False
         normalized["multi_reference_conditioning"] = adapter.runtime_provenance()
     normalized["injected_boundaries"] = updated
@@ -165,6 +173,9 @@ def bind_production_multi_reference_runtime(
 
 __all__ = [
     "MULTI_REFERENCE_RUNTIME_SCHEMA",
+    "PRODUCTION_REFERENCE_BOARD_ADAPTER_ID",
+    "PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION",
+    "PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES",
     "ProductionMultiReferenceError",
     "ProductionReferenceBoardAdapter",
     "bind_production_multi_reference_runtime",
