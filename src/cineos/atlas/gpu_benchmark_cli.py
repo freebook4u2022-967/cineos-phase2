@@ -257,6 +257,131 @@ def _conditioned_character_ids(request: NativeShotRequest) -> set[str]:
     return identities
 
 
+def _conditioned_prop_id(
+    prop: Mapping[str, Any], *, field: str
+) -> str | None:
+    """Resolve canonical/legacy prop identity without accepting ambiguous aliases."""
+
+    canonical = prop.get("prop_uuid")
+    legacy = prop.get("prop_id")
+    for name, value in (("prop_uuid", canonical), ("prop_id", legacy)):
+        if value is not None and (
+            not isinstance(value, str) or not value.strip()
+        ):
+            raise GPUProductionBenchmarkCLIError(
+                f"{field}.{name} must be a non-empty string when supplied"
+            )
+    if canonical is not None and legacy is not None:
+        if canonical.strip() != legacy.strip():
+            raise GPUProductionBenchmarkCLIError(
+                f"{field} has conflicting prop_uuid/prop_id"
+            )
+        return canonical.strip()
+    if canonical is not None:
+        return canonical.strip()
+    if legacy is not None:
+        return legacy.strip()
+    return None
+
+
+def _conditioned_prop_ids(request: NativeShotRequest, *, index: int) -> set[str]:
+    """Return explicit conditioned prop identities for grounded object interaction."""
+
+    identities: set[str] = set()
+    for prop_index, prop in enumerate(request.props):
+        if not isinstance(prop, Mapping):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} prop conditioning {prop_index} must be an object"
+            )
+        prop_id = _conditioned_prop_id(
+            prop, field=f"shot {index} prop conditioning {prop_index}"
+        )
+        if prop_id is not None:
+            identities.add(prop_id)
+    return identities
+
+
+def _has_nonempty_action(mapping: Mapping[str, Any]) -> bool:
+    return any(
+        isinstance(mapping.get(field), str) and mapping[field].strip()
+        for field in ("action", "interaction", "description")
+    )
+
+
+def _validate_object_interaction_conditioning(
+    request: NativeShotRequest, *, index: int
+) -> None:
+    """Require a structured, prop-grounded action for object-interaction claims.
+
+    Existing prop-local ``action``/``interaction``/``description`` fields remain a
+    supported backward-compatible representation. Newer manifests can use
+    ``performance.object_interaction_cues`` to bind an action to a named prop without
+    overloading the prop definition itself. Merely declaring that a prop exists is not
+    sufficient evidence that a difficult object-interaction case is being exercised.
+    """
+
+    if not request.props:
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {index} declares object_interaction but contains no prop conditioning"
+        )
+
+    conditioned_ids = _conditioned_prop_ids(request, index=index)
+    if not conditioned_ids:
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {index} declares object_interaction but contains no named prop_id "
+            "or prop_uuid conditioning"
+        )
+
+    cues = request.performance.get("object_interaction_cues")
+    if cues is not None:
+        if (
+            not isinstance(cues, Sequence)
+            or isinstance(cues, (str, bytes))
+            or not cues
+        ):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {index} object_interaction_cues must be a non-empty sequence"
+            )
+        for cue_index, cue in enumerate(cues):
+            if not isinstance(cue, Mapping):
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} object interaction cue {cue_index} must be an object"
+                )
+            prop_id = _conditioned_prop_id(
+                cue, field=f"shot {index} object interaction cue {cue_index}"
+            )
+            if prop_id is None:
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} object interaction cue {cue_index} requires prop_id "
+                    "or prop_uuid"
+                )
+            if prop_id not in conditioned_ids:
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} object interaction cue {cue_index} references "
+                    f"unconditioned prop {prop_id!r}"
+                )
+            if not _has_nonempty_action(cue):
+                raise GPUProductionBenchmarkCLIError(
+                    f"shot {index} object interaction cue {cue_index} requires a "
+                    "non-empty action or description"
+                )
+        return
+
+    for prop_index, prop in enumerate(request.props):
+        if not isinstance(prop, Mapping):
+            continue
+        prop_id = _conditioned_prop_id(
+            prop, field=f"shot {index} prop conditioning {prop_index}"
+        )
+        if prop_id in conditioned_ids and _has_nonempty_action(prop):
+            return
+
+    raise GPUProductionBenchmarkCLIError(
+        f"shot {index} declares object_interaction but contains no explicit grounded "
+        "object action"
+    )
+
+
 def _validate_multi_character_interaction_conditioning(
     request: NativeShotRequest, *, index: int
 ) -> None:
@@ -392,11 +517,8 @@ def _validate_challenge_structure(
                 )
             _validate_multi_character_interaction_conditioning(request, index=index)
 
-        if "object_interaction" in tags and not request.props:
-            raise GPUProductionBenchmarkCLIError(
-                f"shot {index} declares object_interaction but contains no prop "
-                "conditioning"
-            )
+        if "object_interaction" in tags:
+            _validate_object_interaction_conditioning(request, index=index)
 
         if "dialogue_lip_sync" in tags:
             dialogue_timing = request.performance.get("dialogue_timing")
