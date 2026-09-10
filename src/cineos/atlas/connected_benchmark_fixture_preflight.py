@@ -1,7 +1,7 @@
 """Bind the canonical Seedance-style connected-film fixture to real GPU requests.
 
 The competitive suite is descriptive metadata until its connected-film fixture is
-proven to describe the exact executable request bundle.  This preflight deliberately
+proven to describe the exact executable request bundle. This preflight deliberately
 reuses :func:`load_native_requests`, which owns the concrete per-shot challenge
 semantics, rather than maintaining a second and eventually divergent validator.
 """
@@ -20,6 +20,7 @@ from .gpu_benchmark_cli import (
     GPUProductionBenchmarkCLIError,
     load_native_requests,
 )
+from .native_request import NativeShotRequest
 
 
 class ConnectedBenchmarkFixturePreflightError(RuntimeError):
@@ -75,6 +76,43 @@ def _string_sequence(value: Any, *, field: str) -> tuple[str, ...]:
             f"connected benchmark fixture {field} must contain unique non-empty strings"
         )
     return normalized
+
+
+def _normalized_request_bundle_binding(
+    requests: Sequence[NativeShotRequest],
+) -> tuple[tuple[str, ...], str]:
+    """Hash-bind the exact ordered validated request bundle used for GPU execution.
+
+    Each request ``content_hash`` is already recomputed and verified by
+    :func:`load_native_requests`. Hashing the ordered ``shot_id``/``content_hash`` pairs
+    therefore binds both request semantics and sequence order while remaining stable
+    across irrelevant JSON whitespace or object-key formatting changes.
+    """
+
+    ordered_shot_ids: list[str] = []
+    entries: list[dict[str, str]] = []
+    for index, request in enumerate(requests):
+        shot_id = request.shot_id
+        content_hash = request.content_hash
+        if not isinstance(shot_id, str) or not shot_id:
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"validated request {index} is missing shot_id"
+            )
+        if (
+            not isinstance(content_hash, str)
+            or len(content_hash) != 64
+            or any(character not in "0123456789abcdef" for character in content_hash)
+        ):
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"validated request {index} is missing a canonical SHA-256 content_hash"
+            )
+        ordered_shot_ids.append(shot_id)
+        entries.append({"shot_id": shot_id, "content_hash": content_hash})
+
+    canonical = json.dumps(
+        entries, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return tuple(ordered_shot_ids), hashlib.sha256(canonical).hexdigest()
 
 
 def validate_connected_benchmark_fixture(
@@ -146,13 +184,24 @@ def preflight_connected_benchmark_fixture(
     requests_path: str | Path,
     fixture_path: str | Path,
 ) -> dict[str, object]:
-    """Bind fixture metadata to requests that pass the real GPU semantic validator."""
+    """Bind fixture metadata to the exact normalized requests passing GPU validation."""
 
     try:
         requests = load_native_requests(requests_path)
     except GPUProductionBenchmarkCLIError as exc:
         raise ConnectedBenchmarkFixturePreflightError(str(exc)) from exc
-    return validate_connected_benchmark_fixture(fixture_path, shot_count=len(requests))
+
+    result = validate_connected_benchmark_fixture(fixture_path, shot_count=len(requests))
+    ordered_shot_ids, bundle_sha256 = _normalized_request_bundle_binding(requests)
+    result.update(
+        {
+            "schema": "cineos-connected-benchmark-fixture-preflight/0.2",
+            "request_manifest_path": Path(requests_path).as_posix(),
+            "ordered_shot_ids": list(ordered_shot_ids),
+            "normalized_request_bundle_sha256": bundle_sha256,
+        }
+    )
+    return result
 
 
 def _parser() -> argparse.ArgumentParser:

@@ -1,10 +1,14 @@
+import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import cineos.atlas.connected_benchmark_fixture_preflight as fixture_preflight
 from cineos.atlas.connected_benchmark_fixture_preflight import (
     ConnectedBenchmarkFixturePreflightError,
+    preflight_connected_benchmark_fixture,
     validate_connected_benchmark_fixture,
 )
 from cineos.atlas.gpu_benchmark_cli import REQUIRED_COMPETITIVE_CHALLENGES
@@ -22,6 +26,16 @@ def _write_fixture(tmp_path: Path, payload: object) -> Path:
     return path
 
 
+def _fake_requests(order: tuple[int, ...] = (0, 1, 2, 3, 4)):
+    return tuple(
+        SimpleNamespace(
+            shot_id=f"shot-{index}",
+            content_hash=hashlib.sha256(f"payload-{index}".encode()).hexdigest(),
+        )
+        for index in order
+    )
+
+
 def test_canonical_connected_fixture_binds_executable_gpu_challenges():
     result = validate_connected_benchmark_fixture(_FIXTURE_PATH, shot_count=5)
 
@@ -32,6 +46,60 @@ def test_canonical_connected_fixture_binds_executable_gpu_challenges():
         REQUIRED_COMPETITIVE_CHALLENGES
     )
     assert len(result["fixture_sha256"]) == 64
+
+
+def test_preflight_hash_binds_exact_ordered_normalized_request_bundle(monkeypatch):
+    requests = _fake_requests()
+    monkeypatch.setattr(fixture_preflight, "load_native_requests", lambda _: requests)
+
+    result = preflight_connected_benchmark_fixture("requests.json", _FIXTURE_PATH)
+
+    expected_payload = [
+        {"shot_id": request.shot_id, "content_hash": request.content_hash}
+        for request in requests
+    ]
+    expected_hash = hashlib.sha256(
+        json.dumps(
+            expected_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    assert result["schema"] == "cineos-connected-benchmark-fixture-preflight/0.2"
+    assert result["ordered_shot_ids"] == [request.shot_id for request in requests]
+    assert result["normalized_request_bundle_sha256"] == expected_hash
+
+
+def test_preflight_bundle_hash_changes_when_same_requests_are_reordered(monkeypatch):
+    requests = _fake_requests()
+    reversed_requests = _fake_requests((4, 3, 2, 1, 0))
+    monkeypatch.setattr(fixture_preflight, "load_native_requests", lambda _: requests)
+    original = preflight_connected_benchmark_fixture("requests.json", _FIXTURE_PATH)
+    monkeypatch.setattr(
+        fixture_preflight, "load_native_requests", lambda _: reversed_requests
+    )
+    reordered = preflight_connected_benchmark_fixture("requests.json", _FIXTURE_PATH)
+
+    assert original["shot_count"] == reordered["shot_count"] == 5
+    assert (
+        original["normalized_request_bundle_sha256"]
+        != reordered["normalized_request_bundle_sha256"]
+    )
+
+
+def test_preflight_rejects_noncanonical_validated_request_hash(monkeypatch):
+    requests = list(_fake_requests())
+    requests[2] = SimpleNamespace(shot_id="shot-2", content_hash="g" * 64)
+    monkeypatch.setattr(
+        fixture_preflight, "load_native_requests", lambda _: tuple(requests)
+    )
+
+    with pytest.raises(
+        ConnectedBenchmarkFixturePreflightError,
+        match="canonical SHA-256 content_hash",
+    ):
+        preflight_connected_benchmark_fixture("requests.json", _FIXTURE_PATH)
 
 
 def test_connected_fixture_rejects_missing_executable_challenge(tmp_path):
