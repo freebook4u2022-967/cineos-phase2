@@ -17,6 +17,12 @@ def _request(index: int) -> NativeShotRequest:
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
         performance={
             "action": "walk while throwing case",
+            "interaction_cues": [
+                {
+                    "participant_ids": ["lead", "partner"],
+                    "action": "lead hands the case to partner",
+                }
+            ],
             "gesture_tracks": [
                 {"character_id": "lead", "action": "gripping with both hands"}
             ],
@@ -43,6 +49,53 @@ def _requests() -> list[NativeShotRequest]:
 
 def test_connected_challenge_grounding_accepts_explicit_difficult_conditioning():
     cli._validate_connected_sequence(_requests())
+
+
+def test_multi_character_interaction_rejects_presence_without_interaction_cue():
+    requests = _requests()
+    requests[0].performance.pop("interaction_cues")
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="interaction_cues"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_multi_character_interaction_rejects_single_participant_cue():
+    requests = _requests()
+    requests[0].performance["interaction_cues"] = [
+        {"participant_ids": ["lead"], "action": "lead turns"}
+    ]
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="at least two distinct"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_multi_character_interaction_rejects_unconditioned_participant():
+    requests = _requests()
+    requests[0].performance["interaction_cues"] = [
+        {
+            "participant_ids": ["lead", "intruder"],
+            "action": "lead hands the case to intruder",
+        }
+    ]
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="unconditioned"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_multi_character_interaction_accepts_grounded_two_character_cue():
+    requests = _requests()
+    requests[0].performance["interaction_cues"] = [
+        {
+            "participant_ids": ["lead", "partner"],
+            "description": "lead and partner exchange the case while crossing paths",
+        }
+    ]
+    requests[0].refresh_hash()
+
+    cli._validate_connected_sequence(requests)
 
 
 def test_walking_running_challenge_rejects_non_locomotion_action():
