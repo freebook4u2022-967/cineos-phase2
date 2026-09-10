@@ -1,13 +1,13 @@
 """Bind the exact preflight-approved request bundle to production render evidence.
 
 The connected benchmark fixture preflight proves that a committed 5-10 shot request
-bundle covers the canonical competitive cases.  The quality-first production
-attestation proves what foundation/runtime/QC produced the accepted shots.  This
+bundle covers the canonical competitive cases. The quality-first production
+attestation proves what foundation/runtime/QC produced the accepted shots. This
 module closes the remaining gap between those evidence chains: it revalidates the
 request bundle immediately before inference and, after rendering, proves that every
 accepted shot receipt refers to that exact ordered bundle.
 
-This is CINEOS orchestration/evidence metadata.  It does not relabel external
+This is CINEOS orchestration/evidence metadata. It does not relabel external
 pretrained foundation capability as native CINEOS capability.
 """
 
@@ -175,6 +175,8 @@ def validate_request_bundle_preflight(
 def _render_bundle_binding(
     quality_attestation: Mapping[str, Any],
 ) -> tuple[list[str], str]:
+    """Derive the request bundle from the real flattened GPU receipt serialization."""
+
     connected = quality_attestation.get("connected_benchmark")
     if not isinstance(connected, Mapping):
         raise ProductionRequestBundleAttestationError(
@@ -193,12 +195,7 @@ def _render_bundle_binding(
             raise ProductionRequestBundleAttestationError(
                 f"render evidence shot {index} is malformed"
             )
-        result = shot.get("result")
-        if not isinstance(result, Mapping):
-            raise ProductionRequestBundleAttestationError(
-                f"render evidence shot {index} is missing result evidence"
-            )
-        entries.append((result.get("shot_id"), result.get("request_hash")))
+        entries.append((shot.get("shot_id"), shot.get("request_hash")))
     return _bundle_binding(entries)
 
 
