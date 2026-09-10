@@ -38,6 +38,19 @@ def _connected_requests() -> tuple[NativeShotRequest, ...]:
                 "gesture_tracks": [
                     {"character_id": "lead", "action": "gripping with both hands"}
                 ],
+                "interaction_cues": [
+                    {
+                        "participant_ids": ["lead", "partner"],
+                        "action": "lead hands the case to partner",
+                    }
+                ],
+                "object_interaction_cues": [
+                    {
+                        "character_id": "lead",
+                        "prop_id": "case",
+                        "action": "lead handing the case to partner",
+                    }
+                ],
                 "dialogue_timing": [
                     {
                         "speaker_id": "lead",
