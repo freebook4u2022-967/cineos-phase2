@@ -28,6 +28,19 @@ def _request(index: int, *, predecessor=...):
             "gesture_tracks": [
                 {"character_id": "lead", "action": "gripping with both hands"}
             ],
+            "interaction_cues": [
+                {
+                    "participant_ids": ["lead", "partner"],
+                    "action": "lead hands the case to partner",
+                }
+            ],
+            "object_interaction_cues": [
+                {
+                    "character_id": "lead",
+                    "prop_id": "case",
+                    "action": "lead handing the case to partner",
+                }
+            ],
             "dialogue_timing": [
                 {"speaker_id": "lead", "start_seconds": 0.2, "end_seconds": 1.0}
             ],
@@ -91,56 +104,43 @@ def test_manifest_rejects_duplicate_shot_ids(tmp_path):
         load_native_requests(_write_manifest(tmp_path, requests))
 
 
-def test_manifest_accepts_legacy_previous_shot_alias(tmp_path):
+def test_manifest_accepts_canonical_connected_predecessor_chain(tmp_path):
     requests = [_request(index) for index in range(5)]
-    for index, request in enumerate(requests):
-        request.continuity = {
-            "previous_shot": None if index == 0 else f"shot-{index - 1}"
-        }
-        request.refresh_hash()
 
     loaded = load_native_requests(_write_manifest(tmp_path, requests))
 
-    assert [request.shot_id for request in loaded] == [f"shot-{i}" for i in range(5)]
-
-
-def test_manifest_rejects_conflicting_current_and_legacy_predecessor(tmp_path):
-    requests = [_request(index) for index in range(5)]
-    requests[2].continuity["previous_shot"] = "shot-0"
-    requests[2].refresh_hash()
-
-    with pytest.raises(
-        GPUProductionBenchmarkCLIError,
-        match="conflicting previous_shot_id/previous_shot continuity",
-    ):
-        load_native_requests(_write_manifest(tmp_path, requests))
+    assert [request.shot_id for request in loaded] == [
+        "shot-0",
+        "shot-1",
+        "shot-2",
+        "shot-3",
+        "shot-4",
+    ]
 
 
 def test_direct_runner_rejects_disconnected_chain_before_qc_model_load(
     monkeypatch, tmp_path
 ):
-    requests = [_request(index) for index in range(5)]
-    requests[2] = _request(2, predecessor=None)
-    qc_loaded = False
+    evaluator_loaded = False
 
     def unexpected_quality_evaluator(*args, **kwargs):
-        nonlocal qc_loaded
-        qc_loaded = True
+        nonlocal evaluator_loaded
+        evaluator_loaded = True
         return object()
 
-    monkeypatch.setattr(
-        cli, "_production_quality_evaluator", unexpected_quality_evaluator
-    )
+    monkeypatch.setattr(cli, "_production_quality_evaluator", unexpected_quality_evaluator)
+    requests = [_request(index) for index in range(5)]
+    requests[2] = _request(2, predecessor="shot-0")
 
     with pytest.raises(
         GPUProductionBenchmarkCLIError,
         match="continuity is not a contiguous ordered chain",
     ):
         run_production_benchmark(
-            "production-evidence",
+            "continuity-chain",
             requests,
-            output_dir=tmp_path / "renders",
-            reference_manifest="approved-references.json",
+            output_dir=tmp_path,
+            reference_manifest="references.json",
         )
 
-    assert qc_loaded is False
+    assert evaluator_loaded is False
