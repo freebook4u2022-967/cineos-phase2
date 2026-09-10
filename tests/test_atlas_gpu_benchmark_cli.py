@@ -37,6 +37,19 @@ def _request(index: int, reference_ids=None) -> NativeShotRequest:
             "gesture_tracks": [
                 {"character_id": "lead", "action": "gripping with both hands"}
             ],
+            "interaction_cues": [
+                {
+                    "participant_ids": ["lead", "partner"],
+                    "action": "lead hands the case to partner",
+                }
+            ],
+            "object_interaction_cues": [
+                {
+                    "character_id": "lead",
+                    "prop_id": "handheld-case",
+                    "action": "lead handing the case to partner",
+                }
+            ],
             "dialogue_timing": [
                 {"speaker_id": "lead", "start_seconds": 0.2, "end_seconds": 1.0}
             ],
