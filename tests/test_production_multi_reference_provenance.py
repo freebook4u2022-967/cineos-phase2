@@ -1,3 +1,5 @@
+"""Regression coverage for first-party multi-reference provenance boundaries."""
+
 from cineos.atlas.production_multi_reference import (
     PRODUCTION_REFERENCE_BOARD_ADAPTER_ID,
     PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION,
