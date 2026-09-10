@@ -42,7 +42,9 @@ def test_object_interaction_rejects_manipulation_of_unconditioned_object():
     request = _request()
     request.performance["action"] = "lead throws a bottle"
 
-    with pytest.raises(ProductionInputPreflightError, match="conditioned prop identity"):
+    with pytest.raises(
+        ProductionInputPreflightError, match="conditioned prop identity"
+    ):
         _validate_object_interaction_grounding([request])
 
 
@@ -83,7 +85,9 @@ def test_object_interaction_rejects_cue_for_unconditioned_prop():
         ],
     }
 
-    with pytest.raises(ProductionInputPreflightError, match="conditioned prop identity"):
+    with pytest.raises(
+        ProductionInputPreflightError, match="conditioned prop identity"
+    ):
         _validate_object_interaction_grounding([request])
 
 
@@ -108,7 +112,9 @@ def test_object_interaction_rejects_conflicting_prop_aliases():
     request = _request()
     request.props = [{"prop_uuid": "case", "prop_id": "different-case"}]
 
-    with pytest.raises(ProductionInputPreflightError, match="conflicting prop identity"):
+    with pytest.raises(
+        ProductionInputPreflightError, match="conflicting prop identity"
+    ):
         _validate_object_interaction_grounding([request])
 
 

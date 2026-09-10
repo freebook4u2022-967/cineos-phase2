@@ -214,7 +214,10 @@ def _has_explicit_object_interaction_cue(
             )
         character_id = cue.get("character_id", cue.get("character_uuid"))
         if character_id is not None:
-            if not isinstance(character_id, str) or character_id.strip() not in conditioned_character_ids:
+            if (
+                not isinstance(character_id, str)
+                or character_id.strip() not in conditioned_character_ids
+            ):
                 raise ProductionInputPreflightError(
                     f"shot {request.shot_id!r} object interaction cue {cue_index} references "
                     "an unconditioned character identity"
