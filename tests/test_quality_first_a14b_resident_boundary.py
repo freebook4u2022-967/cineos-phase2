@@ -16,7 +16,7 @@ def _request(index: int) -> NativeShotRequest:
             "resolution": [832, 480],
             "fps": 16.0,
             "duration": 2.0,
-            "movement": "tracking",
+            "movement": "whip_pan",
         },
         characters=[{"character_id": "hero"}, {"character_id": "partner"}],
         environment={"lighting": "day_to_night transition"},
