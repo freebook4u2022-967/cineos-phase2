@@ -36,13 +36,17 @@ def _request(index: int) -> NativeShotRequest:
     return request
 
 
-def test_entrypoint_rejects_unvalidated_a14b_offload_before_renderer(monkeypatch, tmp_path):
+def test_entrypoint_rejects_unvalidated_a14b_offload_before_renderer(
+    monkeypatch, tmp_path
+):
     renderer_called = False
 
     def unexpected_render(*args, **kwargs):
         nonlocal renderer_called
         renderer_called = True
-        raise AssertionError("renderer must not run for an unvalidated A14B offload plan")
+        raise AssertionError(
+            "renderer must not run for an unvalidated A14B offload plan"
+        )
 
     monkeypatch.setattr(
         cli,
