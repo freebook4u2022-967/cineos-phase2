@@ -191,7 +191,9 @@ def preflight_connected_benchmark_fixture(
     except GPUProductionBenchmarkCLIError as exc:
         raise ConnectedBenchmarkFixturePreflightError(str(exc)) from exc
 
-    result = validate_connected_benchmark_fixture(fixture_path, shot_count=len(requests))
+    result = validate_connected_benchmark_fixture(
+        fixture_path, shot_count=len(requests)
+    )
     ordered_shot_ids, bundle_sha256 = _normalized_request_bundle_binding(requests)
     result.update(
         {
