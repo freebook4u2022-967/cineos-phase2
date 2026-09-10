@@ -26,6 +26,19 @@ def _request(index: int) -> NativeShotRequest:
         performance={
             "action": "walk while throwing case",
             "gesture_tracks": [{"character_id": "hero", "action": "gripping"}],
+            "interaction_cues": [
+                {
+                    "participant_ids": ["hero", "partner"],
+                    "action": "hero hands the case to partner",
+                }
+            ],
+            "object_interaction_cues": [
+                {
+                    "character_id": "hero",
+                    "prop_id": "case",
+                    "action": "hero handing the case to partner",
+                }
+            ],
             "dialogue_timing": [
                 {"speaker_id": "hero", "start_seconds": 0.1, "end_seconds": 0.8}
             ],
