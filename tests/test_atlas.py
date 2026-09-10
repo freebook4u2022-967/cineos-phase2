@@ -157,7 +157,8 @@ def test_session_rejects_stale_negotiated_cast_size_before_render() -> None:
     class Request:
         characters = [{"character_uuid": "hero"}, {"character_uuid": "partner"}]
 
-    session = RendererSession(TwoCharacterRenderer())
+    renderer = TwoCharacterRenderer()
+    session = RendererSession(renderer)
     session.start()
     session.negotiate(resolution=(1920, 1080), duration=2, fps=24, character_count=1)
     with pytest.raises(
@@ -166,8 +167,7 @@ def test_session_rejects_stale_negotiated_cast_size_before_render() -> None:
     ):
         session.render(Request())
     assert not any(
-        isinstance(call, tuple) and call[0] == "render"
-        for call in session._adapter.renderer.calls
+        isinstance(call, tuple) and call[0] == "render" for call in renderer.calls
     )
 
 
