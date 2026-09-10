@@ -164,6 +164,47 @@ def test_hands_anatomy_challenge_accepts_explicit_reaching_action():
     cli._validate_connected_sequence(requests)
 
 
+def test_object_interaction_challenge_rejects_static_prop_presence():
+    requests = _requests()
+    requests[0].props = [{"prop_id": "case"}]
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="grounded object action"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_object_interaction_challenge_rejects_unconditioned_object_cue():
+    requests = _requests()
+    requests[0].props = [{"prop_id": "case"}]
+    requests[0].performance["object_interaction_cues"] = [
+        {"prop_id": "unconditioned", "action": "lead opens the case"}
+    ]
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="unconditioned prop"):
+        cli._validate_connected_sequence(requests)
+
+
+def test_object_interaction_challenge_accepts_grounded_performance_cue():
+    requests = _requests()
+    requests[0].props = [{"prop_uuid": "case"}]
+    requests[0].performance["object_interaction_cues"] = [
+        {"prop_uuid": "case", "action": "lead opens and closes the case"}
+    ]
+    requests[0].refresh_hash()
+
+    cli._validate_connected_sequence(requests)
+
+
+def test_object_interaction_challenge_rejects_conflicting_prop_identity_aliases():
+    requests = _requests()
+    requests[0].props = [{"prop_uuid": "case", "prop_id": "other-case"}]
+    requests[0].refresh_hash()
+
+    with pytest.raises(GPUProductionBenchmarkCLIError, match="conflicting prop_uuid/prop_id"):
+        cli._validate_connected_sequence(requests)
+
+
 def test_lighting_changes_challenge_rejects_static_lighting_description():
     requests = _requests()
     requests[0].environment = {"location": "street", "lighting": "daylight"}
