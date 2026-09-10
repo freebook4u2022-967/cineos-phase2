@@ -7,7 +7,12 @@ from typing import Any, Self
 
 from .adapter import RendererAdapter, RendererState
 from .base_renderer import BaseRenderer
-from .capabilities import NegotiatedCapabilities, RendererCapabilities, Resolution
+from .capabilities import (
+    CapabilityError,
+    NegotiatedCapabilities,
+    RendererCapabilities,
+    Resolution,
+)
 
 
 class RendererSession:
@@ -58,7 +63,48 @@ class RendererSession:
         )
         return self._negotiated
 
+    @staticmethod
+    def _request_character_count(request: Any) -> int | None:
+        """Return the concrete cast size for request objects that expose characters."""
+
+        if not hasattr(request, "characters"):
+            return None
+        characters = request.characters
+        if not isinstance(characters, (list, tuple)):
+            raise CapabilityError("request.characters must be a list or tuple")
+        return len(characters)
+
+    def _validate_render_character_capacity(self, request: Any) -> None:
+        """Bind capability negotiation to the cast that is actually rendered.
+
+        ``character_count`` used during negotiation is caller-supplied and therefore
+        cannot be the production trust boundary. Re-derive the cast size from the
+        concrete request immediately before dispatch, reject stale negotiations, and
+        enforce the renderer's advertised capacity even when legacy callers omitted
+        character_count during negotiation.
+        """
+
+        actual_count = self._request_character_count(request)
+        if actual_count is None:
+            return
+
+        maximum = self.capabilities.maximum_character_count
+        if maximum is not None and actual_count > maximum:
+            raise CapabilityError(
+                f"request character_count {actual_count} exceeds maximum {maximum}"
+            )
+
+        negotiated_count = (
+            self._negotiated.character_count if self._negotiated is not None else None
+        )
+        if negotiated_count is not None and actual_count != negotiated_count:
+            raise CapabilityError(
+                "request character_count "
+                f"{actual_count} does not match negotiated character_count {negotiated_count}"
+            )
+
     def render(self, request: Any) -> Any:
+        self._validate_render_character_capacity(request)
         return self._adapter.render(request)
 
     def close(self) -> None:
