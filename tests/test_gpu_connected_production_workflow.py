@@ -16,7 +16,7 @@ def test_gpu_workflow_prefetches_and_verifies_selected_pinned_foundation_revisio
     assert "from cineos.atlas.production_foundation_selection import (" in workflow
     assert "select_strongest_production_foundation" in workflow
     assert "snapshot_download(" in workflow
-    assert "repo_id=provenance.model_id" in workflow
+    assert "repo_id=model_id" in workflow
     assert "revision=revision" in workflow
     assert "resolved_revision != revision" in workflow
     assert "foundation snapshot resolved to unexpected revision" in workflow
