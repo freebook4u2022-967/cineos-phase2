@@ -47,9 +47,14 @@ class RendererSession:
         duration: float,
         fps: float,
         features: tuple[str, ...] = (),
+        character_count: int | None = None,
     ) -> NegotiatedCapabilities:
         self._negotiated = self.capabilities.negotiate(
-            resolution=resolution, duration=duration, fps=fps, features=features
+            resolution=resolution,
+            duration=duration,
+            fps=fps,
+            features=features,
+            character_count=character_count,
         )
         return self._negotiated
 
