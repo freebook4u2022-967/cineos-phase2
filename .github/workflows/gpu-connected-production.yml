@@ -102,7 +102,7 @@ jobs:
           PY
           test -s "${{ runner.temp }}/cineos-connected-production/foundation-selection-preacquisition.json"
 
-      - name: Prefetch and fingerprint selected immutable foundation and QC snapshots
+      - name: Prefetch and verify selected immutable foundation and QC snapshots
         env:
           HF_HOME: ${{ runner.temp }}/cineos-hf-cache
           SELECTION_PATH: ${{ runner.temp }}/cineos-connected-production/foundation-selection-preacquisition.json
