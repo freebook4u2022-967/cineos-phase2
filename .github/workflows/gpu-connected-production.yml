@@ -214,6 +214,14 @@ jobs:
           print(f"verified_foundation_tree_sha256={evidence.tree_sha256}")
           PY
 
+      - name: Revalidate exact request bundle immediately before inference
+        run: |
+          python -m cineos.atlas.production_request_bundle_attestation \
+            --requests "${{ inputs.requests_path }}" \
+            --preflight "${{ runner.temp }}/cineos-connected-production/connected-benchmark-fixture-preflight.json" \
+            | tee "${{ runner.temp }}/cineos-connected-production/request-bundle-inference-gate.json"
+          test -s "${{ runner.temp }}/cineos-connected-production/request-bundle-inference-gate.json"
+
       - name: Run quality-first connected GPU benchmark with production visual QC
         env:
           HF_HOME: ${{ runner.temp }}/cineos-hf-cache
@@ -231,6 +239,15 @@ jobs:
             --output-dir "${{ runner.temp }}/cineos-connected-production" \
             --benchmark-id "${{ inputs.benchmark_id }}" \
             "${refresh_args[@]}"
+
+      - name: Bind accepted renders to exact preflight request bundle
+        run: |
+          python -m cineos.atlas.production_request_bundle_attestation \
+            --requests "${{ inputs.requests_path }}" \
+            --preflight "${{ runner.temp }}/cineos-connected-production/connected-benchmark-fixture-preflight.json" \
+            --quality-attestation "${{ runner.temp }}/cineos-connected-production/quality-first-production-attestation.json" \
+            --output-dir "${{ runner.temp }}/cineos-connected-production"
+          test -s "${{ runner.temp }}/cineos-connected-production/production-request-bundle-attestation.json"
 
       - name: Verify foundation bytes remained unchanged through inference
         run: |
