@@ -257,17 +257,13 @@ def _conditioned_character_ids(request: NativeShotRequest) -> set[str]:
     return identities
 
 
-def _conditioned_prop_id(
-    prop: Mapping[str, Any], *, field: str
-) -> str | None:
+def _conditioned_prop_id(prop: Mapping[str, Any], *, field: str) -> str | None:
     """Resolve canonical/legacy prop identity without accepting ambiguous aliases."""
 
     canonical = prop.get("prop_uuid")
     legacy = prop.get("prop_id")
     for name, value in (("prop_uuid", canonical), ("prop_id", legacy)):
-        if value is not None and (
-            not isinstance(value, str) or not value.strip()
-        ):
+        if value is not None and (not isinstance(value, str) or not value.strip()):
             raise GPUProductionBenchmarkCLIError(
                 f"{field}.{name} must be a non-empty string when supplied"
             )
@@ -334,11 +330,7 @@ def _validate_object_interaction_conditioning(
 
     cues = request.performance.get("object_interaction_cues")
     if cues is not None:
-        if (
-            not isinstance(cues, Sequence)
-            or isinstance(cues, (str, bytes))
-            or not cues
-        ):
+        if not isinstance(cues, Sequence) or isinstance(cues, (str, bytes)) or not cues:
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} object_interaction_cues must be a non-empty sequence"
             )
