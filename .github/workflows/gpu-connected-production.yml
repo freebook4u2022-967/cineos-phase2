@@ -45,6 +45,7 @@ jobs:
         run: |
           test -f "${{ inputs.requests_path }}"
           test -f "${{ inputs.reference_manifest_path }}"
+          test -f "benchmarks/projects/competitive-connected-film.json"
 
       - name: Preflight connected production inputs before model acquisition
         run: |
@@ -55,6 +56,15 @@ jobs:
             --reference-manifest "${{ inputs.reference_manifest_path }}" \
             | tee "$output_dir/production-input-preflight.json"
           test -s "$output_dir/production-input-preflight.json"
+
+      - name: Bind canonical connected-film benchmark to executable requests
+        run: |
+          output_dir="${{ runner.temp }}/cineos-connected-production"
+          python -m cineos.atlas.connected_benchmark_fixture_preflight \
+            --requests "${{ inputs.requests_path }}" \
+            --benchmark-fixture "benchmarks/projects/competitive-connected-film.json" \
+            | tee "$output_dir/connected-benchmark-fixture-preflight.json"
+          test -s "$output_dir/connected-benchmark-fixture-preflight.json"
 
       - name: Select strongest safe production foundation on live CUDA runner
         env:
