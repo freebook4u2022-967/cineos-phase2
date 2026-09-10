@@ -49,7 +49,9 @@ def test_subclass_cannot_masquerade_as_first_party_multi_reference_adapter() -> 
     assert "multi_reference_conditioning" not in bound
 
 
-def test_instance_attribute_spoof_does_not_change_canonical_runtime_provenance() -> None:
+def test_instance_attribute_spoof_does_not_change_canonical_runtime_provenance() -> (
+    None
+):
     adapter = ProductionReferenceBoardAdapter()
     adapter.adapter_id = "substituted.adapter"
     adapter.adapter_version = "999"
