@@ -18,7 +18,7 @@ def _request() -> NativeShotRequest:
         wardrobe=[],
         props=[{"prop_id": "case"}],
         continuity={"previous_shot": None},
-        performance={"action": "lead picks up case"},
+        performance={"action": "lead picking up case"},
         approved_reference_ids=["lead-ref"],
         deterministic_seed=8100,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
@@ -40,7 +40,7 @@ def test_object_interaction_rejects_static_prop_presence_without_manipulation():
 
 def test_object_interaction_rejects_manipulation_of_unconditioned_object():
     request = _request()
-    request.performance["action"] = "lead throws a bottle"
+    request.performance["action"] = "lead throwing a bottle"
 
     with pytest.raises(
         ProductionInputPreflightError, match="conditioned prop identity"
@@ -64,7 +64,7 @@ def test_object_interaction_accepts_structured_character_prop_cue():
             {
                 "character_id": "lead",
                 "prop_id": "case",
-                "action": "lead opens the case",
+                "action": "lead opening the case",
             }
         ],
     }
@@ -80,7 +80,7 @@ def test_object_interaction_rejects_cue_for_unconditioned_prop():
             {
                 "character_id": "lead",
                 "prop_id": "bottle",
-                "action": "lead opens the bottle",
+                "action": "lead opening the bottle",
             }
         ],
     }
@@ -99,7 +99,7 @@ def test_object_interaction_rejects_cue_for_unconditioned_character():
             {
                 "character_id": "intruder",
                 "prop_id": "case",
-                "action": "intruder opens the case",
+                "action": "intruder opening the case",
             }
         ],
     }
