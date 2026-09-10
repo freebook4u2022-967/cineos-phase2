@@ -79,7 +79,9 @@ def _request(
 
 
 def _default_execution_plan(profile):
-    device = _gpu(100.0, 96.0) if profile is WAN22_I2V_A14B_PROFILE else _gpu(48.0, 44.0)
+    device = (
+        _gpu(100.0, 96.0) if profile is WAN22_I2V_A14B_PROFILE else _gpu(48.0, 44.0)
+    )
     return plan_gpu_execution(
         device,
         estimated_model_vram_gb=profile.minimum_gpu_vram_gb,
