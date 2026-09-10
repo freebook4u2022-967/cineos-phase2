@@ -76,12 +76,70 @@ def test_capabilities_negotiate_supported_request() -> None:
     )
     assert negotiated.resolution == Resolution(1920, 1080)
     assert negotiated.features == frozenset({"audio"})
+    assert negotiated.character_count is None
 
 
 def test_capabilities_report_all_unsupported_values() -> None:
     with pytest.raises(CapabilityError, match="resolution.*duration.*fps.*features"):
         StubRenderer().capabilities.negotiate(
             resolution=(640, 480), duration=20, fps=60, features=("depth",)
+        )
+
+
+def test_capabilities_enforce_declared_character_capacity() -> None:
+    capabilities = RendererCapabilities(
+        supported_resolution=(Resolution(1920, 1080),),
+        supported_duration=Range(1, 10),
+        supported_fps=(24,),
+        maximum_character_count=2,
+    )
+
+    negotiated = capabilities.negotiate(
+        resolution=(1920, 1080), duration=5, fps=24, character_count=2
+    )
+    assert negotiated.character_count == 2
+
+    with pytest.raises(CapabilityError, match="character_count 3 exceeds maximum 2"):
+        capabilities.negotiate(
+            resolution=(1920, 1080), duration=5, fps=24, character_count=3
+        )
+
+
+def test_capabilities_reject_invalid_character_counts() -> None:
+    with pytest.raises(ValueError, match="maximum character count"):
+        RendererCapabilities(
+            supported_resolution=(Resolution(1920, 1080),),
+            supported_duration=Range(1, 10),
+            supported_fps=(24,),
+            maximum_character_count=True,
+        )
+
+    with pytest.raises(ValueError, match="character_count"):
+        StubRenderer().capabilities.negotiate(
+            resolution=(1920, 1080), duration=5, fps=24, character_count=-1
+        )
+
+
+def test_session_forwards_character_count_to_capability_negotiation() -> None:
+    class TwoCharacterRenderer(StubRenderer):
+        @property
+        def capabilities(self) -> RendererCapabilities:
+            return RendererCapabilities(
+                supported_resolution=(Resolution(1920, 1080),),
+                supported_duration=Range(1, 10),
+                supported_fps=(24,),
+                maximum_character_count=2,
+            )
+
+    session = RendererSession(TwoCharacterRenderer())
+    negotiated = session.negotiate(
+        resolution=(1920, 1080), duration=2, fps=24, character_count=2
+    )
+    assert negotiated.character_count == 2
+
+    with pytest.raises(CapabilityError, match="character_count 3 exceeds maximum 2"):
+        session.negotiate(
+            resolution=(1920, 1080), duration=2, fps=24, character_count=3
         )
 
 
