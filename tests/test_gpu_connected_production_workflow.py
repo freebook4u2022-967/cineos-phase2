@@ -59,6 +59,20 @@ def test_gpu_workflow_selects_quality_first_plan_before_foundation_download():
     assert workflow.index(selection_step) < workflow.index(prefetch_step)
 
 
+def test_gpu_workflow_dependency_gate_keeps_pinned_5b_fallback_reachable():
+    workflow = _workflow_text()
+
+    dependency_gate = workflow.index("report = evaluate_production_dependencies(")
+    foundation_selection = workflow.index(
+        "selection = select_strongest_production_foundation(devices, requests)"
+    )
+    assert dependency_gate < foundation_selection
+
+    preselection = workflow[dependency_gate:foundation_selection]
+    assert "quality_profile_required=False" in preselection
+    assert "quality_profile_required=True" not in preselection
+
+
 def test_gpu_workflow_records_selected_memory_strategy_for_audit_logs():
     workflow = _workflow_text()
 
