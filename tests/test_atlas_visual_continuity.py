@@ -197,7 +197,9 @@ def test_continuation_rejects_identity_reference_change(tmp_path):
     assert pipeline.calls == ["image:hero-front"]
 
 
-def test_continuation_rechecks_character_reference_authorization(tmp_path):
+def test_continuation_rechecks_character_reference_authorization_at_native_boundary(
+    tmp_path,
+):
     pipeline = ImagePipeline()
     renderer = _renderer(tmp_path, pipeline)
     root = _request("shot-001")
@@ -217,10 +219,11 @@ def test_continuation_rechecks_character_reference_authorization(tmp_path):
             "approved_reference_ids": ["unapproved-side-profile"],
         }
     ]
-    continuation.refresh_hash()
 
-    with pytest.raises(DiffusersVideoError, match="not approved by the shot"):
-        renderer.render(continuation)
+    with pytest.raises(
+        ValueError, match="unapproved shot reference 'unapproved-side-profile'"
+    ):
+        continuation.refresh_hash()
 
     assert pipeline.calls == ["image:hero-front"]
 
