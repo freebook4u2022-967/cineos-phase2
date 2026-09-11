@@ -333,6 +333,19 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                     )
                 reference_owner[reference_id] = character_id
 
+        if multi_character:
+            unowned = [
+                reference_id
+                for reference_id in request.approved_reference_ids
+                if reference_id not in reference_owner
+            ]
+            if unowned:
+                raise DiffusersVideoError(
+                    "multi-character production conditioning requires every approved "
+                    "identity reference to have exactly one character owner; unowned: "
+                    + ", ".join(unowned)
+                )
+
     @staticmethod
     def _expected_character_reference_bindings(
         request: NativeShotRequest,
