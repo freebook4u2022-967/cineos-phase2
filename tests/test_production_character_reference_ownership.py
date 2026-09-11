@@ -62,9 +62,7 @@ def test_multi_character_reference_ownership_requires_each_character_ref() -> No
 def test_single_character_without_reference_remains_backward_compatible() -> None:
     request = _request(
         approved_reference_ids=("room-ref",),
-        characters=(
-            {"character_uuid": "alice", "approved_reference_ids": []},
-        ),
+        characters=({"character_uuid": "alice", "approved_reference_ids": []},),
     )
 
     ProductionDiffusersVideoRenderer._validate_character_reference_lineage(request)
