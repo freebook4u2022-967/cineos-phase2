@@ -36,6 +36,13 @@ def _fake_requests(order: tuple[int, ...] = (0, 1, 2, 3, 4)):
             shot_id=f"shot-{index}",
             content_hash=hashlib.sha256(f"payload-{index}".encode()).hexdigest(),
             metadata=_benchmark_metadata(),
+            characters=[
+                {
+                    "character_uuid": "character-a",
+                    "approved_reference_ids": ["identity-a"],
+                }
+            ],
+            approved_reference_ids=["identity-a"],
         )
         for index in order
     )
@@ -97,6 +104,9 @@ def test_preflight_hash_binds_exact_ordered_normalized_request_bundle(monkeypatc
     assert result["ordered_shot_ids"] == [request.shot_id for request in requests]
     assert result["normalized_request_bundle_sha256"] == expected_hash
     assert result["identity_assignment_shot_ids"] == []
+    assert result["identity_consistency_bindings"]["shot-0"] == [
+        {"character_id": "character-a", "approved_reference_id": "identity-a"}
+    ]
 
 
 def test_preflight_binds_each_competitive_challenge_to_exact_shot_ids(monkeypatch):
@@ -173,6 +183,13 @@ def test_preflight_rejects_noncanonical_validated_request_hash(monkeypatch):
         shot_id="shot-2",
         content_hash="g" * 64,
         metadata=_benchmark_metadata(),
+        characters=[
+            {
+                "character_uuid": "character-a",
+                "approved_reference_ids": ["identity-a"],
+            }
+        ],
+        approved_reference_ids=["identity-a"],
     )
     monkeypatch.setattr(
         fixture_preflight, "load_native_requests", lambda _: tuple(requests)
