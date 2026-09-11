@@ -115,6 +115,43 @@ def _normalized_request_bundle_binding(
     return tuple(ordered_shot_ids), hashlib.sha256(canonical).hexdigest()
 
 
+def _validate_multi_character_identity_assignment(
+    requests: Sequence[NativeShotRequest],
+) -> tuple[str, ...]:
+    """Require explicit per-character identity sources for competitive cast shots.
+
+    Shot-level approved references establish that assets are allowed for production,
+    but cardinality alone cannot prove which source belongs to which character.  A
+    two-character shot with two unrelated approved images must not be accepted merely
+    because the counts happen to match.  Native request validation already rejects
+    unapproved and cross-character duplicated local references; this benchmark gate
+    additionally requires complete local ownership for every multi-character shot.
+    """
+
+    bound_shot_ids: list[str] = []
+    for request_index, request in enumerate(requests):
+        characters = getattr(request, "characters", None)
+        if not isinstance(characters, list) or len(characters) < 2:
+            continue
+
+        shot_id = getattr(request, "shot_id", f"request-{request_index}")
+        for character_index, character in enumerate(characters):
+            if not isinstance(character, dict):
+                raise ConnectedBenchmarkFixturePreflightError(
+                    f"multi-character shot {shot_id!r} has invalid characters[{character_index}]"
+                )
+            reference_ids = character.get("approved_reference_ids")
+            if not isinstance(reference_ids, (list, tuple)) or not reference_ids:
+                raise ConnectedBenchmarkFixturePreflightError(
+                    "multi-character competitive benchmark requires explicit "
+                    "character-local approved_reference_ids for every cast member; "
+                    f"shot {shot_id!r} characters[{character_index}] is unbound"
+                )
+        bound_shot_ids.append(str(shot_id))
+
+    return tuple(bound_shot_ids)
+
+
 def validate_connected_benchmark_fixture(
     fixture_path: str | Path,
     *,
@@ -194,13 +231,15 @@ def preflight_connected_benchmark_fixture(
     result = validate_connected_benchmark_fixture(
         fixture_path, shot_count=len(requests)
     )
+    identity_assignment_shot_ids = _validate_multi_character_identity_assignment(requests)
     ordered_shot_ids, bundle_sha256 = _normalized_request_bundle_binding(requests)
     result.update(
         {
-            "schema": "cineos-connected-benchmark-fixture-preflight/0.2",
+            "schema": "cineos-connected-benchmark-fixture-preflight/0.3",
             "request_manifest_path": Path(requests_path).as_posix(),
             "ordered_shot_ids": list(ordered_shot_ids),
             "normalized_request_bundle_sha256": bundle_sha256,
+            "identity_assignment_shot_ids": list(identity_assignment_shot_ids),
         }
     )
     return result
