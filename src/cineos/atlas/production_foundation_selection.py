@@ -213,7 +213,9 @@ def _competitive_identity_reference_mismatch(request: NativeShotRequest) -> str 
         for value in raw_challenges
         if isinstance(value, str) and value.strip()
     }
-    if not challenges.intersection({"identity_consistency", "multi_character_interaction"}):
+    if not challenges.intersection(
+        {"identity_consistency", "multi_character_interaction"}
+    ):
         return None
 
     raw_characters = getattr(request, "characters", ())
@@ -247,7 +249,9 @@ def _competitive_identity_reference_mismatch(request: NativeShotRequest) -> str 
         character_ids.append(aliases[0])
 
     if not character_ids:
-        return "identity-sensitive benchmark requires at least one conditioned character"
+        return (
+            "identity-sensitive benchmark requires at least one conditioned character"
+        )
     if len(set(character_ids)) != len(character_ids):
         return "identity-sensitive benchmark contains duplicate conditioned character identities"
 
@@ -262,7 +266,9 @@ def _competitive_identity_reference_mismatch(request: NativeShotRequest) -> str 
         if isinstance(value, str) and value.strip()
     ]
     if len(reference_ids) != len(raw_references):
-        return "identity-sensitive benchmark has malformed approved reference identities"
+        return (
+            "identity-sensitive benchmark has malformed approved reference identities"
+        )
     distinct_reference_count = len(set(reference_ids))
     if distinct_reference_count != len(reference_ids):
         return "identity-sensitive benchmark contains duplicate approved reference identities"
