@@ -270,6 +270,15 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                 "mode": "single_reference",
                 "consumed_reference_ids": list(request.approved_reference_ids),
             }
+            expected_bindings = self._expected_character_reference_bindings(request)
+            if expected_bindings:
+                self._conditioning_provenance["consumed_character_reference_ids"] = [
+                    {
+                        "character_uuid": character_id,
+                        "reference_ids": list(reference_ids),
+                    }
+                    for character_id, reference_ids in expected_bindings
+                ]
 
     @staticmethod
     def _validate_character_reference_lineage(request: NativeShotRequest) -> None:
@@ -333,15 +342,16 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                     )
                 reference_owner[reference_id] = character_id
 
-        if multi_character:
+        if request.characters:
             unowned = [
                 reference_id
                 for reference_id in request.approved_reference_ids
                 if reference_id not in reference_owner
             ]
             if unowned:
+                scope = "multi-character" if multi_character else "single-character"
                 raise DiffusersVideoError(
-                    "multi-character production conditioning requires every approved "
+                    f"{scope} production conditioning requires every approved "
                     "identity reference to have exactly one character owner; unowned: "
                     + ", ".join(unowned)
                 )
