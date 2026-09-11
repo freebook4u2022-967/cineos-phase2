@@ -23,7 +23,9 @@ def test_production_dependency_gate_runs_before_foundation_acquisition() -> None
     )
 
     assert gate < selection < acquisition
-    assert "quality_profile_required=True" in workflow
+    preselection = workflow[gate:selection]
+    assert "quality_profile_required=False" in preselection
+    assert "quality_profile_required=True" not in preselection
     assert "production-dependency-readiness.json" in workflow
 
 
