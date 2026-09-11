@@ -30,15 +30,18 @@ class MultiReferenceConditioningResult:
     """Auditable output from a CINEOS-approved multi-reference adapter.
 
     ``consumed_reference_ids`` must exactly match the approved IDs on the shot.
-    This prevents an adapter from silently dropping one character/reference while
-    still allowing a foundation with one image-conditioning slot to consume a
-    deliberately composed conditioning image.
+    For multi-character shots, ``consumed_character_reference_ids`` additionally
+    binds each identity slot to its exact approved references so an adapter cannot
+    silently swap character identities while still consuming the correct global set.
     """
 
     image: Any
     consumed_reference_ids: tuple[str, ...]
     adapter_id: str
     adapter_version: str
+    consumed_character_reference_ids: (
+        tuple[tuple[str, tuple[str, ...]], ...] | None
+    ) = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,6 +333,26 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                     )
                 reference_owner[reference_id] = character_id
 
+    @staticmethod
+    def _expected_character_reference_bindings(
+        request: NativeShotRequest,
+    ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """Return the canonical character-to-reference ownership contract."""
+
+        bindings: list[tuple[str, tuple[str, ...]]] = []
+        for index, character in enumerate(request.characters):
+            if not isinstance(character, dict):
+                continue
+            character_id = character.get("character_uuid", f"index:{index}")
+            if not isinstance(character_id, str) or not character_id.strip():
+                character_id = f"index:{index}"
+            else:
+                character_id = character_id.strip()
+            raw_ids = character.get("approved_reference_ids", [])
+            if isinstance(raw_ids, (list, tuple)) and raw_ids:
+                bindings.append((character_id, tuple(raw_ids)))
+        return tuple(bindings)
+
     def _prepare_multi_reference_image(self, request: NativeShotRequest) -> Any:
         if self.multi_reference_adapter is None:
             raise DiffusersVideoError(
@@ -362,6 +385,18 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                 "multi_reference_adapter did not attest consumption of every approved "
                 "reference in request order"
             )
+        expected_bindings = self._expected_character_reference_bindings(request)
+        reported_bindings = result.consumed_character_reference_ids
+        if len(request.characters) > 1 and expected_bindings and reported_bindings is None:
+            raise DiffusersVideoError(
+                "multi-character multi_reference_adapter must attest exact "
+                "character_uuid-to-reference ownership"
+            )
+        if reported_bindings is not None and reported_bindings != expected_bindings:
+            raise DiffusersVideoError(
+                "multi_reference_adapter character identity binding does not match "
+                "the approved CINEOS character-to-reference ownership contract"
+            )
         if result.image is None:
             raise DiffusersVideoError(
                 "multi_reference_adapter returned no conditioning image"
@@ -379,6 +414,14 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             "adapter_id": result.adapter_id.strip(),
             "adapter_version": result.adapter_version.strip(),
         }
+        if reported_bindings is not None:
+            self._conditioning_provenance["consumed_character_reference_ids"] = [
+                {
+                    "character_uuid": character_id,
+                    "reference_ids": list(reference_ids),
+                }
+                for character_id, reference_ids in reported_bindings
+            ]
         return result.image
 
     def _load_primary_reference(self, request: NativeShotRequest) -> Any | None:
