@@ -107,7 +107,8 @@ def test_preflight_binds_each_competitive_challenge_to_exact_shot_ids(monkeypatc
 
     expected_shot_ids = [request.shot_id for request in requests]
     assert result["competitive_challenge_shot_ids"] == {
-        challenge: expected_shot_ids for challenge in sorted(REQUIRED_COMPETITIVE_CHALLENGES)
+        challenge: expected_shot_ids
+        for challenge in sorted(REQUIRED_COMPETITIVE_CHALLENGES)
     }
 
 
