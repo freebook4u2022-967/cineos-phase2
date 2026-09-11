@@ -29,7 +29,14 @@ from .production_benchmark_attestation import (
 )
 
 SCHEMA = "cineos-production-request-bundle-attestation/0.1"
-PREFLIGHT_SCHEMA = "cineos-connected-benchmark-fixture-preflight/0.2"
+PREFLIGHT_SCHEMA = "cineos-connected-benchmark-fixture-preflight/0.4"
+LEGACY_PREFLIGHT_SCHEMAS = frozenset(
+    {
+        "cineos-connected-benchmark-fixture-preflight/0.2",
+        "cineos-connected-benchmark-fixture-preflight/0.3",
+    }
+)
+SUPPORTED_PREFLIGHT_SCHEMAS = LEGACY_PREFLIGHT_SCHEMAS | {PREFLIGHT_SCHEMA}
 PREFLIGHT_FILENAME = "connected-benchmark-fixture-preflight.json"
 QUALITY_ATTESTATION_FILENAME = "quality-first-production-attestation.json"
 DEFAULT_FILENAME = "production-request-bundle-attestation.json"
@@ -105,7 +112,8 @@ def _bundle_binding(entries: Sequence[tuple[str, str]]) -> tuple[list[str], str]
 
 
 def _validated_preflight(payload: Mapping[str, Any]) -> tuple[list[str], str]:
-    if payload.get("schema") != PREFLIGHT_SCHEMA:
+    schema = payload.get("schema")
+    if schema not in SUPPORTED_PREFLIGHT_SCHEMAS:
         raise ProductionRequestBundleAttestationError(
             "connected benchmark preflight schema is not request-bundle-bound"
         )
@@ -396,11 +404,13 @@ if __name__ == "__main__":  # pragma: no cover
 
 __all__ = [
     "DEFAULT_FILENAME",
+    "LEGACY_PREFLIGHT_SCHEMAS",
     "PREFLIGHT_FILENAME",
     "PREFLIGHT_SCHEMA",
     "ProductionRequestBundleAttestationError",
     "QUALITY_ATTESTATION_FILENAME",
     "SCHEMA",
+    "SUPPORTED_PREFLIGHT_SCHEMAS",
     "main",
     "validate_request_bundle_preflight",
     "verify_production_request_bundle_attestation",
