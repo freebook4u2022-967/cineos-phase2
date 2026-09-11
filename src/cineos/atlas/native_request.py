@@ -118,26 +118,14 @@ class NativeShotRequest:
     content_hash: str = ""
 
     def validate_reference_integrity(self) -> None:
-        """Reject duplicated identity inputs before hashing or renderer execution.
+        """Reject ambiguous character-local identity reference weighting.
 
-        Repeating the same approved identity reference can accidentally overweight one
-        image in a multi-reference adapter while the provenance layer collapses it to
-        a set. Character-local duplicates are equally ambiguous. Production requests
-        therefore fail closed instead of silently changing conditioning strength.
+        Renderer-specific reference-board validation intentionally remains the
+        authority for duplicate shot-level references so older request-building
+        and error-reporting contracts stay compatible. Character-local duplicates
+        were previously collapsed by ownership maps and could silently overweight
+        one identity in an external multi-reference adapter, so they fail closed.
         """
-
-        seen_approved: set[str] = set()
-        for index, reference_id in enumerate(self.approved_reference_ids):
-            if not isinstance(reference_id, str) or not reference_id.strip():
-                raise ValueError(
-                    f"approved_reference_ids[{index}] must be a non-empty string"
-                )
-            if reference_id in seen_approved:
-                raise ValueError(
-                    "approved_reference_ids must not contain duplicate reference IDs: "
-                    f"{reference_id!r}"
-                )
-            seen_approved.add(reference_id)
 
         for character_index, character in enumerate(self.characters):
             if not isinstance(character, dict):
