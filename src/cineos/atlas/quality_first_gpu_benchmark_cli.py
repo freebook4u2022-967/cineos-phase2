@@ -107,7 +107,7 @@ def _expected_character_reference_bindings(
     """Return the renderer-canonical character-to-reference ownership contract."""
 
     bindings: list[tuple[str, tuple[str, ...]]] = []
-    for index, character in enumerate(request.characters):
+    for index, character in enumerate(getattr(request, "characters", ())):
         if not isinstance(character, dict):
             continue
         character_id = character.get("character_uuid", f"index:{index}")
