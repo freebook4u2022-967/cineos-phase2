@@ -47,6 +47,96 @@ jobs:
           test -f "${{ inputs.reference_manifest_path }}"
           test -f "benchmarks/projects/competitive-connected-film.json"
 
+      - name: Fail closed on unavailable production dependencies before model acquisition
+        env:
+          REQUESTS_PATH: ${{ inputs.requests_path }}
+          REFERENCE_MANIFEST_PATH: ${{ inputs.reference_manifest_path }}
+          OUTPUT_DIR: ${{ runner.temp }}/cineos-connected-production
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          from cineos.atlas.gpu_benchmark_cli import load_native_requests
+          from cineos.atlas.production_dependency_gate import (
+              IdentityAssetRequirement,
+              collect_cuda_capacity,
+              evaluate_production_dependencies,
+          )
+          from cineos.atlas.production_references import REFERENCE_MANIFEST_SCHEMA
+
+          requests = load_native_requests(os.environ["REQUESTS_PATH"])
+          manifest_path = Path(os.environ["REFERENCE_MANIFEST_PATH"])
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if not isinstance(manifest, dict) or manifest.get("schema") != REFERENCE_MANIFEST_SCHEMA:
+              raise SystemExit("production dependency gate received unsupported reference manifest")
+          raw_references = manifest.get("references")
+          if not isinstance(raw_references, list):
+              raise SystemExit("production dependency gate requires a references array")
+
+          requested_reference_ids = tuple(
+              dict.fromkeys(
+                  reference_id
+                  for request in requests
+                  for reference_id in request.approved_reference_ids
+              )
+          )
+          manifest_entries = {}
+          for index, entry in enumerate(raw_references):
+              if not isinstance(entry, dict):
+                  raise SystemExit(f"reference manifest entry {index} must be an object")
+              reference_id = entry.get("reference_id")
+              raw_path = entry.get("path")
+              digest = entry.get("sha256")
+              if not isinstance(reference_id, str) or not reference_id.strip():
+                  raise SystemExit(f"reference manifest entry {index} has invalid reference_id")
+              normalized_id = reference_id.strip()
+              if normalized_id in manifest_entries:
+                  raise SystemExit(f"duplicate approved reference_id: {normalized_id!r}")
+              if not isinstance(raw_path, str) or not raw_path.strip():
+                  raise SystemExit(f"approved reference {normalized_id!r} has invalid path")
+              if not isinstance(digest, str):
+                  raise SystemExit(f"approved reference {normalized_id!r} has invalid sha256")
+              path = Path(raw_path)
+              if not path.is_absolute():
+                  path = manifest_path.parent / path
+              manifest_entries[normalized_id] = (path, digest)
+
+          missing_ids = sorted(set(requested_reference_ids) - set(manifest_entries))
+          if missing_ids:
+              raise SystemExit(
+                  "production dependency gate manifest is missing requested ids: "
+                  + ", ".join(missing_ids)
+              )
+          identity_assets = tuple(
+              IdentityAssetRequirement(*manifest_entries[reference_id])
+              for reference_id in requested_reference_ids
+          )
+          report = evaluate_production_dependencies(
+              cuda_devices=collect_cuda_capacity(),
+              identity_assets=identity_assets,
+              ffmpeg_available=shutil.which("ffmpeg") is not None,
+              ffprobe_available=shutil.which("ffprobe") is not None,
+              quality_profile_required=True,
+          )
+          output_dir = Path(os.environ["OUTPUT_DIR"])
+          output_dir.mkdir(parents=True, exist_ok=True)
+          report_path = output_dir / "production-dependency-readiness.json"
+          report_path.write_text(
+              json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(report_path.read_text(encoding="utf-8"), end="")
+          if not report.ready:
+              raise SystemExit(
+                  "production dependency gate blocked model acquisition: "
+                  + ", ".join(report.blocking_dependencies)
+              )
+          PY
+          test -s "${{ runner.temp }}/cineos-connected-production/production-dependency-readiness.json"
+
       - name: Preflight connected production inputs before model acquisition
         run: |
           output_dir="${{ runner.temp }}/cineos-connected-production"
