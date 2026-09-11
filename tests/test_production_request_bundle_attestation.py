@@ -36,12 +36,17 @@ def _bundle_hash(requests) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _write_preflight(root: Path, requests) -> Path:
+def _write_preflight(
+    root: Path,
+    requests,
+    *,
+    schema: str = "cineos-connected-benchmark-fixture-preflight/0.4",
+) -> Path:
     path = root / "connected-benchmark-fixture-preflight.json"
     path.write_text(
         json.dumps(
             {
-                "schema": "cineos-connected-benchmark-fixture-preflight/0.2",
+                "schema": schema,
                 "validated": True,
                 "shot_count": len(requests),
                 "ordered_shot_ids": [request.shot_id for request in requests],
@@ -76,7 +81,7 @@ def _write_quality(root: Path, payload) -> Path:
     return path
 
 
-def test_inference_gate_accepts_exact_preflight_bundle(monkeypatch, tmp_path):
+def test_inference_gate_accepts_exact_current_preflight_bundle(monkeypatch, tmp_path):
     requests = _requests()
     preflight = _write_preflight(tmp_path, requests)
     monkeypatch.setattr(bundle_attestation, "load_native_requests", lambda _: requests)
@@ -87,6 +92,42 @@ def test_inference_gate_accepts_exact_preflight_bundle(monkeypatch, tmp_path):
     assert result["shot_count"] == 5
     assert result["ordered_shot_ids"] == [request.shot_id for request in requests]
     assert result["normalized_request_bundle_sha256"] == _bundle_hash(requests)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "cineos-connected-benchmark-fixture-preflight/0.2",
+        "cineos-connected-benchmark-fixture-preflight/0.3",
+    ],
+)
+def test_inference_gate_preserves_request_bound_legacy_preflight_schemas(
+    monkeypatch, tmp_path, schema
+):
+    requests = _requests()
+    preflight = _write_preflight(tmp_path, requests, schema=schema)
+    monkeypatch.setattr(bundle_attestation, "load_native_requests", lambda _: requests)
+
+    result = validate_request_bundle_preflight("requests.json", preflight)
+
+    assert result["validated"] is True
+    assert result["normalized_request_bundle_sha256"] == _bundle_hash(requests)
+
+
+def test_inference_gate_rejects_unknown_preflight_schema(monkeypatch, tmp_path):
+    requests = _requests()
+    preflight = _write_preflight(
+        tmp_path,
+        requests,
+        schema="cineos-connected-benchmark-fixture-preflight/9.9",
+    )
+    monkeypatch.setattr(bundle_attestation, "load_native_requests", lambda _: requests)
+
+    with pytest.raises(
+        ProductionRequestBundleAttestationError,
+        match="schema is not request-bundle-bound",
+    ):
+        validate_request_bundle_preflight("requests.json", preflight)
 
 
 def test_inference_gate_rejects_request_content_changed_after_preflight(
