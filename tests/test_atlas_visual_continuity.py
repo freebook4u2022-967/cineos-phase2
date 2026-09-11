@@ -34,7 +34,12 @@ def _request(shot_id, *, previous_shot=None, references=("hero-front",)):
         shot_id=shot_id,
         scene_id="scene-001",
         camera={"resolution": (1280, 704), "fps": 24, "duration": 1.0},
-        characters=[{"character_id": "hero"}],
+        characters=[
+            {
+                "character_uuid": "hero",
+                "approved_reference_ids": list(references),
+            }
+        ],
         environment={},
         wardrobe=[],
         props=[],
