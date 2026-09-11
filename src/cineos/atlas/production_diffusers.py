@@ -270,14 +270,19 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
 
     @staticmethod
     def _validate_character_reference_lineage(request: NativeShotRequest) -> None:
-        """Reject character-level references that escape the approved shot lineage."""
+        """Reject ambiguous or escaped character reference ownership in production."""
 
         approved = set(request.approved_reference_ids)
+        multi_character = len(request.characters) > 1
+        reference_owner: dict[str, str] = {}
         for index, character in enumerate(request.characters):
             if not isinstance(character, dict):
                 raise DiffusersVideoError(
                     f"production character conditioning {index} must be an object"
                 )
+            character_id = character.get("character_uuid", f"index:{index}")
+            if not isinstance(character_id, str) or not character_id.strip():
+                character_id = f"index:{index}"
             raw_ids = character.get("approved_reference_ids", [])
             if not isinstance(raw_ids, (list, tuple)) or any(
                 not isinstance(reference_id, str) or not reference_id.strip()
@@ -287,15 +292,28 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
                     "character approved_reference_ids must be a sequence of non-empty "
                     "strings"
                 )
+            if multi_character and not raw_ids:
+                raise DiffusersVideoError(
+                    "multi-character production conditioning requires at least one "
+                    f"approved reference per character: {character_id!r} has none"
+                )
             escaped = [
                 reference_id for reference_id in raw_ids if reference_id not in approved
             ]
             if escaped:
-                character_id = character.get("character_uuid", f"index:{index}")
                 raise DiffusersVideoError(
                     "character conditioning references are not approved by the shot: "
                     f"{character_id!r} -> {', '.join(escaped)}"
                 )
+            for reference_id in raw_ids:
+                previous_owner = reference_owner.get(reference_id)
+                if previous_owner is not None and previous_owner != character_id:
+                    raise DiffusersVideoError(
+                        "character identity reference is ambiguously assigned to "
+                        "multiple characters: "
+                        f"{reference_id!r} -> {previous_owner!r}, {character_id!r}"
+                    )
+                reference_owner[reference_id] = character_id
 
     def _prepare_multi_reference_image(self, request: NativeShotRequest) -> Any:
         if self.multi_reference_adapter is None:
