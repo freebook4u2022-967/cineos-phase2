@@ -337,13 +337,7 @@ def test_director_prompt_retains_structured_identity_and_continuity_constraints(
     assert '"reference_board_order":["hero-front"]' in prompt
 
 
-def test_character_reference_lineage_cannot_escape_shot_approval(tmp_path):
-    pipeline = ImagePipeline()
-    renderer = _renderer(
-        tmp_path,
-        pipeline,
-        reference_loader=lambda reference_id: f"image:{reference_id}",
-    )
+def test_character_reference_lineage_cannot_escape_native_shot_approval():
     request = _request()
     request.characters = [
         {
@@ -351,12 +345,11 @@ def test_character_reference_lineage_cannot_escape_shot_approval(tmp_path):
             "approved_reference_ids": ["unapproved-side-view"],
         }
     ]
-    request.refresh_hash()
 
-    with pytest.raises(DiffusersVideoError, match="not approved by the shot"):
-        renderer.render(request)
-
-    assert pipeline.calls == []
+    with pytest.raises(
+        ValueError, match="unapproved shot reference 'unapproved-side-view'"
+    ):
+        request.refresh_hash()
 
 
 def test_single_reference_result_attests_exact_conditioning_lineage(tmp_path):
