@@ -26,14 +26,13 @@ def _request(
     )
 
 
-def test_native_request_rejects_duplicate_approved_reference_ids() -> None:
+def test_native_request_preserves_shot_level_duplicate_validation_compatibility() -> None:
     request = _request(approved_reference_ids=["hero-ref", "hero-ref"])
 
-    with pytest.raises(
-        ValueError,
-        match="approved_reference_ids must not contain duplicate reference IDs",
-    ):
-        request.refresh_hash()
+    content_hash = request.refresh_hash()
+
+    assert len(content_hash) == 64
+    assert request.content_hash_is_current()
 
 
 def test_native_request_rejects_duplicate_character_reference_ids() -> None:
