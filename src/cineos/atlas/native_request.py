@@ -118,15 +118,23 @@ class NativeShotRequest:
     content_hash: str = ""
 
     def validate_reference_integrity(self) -> None:
-        """Reject ambiguous character-local identity reference weighting.
+        """Reject ambiguous or unapproved character-local identity references.
 
         Renderer-specific reference-board validation intentionally remains the
         authority for duplicate shot-level references so older request-building
         and error-reporting contracts stay compatible. Character-local duplicates
         were previously collapsed by ownership maps and could silently overweight
         one identity in an external multi-reference adapter, so they fail closed.
+        Character-local references must also be present in the shot-level approved
+        reference set so a manually constructed native request cannot inject an
+        identity source that bypassed CINEOS asset approval.
         """
 
+        approved_reference_set = {
+            reference_id
+            for reference_id in self.approved_reference_ids
+            if isinstance(reference_id, str)
+        }
         for character_index, character in enumerate(self.characters):
             if not isinstance(character, dict):
                 continue
@@ -149,6 +157,11 @@ class NativeShotRequest:
                     raise ValueError(
                         f"characters[{character_index}].approved_reference_ids must not "
                         f"contain duplicate reference IDs: {reference_id!r}"
+                    )
+                if reference_id not in approved_reference_set:
+                    raise ValueError(
+                        f"characters[{character_index}].approved_reference_ids[{reference_index}] "
+                        f"references unapproved shot reference {reference_id!r}"
                     )
                 seen_character.add(reference_id)
 
