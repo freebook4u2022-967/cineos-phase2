@@ -47,6 +47,7 @@ def test_first_party_multi_reference_adapter_remains_production_evidence():
 
     bound = bind_production_multi_reference_runtime(_runtime(), adapter)
 
+    assert adapter.adapter_version == "0.1.2"
     assert bound["production_default_runtime"] is True
     assert bound["runtime_mode"] == "default"
     assert bound["injected_boundaries"]["multi_reference_adapter"] is False
