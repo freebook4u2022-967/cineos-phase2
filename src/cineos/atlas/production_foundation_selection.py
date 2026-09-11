@@ -9,7 +9,7 @@ CINEOS-native.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -189,6 +189,92 @@ def _renderer_requirement_mismatch(
     return None
 
 
+def _competitive_identity_reference_mismatch(request: NativeShotRequest) -> str | None:
+    """Require distinct identity assets for identity-sensitive competitive claims.
+
+    Production benchmark tags such as ``identity_consistency`` and
+    ``multi_character_interaction`` are only meaningful when every conditioned
+    character can be anchored by distinct approved visual content. Merely supplying
+    one image to a two-character shot can exercise I2V, but it cannot substantiate a
+    Seedance-style multi-identity consistency claim. Generic untagged requests retain
+    their historical behavior for backwards compatibility.
+    """
+
+    metadata = getattr(request, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return None
+    raw_challenges = metadata.get("competitive_challenges", ())
+    if not isinstance(raw_challenges, Sequence) or isinstance(
+        raw_challenges, (str, bytes)
+    ):
+        return None
+    challenges = {
+        value.strip()
+        for value in raw_challenges
+        if isinstance(value, str) and value.strip()
+    }
+    if not challenges.intersection({"identity_consistency", "multi_character_interaction"}):
+        return None
+
+    raw_characters = getattr(request, "characters", ())
+    if not isinstance(raw_characters, Sequence) or isinstance(
+        raw_characters, (str, bytes)
+    ):
+        return "identity-sensitive benchmark requires structured character conditioning"
+
+    character_ids: list[str] = []
+    for character_index, character in enumerate(raw_characters):
+        if not isinstance(character, Mapping):
+            return (
+                "identity-sensitive benchmark character "
+                f"{character_index} must be a structured object"
+            )
+        aliases = [
+            value.strip()
+            for key in ("character_uuid", "character_id")
+            if isinstance((value := character.get(key)), str) and value.strip()
+        ]
+        if not aliases:
+            return (
+                "identity-sensitive benchmark character "
+                f"{character_index} requires a stable character identity"
+            )
+        if len(set(aliases)) != 1:
+            return (
+                "identity-sensitive benchmark character "
+                f"{character_index} has conflicting identity aliases"
+            )
+        character_ids.append(aliases[0])
+
+    if not character_ids:
+        return "identity-sensitive benchmark requires at least one conditioned character"
+    if len(set(character_ids)) != len(character_ids):
+        return "identity-sensitive benchmark contains duplicate conditioned character identities"
+
+    raw_references = getattr(request, "approved_reference_ids", ())
+    if not isinstance(raw_references, Sequence) or isinstance(
+        raw_references, (str, bytes)
+    ):
+        return "identity-sensitive benchmark requires approved identity references"
+    reference_ids = [
+        value.strip()
+        for value in raw_references
+        if isinstance(value, str) and value.strip()
+    ]
+    if len(reference_ids) != len(raw_references):
+        return "identity-sensitive benchmark has malformed approved reference identities"
+    distinct_reference_count = len(set(reference_ids))
+    if distinct_reference_count != len(reference_ids):
+        return "identity-sensitive benchmark contains duplicate approved reference identities"
+    if distinct_reference_count < len(character_ids):
+        return (
+            "identity-sensitive benchmark requires at least one distinct approved "
+            "reference per conditioned character: "
+            f"characters={len(character_ids)} references={distinct_reference_count}"
+        )
+    return None
+
+
 def _profile_request_mismatch(
     profile: FoundationExecutionProfile,
     requests: Sequence[NativeShotRequest],
@@ -203,6 +289,9 @@ def _profile_request_mismatch(
     """
 
     for index, request in enumerate(requests):
+        identity_mismatch = _competitive_identity_reference_mismatch(request)
+        if identity_mismatch is not None:
+            return f"shot {index} has invalid competitive identity contract: {identity_mismatch}"
         try:
             resolution, fps, duration = _camera_contract(request)
             requirement_mismatch = _renderer_requirement_mismatch(
