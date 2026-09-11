@@ -17,7 +17,7 @@ import hashlib
 import json
 import shutil
 import subprocess
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -50,7 +50,9 @@ class CUDADeviceCapacity:
         if not self.name.strip():
             raise ValueError("CUDA device name cannot be empty")
         if self.total_vram_gb <= 0 or self.free_vram_gb < 0:
-            raise ValueError("CUDA VRAM values must be non-negative with positive total")
+            raise ValueError(
+                "CUDA VRAM values must be non-negative with positive total"
+            )
         if self.free_vram_gb > self.total_vram_gb + 0.25:
             raise ValueError("CUDA free VRAM cannot exceed total VRAM")
 
@@ -110,7 +112,9 @@ def _sha256_file(path: Path) -> str:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
     except OSError as exc:
-        raise ProductionDependencyGateError(f"cannot hash identity asset: {path}") from exc
+        raise ProductionDependencyGateError(
+            f"cannot hash identity asset: {path}"
+        ) from exc
     return digest.hexdigest()
 
 

@@ -6,6 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from cineos.atlas.foundation_profiles import (
+    WAN22_I2V_A14B_PROFILE,
+    WAN22_TI2V_5B_PROFILE,
+)
 from cineos.atlas.production_dependency_gate import (
     CUDADeviceCapacity,
     IdentityAssetRequirement,
@@ -13,10 +17,6 @@ from cineos.atlas.production_dependency_gate import (
     collect_cuda_capacity,
     evaluate_production_dependencies,
     parse_nvidia_smi_capacity,
-)
-from cineos.atlas.foundation_profiles import (
-    WAN22_I2V_A14B_PROFILE,
-    WAN22_TI2V_5B_PROFILE,
 )
 
 
@@ -62,9 +62,7 @@ def test_quality_mode_fails_closed_instead_of_silently_downgrading_to_5b(
     assert report.selected_profile_id is None
     assert report.selected_model_id is None
     assert report.selected_device is None
-    assert report.blocking_dependencies == (
-        "cuda_free_vram_below_quality_floor:80GB",
-    )
+    assert report.blocking_dependencies == ("cuda_free_vram_below_quality_floor:80GB",)
 
 
 def test_explicit_fallback_mode_selects_pinned_5b_profile(tmp_path: Path) -> None:
@@ -124,8 +122,7 @@ def test_identity_digest_must_be_real_hex_sha256(tmp_path: Path) -> None:
 
 def test_parse_nvidia_smi_capacity_preserves_free_memory_for_selection() -> None:
     devices = parse_nvidia_smi_capacity(
-        "0, NVIDIA H100 96GB HBM3, 98304, 92160\n"
-        "1, NVIDIA L40S, 49152, 45056\n"
+        "0, NVIDIA H100 96GB HBM3, 98304, 92160\n" "1, NVIDIA L40S, 49152, 45056\n"
     )
 
     assert devices == (
@@ -148,6 +145,8 @@ def test_collect_cuda_capacity_treats_unavailable_nvidia_smi_as_no_gpu() -> None
 
 def test_collect_cuda_capacity_treats_failed_probe_as_no_gpu() -> None:
     def failed(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess([], 1, stdout="", stderr="driver unavailable")
+        return subprocess.CompletedProcess(
+            [], 1, stdout="", stderr="driver unavailable"
+        )
 
     assert collect_cuda_capacity(run=failed) == ()
