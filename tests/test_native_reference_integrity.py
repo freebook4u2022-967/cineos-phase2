@@ -65,6 +65,28 @@ def test_native_request_rejects_character_reference_not_approved_for_shot() -> N
         request.refresh_hash()
 
 
+def test_native_request_rejects_reference_shared_across_characters() -> None:
+    request = _request(
+        approved_reference_ids=["shared-ref"],
+        characters=[
+            {"character_uuid": "hero", "approved_reference_ids": ["shared-ref"]},
+            {
+                "character_uuid": "partner",
+                "approved_reference_ids": ["shared-ref"],
+            },
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "approved reference 'shared-ref' is assigned to multiple characters: "
+            r"characters\[0\] and characters\[1\]"
+        ),
+    ):
+        request.refresh_hash()
+
+
 def test_native_request_accepts_unique_multi_character_reference_ids() -> None:
     request = _request(
         approved_reference_ids=["hero-ref", "partner-ref"],

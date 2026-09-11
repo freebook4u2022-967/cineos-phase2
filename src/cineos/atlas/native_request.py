@@ -125,6 +125,9 @@ class NativeShotRequest:
         and error-reporting contracts stay compatible. Character-local duplicates
         were previously collapsed by ownership maps and could silently overweight
         one identity in an external multi-reference adapter, so they fail closed.
+        A character-local reference may belong to only one character entry; sharing
+        the same identity source across distinct cast entries creates ambiguous
+        multi-character conditioning and can cross-contaminate identity embeddings.
         Character-local references must also be present in the shot-level approved
         reference set so a manually constructed native request cannot inject an
         identity source that bypassed CINEOS asset approval.
@@ -135,6 +138,7 @@ class NativeShotRequest:
             for reference_id in self.approved_reference_ids
             if isinstance(reference_id, str)
         }
+        reference_owners: dict[str, int] = {}
         for character_index, character in enumerate(self.characters):
             if not isinstance(character, dict):
                 continue
@@ -163,6 +167,14 @@ class NativeShotRequest:
                         f"characters[{character_index}].approved_reference_ids[{reference_index}] "
                         f"references unapproved shot reference {reference_id!r}"
                     )
+                previous_owner = reference_owners.get(reference_id)
+                if previous_owner is not None and previous_owner != character_index:
+                    raise ValueError(
+                        f"approved reference {reference_id!r} is assigned to multiple "
+                        f"characters: characters[{previous_owner}] and "
+                        f"characters[{character_index}]"
+                    )
+                reference_owners[reference_id] = character_index
                 seen_character.add(reference_id)
 
     def validate_timing_integrity(self) -> None:
