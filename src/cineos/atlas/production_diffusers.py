@@ -275,6 +275,7 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
         approved = set(request.approved_reference_ids)
         multi_character = len(request.characters) > 1
         reference_owner: dict[str, str] = {}
+        character_ids: set[str] = set()
         for index, character in enumerate(request.characters):
             if not isinstance(character, dict):
                 raise DiffusersVideoError(
@@ -283,6 +284,20 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             character_id = character.get("character_uuid", f"index:{index}")
             if not isinstance(character_id, str) or not character_id.strip():
                 character_id = f"index:{index}"
+            else:
+                character_id = character_id.strip()
+            if multi_character:
+                if character_id.startswith("index:"):
+                    raise DiffusersVideoError(
+                        "multi-character production conditioning requires a non-empty "
+                        "character_uuid for every character"
+                    )
+                if character_id in character_ids:
+                    raise DiffusersVideoError(
+                        "multi-character production conditioning requires unique "
+                        f"character_uuid values: duplicate {character_id!r}"
+                    )
+                character_ids.add(character_id)
             raw_ids = character.get("approved_reference_ids", [])
             if not isinstance(raw_ids, (list, tuple)) or any(
                 not isinstance(reference_id, str) or not reference_id.strip()
