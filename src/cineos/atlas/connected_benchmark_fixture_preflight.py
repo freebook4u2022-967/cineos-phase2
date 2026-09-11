@@ -231,7 +231,9 @@ def preflight_connected_benchmark_fixture(
     result = validate_connected_benchmark_fixture(
         fixture_path, shot_count=len(requests)
     )
-    identity_assignment_shot_ids = _validate_multi_character_identity_assignment(requests)
+    identity_assignment_shot_ids = _validate_multi_character_identity_assignment(
+        requests
+    )
     ordered_shot_ids, bundle_sha256 = _normalized_request_bundle_binding(requests)
     result.update(
         {
