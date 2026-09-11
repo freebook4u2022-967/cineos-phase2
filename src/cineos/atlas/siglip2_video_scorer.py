@@ -22,7 +22,7 @@ from .production_references import ProductionReferenceLoader
 SIGLIP2_QC_MODEL_ID = "google/siglip2-base-patch16-256"
 SIGLIP2_QC_REVISION = "ce3bda6b1094ecd25dabd523e58ddab69b83baf2"
 SIGLIP2_QC_LICENSE = "Apache-2.0"
-SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.7"
+SIGLIP2_QC_SCHEMA = "cineos-external-siglip2-video-qc/0.8"
 DEFAULT_MOTION_ACTIVITY_FLOOR = 1e-4
 DEFAULT_MOTION_SUPPORT_FRACTION = 0.25
 DEFAULT_MOTION_STEP_CEILING = 0.5
@@ -99,6 +99,43 @@ def _identity_score(
         )
         aggregate = min(aggregate, weakest_reference_support)
     return max(0.0, min(1.0, aggregate))
+
+
+def _multi_character_copresence_score(
+    frame_features: Sequence[Sequence[float]],
+    character_reference_groups: Sequence[Sequence[Sequence[float]]],
+    *,
+    support_fraction: float,
+) -> float:
+    """Require simultaneous visual support for every conditioned character.
+
+    Per-reference temporal coverage alone can be satisfied by a sequence where
+    character A appears only early and character B appears only late. That is not
+    sufficient evidence for Seedance-style multi-character interaction. For each
+    sampled frame we therefore take the best similarity for each character's own
+    approved reference group, then the weakest character support on that same
+    frame. A sustained top-fraction of those co-presence scores caps identity QC.
+    """
+    if not frame_features:
+        raise SigLIP2VideoScorerError(
+            "multi-character co-presence requires decoded frame features"
+        )
+    if len(character_reference_groups) < 2:
+        raise SigLIP2VideoScorerError(
+            "multi-character co-presence requires at least two character groups"
+        )
+    if any(not group for group in character_reference_groups):
+        raise SigLIP2VideoScorerError(
+            "multi-character co-presence requires references for every character"
+        )
+    frame_copresence = [
+        min(
+            max(_similarity(frame, reference) for reference in group)
+            for group in character_reference_groups
+        )
+        for frame in frame_features
+    ]
+    return _top_fraction_mean(frame_copresence, fraction=support_fraction)
 
 
 def _rows(value: Any) -> list[list[float]]:
@@ -235,7 +272,7 @@ class SigLIP2FeatureVideoScorer:
             "model_id": SIGLIP2_QC_MODEL_ID,
             "revision": SIGLIP2_QC_REVISION,
             "license": SIGLIP2_QC_LICENSE,
-            "identity_metric": "approved-reference-temporal-support-cosine",
+            "identity_metric": "approved-reference-character-copresence-cosine",
             "multi_identity_support_fraction": self.multi_identity_support_fraction,
             "motion_metric": "siglip2-feature-step-coherence-with-cut-rejection",
             "motion_activity_floor": self.motion_activity_floor,
@@ -285,6 +322,49 @@ class SigLIP2FeatureVideoScorer:
         embedding = self._encode_images([image])[0]
         self._reference_cache[reference_id] = embedding
         return embedding
+
+    def _character_reference_groups(
+        self,
+        shot: Any,
+        reference_ids: Sequence[str],
+        references: Sequence[Sequence[float]],
+    ) -> tuple[tuple[tuple[float, ...], ...], ...]:
+        """Resolve exact per-character reference groups for co-presence measurement."""
+        characters = getattr(shot, "characters", None)
+        if not isinstance(characters, (list, tuple)) or len(characters) < 2:
+            return ()
+        by_id = {
+            reference_id: tuple(reference)
+            for reference_id, reference in zip(reference_ids, references, strict=True)
+        }
+        groups: list[tuple[tuple[float, ...], ...]] = []
+        covered: list[str] = []
+        for index, character in enumerate(characters):
+            if not isinstance(character, Mapping):
+                raise SigLIP2VideoScorerError(
+                    f"multi-character QC character {index} is not an object"
+                )
+            raw_ids = character.get("approved_reference_ids")
+            if not isinstance(raw_ids, (list, tuple)) or not raw_ids:
+                raise SigLIP2VideoScorerError(
+                    "multi-character identity QC requires approved references for "
+                    "every character"
+                )
+            group: list[tuple[float, ...]] = []
+            for reference_id in raw_ids:
+                if not isinstance(reference_id, str) or reference_id not in by_id:
+                    raise SigLIP2VideoScorerError(
+                        "multi-character identity QC reference ownership does not "
+                        "match approved_reference_ids"
+                    )
+                group.append(by_id[reference_id])
+                covered.append(reference_id)
+            groups.append(tuple(group))
+        if tuple(covered) != tuple(reference_ids):
+            raise SigLIP2VideoScorerError(
+                "multi-character identity QC requires exact character reference coverage"
+            )
+        return tuple(groups)
 
     @staticmethod
     def _motion_coherence(
@@ -345,6 +425,18 @@ class SigLIP2FeatureVideoScorer:
             mean_weight=self.identity_mean_weight,
             multi_identity_support_fraction=self.multi_identity_support_fraction,
         )
+        character_groups = self._character_reference_groups(
+            shot, reference_ids, references
+        )
+        if character_groups:
+            identity = min(
+                identity,
+                _multi_character_copresence_score(
+                    frame_features,
+                    character_groups,
+                    support_fraction=self.multi_identity_support_fraction,
+                ),
+            )
         return {
             "identity_similarity": identity,
             "motion_quality": self._motion_coherence(
