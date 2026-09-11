@@ -50,6 +50,21 @@ def test_native_request_rejects_duplicate_character_reference_ids() -> None:
         request.refresh_hash()
 
 
+def test_native_request_rejects_character_reference_not_approved_for_shot() -> None:
+    request = _request(
+        approved_reference_ids=["hero-ref"],
+        characters=[
+            {
+                "character_uuid": "hero",
+                "approved_reference_ids": ["unapproved-ref"],
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unapproved shot reference 'unapproved-ref'"):
+        request.refresh_hash()
+
+
 def test_native_request_accepts_unique_multi_character_reference_ids() -> None:
     request = _request(
         approved_reference_ids=["hero-ref", "partner-ref"],
