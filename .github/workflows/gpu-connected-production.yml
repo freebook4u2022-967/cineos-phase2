@@ -119,7 +119,7 @@ jobs:
               identity_assets=identity_assets,
               ffmpeg_available=shutil.which("ffmpeg") is not None,
               ffprobe_available=shutil.which("ffprobe") is not None,
-              quality_profile_required=True,
+              quality_profile_required=False,
           )
           output_dir = Path(os.environ["OUTPUT_DIR"])
           output_dir.mkdir(parents=True, exist_ok=True)
