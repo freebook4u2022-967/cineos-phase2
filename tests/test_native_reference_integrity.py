@@ -26,7 +26,9 @@ def _request(
     )
 
 
-def test_native_request_preserves_shot_level_duplicate_validation_compatibility() -> None:
+def test_native_request_preserves_shot_level_duplicate_validation_compatibility() -> (
+    None
+):
     request = _request(approved_reference_ids=["hero-ref", "hero-ref"])
 
     content_hash = request.refresh_hash()
