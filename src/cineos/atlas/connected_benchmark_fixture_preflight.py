@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -199,6 +200,130 @@ def _validate_multi_character_identity_assignment(
     return tuple(bound_shot_ids)
 
 
+def _character_identity(request_character: Mapping[str, Any], *, field: str) -> str:
+    """Resolve a character identity without silently accepting conflicting aliases."""
+
+    canonical = request_character.get("character_uuid")
+    legacy = request_character.get("character_id")
+    for name, value in (("character_uuid", canonical), ("character_id", legacy)):
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"{field}.{name} must be a non-empty string when supplied"
+            )
+    if canonical is not None and legacy is not None:
+        if canonical.strip() != legacy.strip():
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"{field} has conflicting character_uuid/character_id"
+            )
+        return canonical.strip()
+    identity = canonical if canonical is not None else legacy
+    if identity is None:
+        raise ConnectedBenchmarkFixturePreflightError(
+            f"{field} requires character_uuid or character_id"
+        )
+    return identity.strip()
+
+
+def _identity_reference_bindings(
+    request: NativeShotRequest, *, request_index: int
+) -> set[tuple[str, str]]:
+    """Return explicit character-to-reference bindings for one validated shot.
+
+    Multi-character production shots must have local reference ownership before this
+    function runs. For a single-character legacy request, shot-level approved references
+    remain safely attributable to the sole conditioned identity for compatibility.
+    """
+
+    characters = getattr(request, "characters", None)
+    if not isinstance(characters, list) or not characters:
+        return set()
+
+    shot_approved = set(request.approved_reference_ids)
+    bindings: set[tuple[str, str]] = set()
+    for character_index, character in enumerate(characters):
+        if not isinstance(character, Mapping):
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"shot {request.shot_id!r} has invalid characters[{character_index}]"
+            )
+        identity = _character_identity(
+            character,
+            field=f"shot {request.shot_id!r} characters[{character_index}]",
+        )
+        local_references = character.get("approved_reference_ids")
+        if local_references is None:
+            if len(characters) == 1:
+                local_references = tuple(request.approved_reference_ids)
+            else:
+                continue
+        if not isinstance(local_references, Sequence) or isinstance(
+            local_references, (str, bytes)
+        ):
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"shot {request.shot_id!r} character {identity!r} approved_reference_ids "
+                "must be a sequence"
+            )
+        for reference_id in local_references:
+            if not isinstance(reference_id, str) or not reference_id:
+                raise ConnectedBenchmarkFixturePreflightError(
+                    f"shot {request.shot_id!r} character {identity!r} contains an "
+                    "invalid approved_reference_id"
+                )
+            if reference_id not in shot_approved:
+                raise ConnectedBenchmarkFixturePreflightError(
+                    f"shot {request.shot_id!r} character {identity!r} binds unapproved "
+                    f"reference {reference_id!r}"
+                )
+            bindings.add((identity, reference_id))
+    return bindings
+
+
+def _validate_identity_consistency_bindings(
+    requests: Sequence[NativeShotRequest],
+) -> dict[str, list[dict[str, str]]]:
+    """Prove identity consistency with stable character/reference ownership.
+
+    Repeating a reference token is insufficient: the same reference could be attached
+    to a different character on a later shot. The competitive identity challenge now
+    requires every identity-tagged shot to contain at least one ``(character, reference)``
+    pair that also occurs in another connected shot. The returned evidence is explicit
+    and auditable rather than an aggregate boolean.
+    """
+
+    bindings_by_shot: list[set[tuple[str, str]]] = [
+        _identity_reference_bindings(request, request_index=index)
+        for index, request in enumerate(requests)
+    ]
+    occurrences = Counter(
+        binding for shot_bindings in bindings_by_shot for binding in shot_bindings
+    )
+    evidence: dict[str, list[dict[str, str]]] = {}
+
+    for index, request in enumerate(requests):
+        raw_tags = request.metadata.get(COMPETITIVE_CHALLENGE_METADATA_KEY, ())
+        if "identity_consistency" not in raw_tags:
+            continue
+        persistent = sorted(
+            binding
+            for binding in bindings_by_shot[index]
+            if occurrences[binding] >= 2
+        )
+        if not persistent:
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"shot {request.shot_id!r} declares identity_consistency but no "
+                "character/reference identity binding persists into another connected shot"
+            )
+        evidence[request.shot_id] = [
+            {"character_id": identity, "approved_reference_id": reference_id}
+            for identity, reference_id in persistent
+        ]
+
+    if not evidence:
+        raise ConnectedBenchmarkFixturePreflightError(
+            "connected benchmark contains no identity_consistency challenge evidence"
+        )
+    return evidence
+
+
 def validate_connected_benchmark_fixture(
     fixture_path: str | Path,
     *,
@@ -281,6 +406,7 @@ def preflight_connected_benchmark_fixture(
     identity_assignment_shot_ids = _validate_multi_character_identity_assignment(
         requests
     )
+    identity_consistency_bindings = _validate_identity_consistency_bindings(requests)
     challenge_shot_ids = _challenge_shot_bindings(requests)
     ordered_shot_ids, bundle_sha256 = _normalized_request_bundle_binding(requests)
     result.update(
@@ -290,6 +416,7 @@ def preflight_connected_benchmark_fixture(
             "ordered_shot_ids": list(ordered_shot_ids),
             "normalized_request_bundle_sha256": bundle_sha256,
             "identity_assignment_shot_ids": list(identity_assignment_shot_ids),
+            "identity_consistency_bindings": identity_consistency_bindings,
             "competitive_challenge_shot_ids": challenge_shot_ids,
         }
     )
