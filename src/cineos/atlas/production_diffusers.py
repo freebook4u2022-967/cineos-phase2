@@ -39,9 +39,9 @@ class MultiReferenceConditioningResult:
     consumed_reference_ids: tuple[str, ...]
     adapter_id: str
     adapter_version: str
-    consumed_character_reference_ids: (
-        tuple[tuple[str, tuple[str, ...]], ...] | None
-    ) = None
+    consumed_character_reference_ids: tuple[tuple[str, tuple[str, ...]], ...] | None = (
+        None
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -387,7 +387,11 @@ class ProductionDiffusersVideoRenderer(DiffusersVideoRenderer):
             )
         expected_bindings = self._expected_character_reference_bindings(request)
         reported_bindings = result.consumed_character_reference_ids
-        if len(request.characters) > 1 and expected_bindings and reported_bindings is None:
+        if (
+            len(request.characters) > 1
+            and expected_bindings
+            and reported_bindings is None
+        ):
             raise DiffusersVideoError(
                 "multi-character multi_reference_adapter must attest exact "
                 "character_uuid-to-reference ownership"
