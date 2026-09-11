@@ -21,7 +21,7 @@ def _request(
 
 def test_multi_character_reference_ownership_accepts_disjoint_approved_refs() -> None:
     request = _request(
-        approved_reference_ids=("alice-ref", "bob-ref", "room-ref"),
+        approved_reference_ids=("alice-ref", "bob-ref"),
         characters=(
             {"character_uuid": "alice", "approved_reference_ids": ["alice-ref"]},
             {"character_uuid": "bob", "approved_reference_ids": ["bob-ref"]},
@@ -49,7 +49,7 @@ def test_multi_character_reference_ownership_rejects_shared_identity_ref() -> No
 
 def test_multi_character_reference_ownership_requires_each_character_ref() -> None:
     request = _request(
-        approved_reference_ids=("alice-ref", "room-ref"),
+        approved_reference_ids=("alice-ref",),
         characters=(
             {"character_uuid": "alice", "approved_reference_ids": ["alice-ref"]},
             {"character_uuid": "bob", "approved_reference_ids": []},
@@ -95,9 +95,9 @@ def test_multi_character_reference_ownership_requires_character_uuid() -> None:
         ProductionDiffusersVideoRenderer._validate_character_reference_lineage(request)
 
 
-def test_single_character_without_reference_remains_backward_compatible() -> None:
+def test_single_character_without_approved_identity_reference_remains_compatible() -> None:
     request = _request(
-        approved_reference_ids=("room-ref",),
+        approved_reference_ids=(),
         characters=({"character_uuid": "alice", "approved_reference_ids": []},),
     )
 
