@@ -16,12 +16,40 @@ from .production_diffusers import MultiReferenceConditioningResult
 
 MULTI_REFERENCE_RUNTIME_SCHEMA = "cineos-production-multi-reference-runtime/0.1"
 PRODUCTION_REFERENCE_BOARD_ADAPTER_ID = "cineos.production.reference_board"
-PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION = "0.1.1"
+PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION = "0.1.2"
 PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES = 4
 
 
 class ProductionMultiReferenceError(RuntimeError):
     """Raised when production multi-reference conditioning cannot be audited."""
+
+
+def _character_reference_bindings(
+    request: NativeShotRequest,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Mirror the validated production character-to-reference ownership contract.
+
+    The production renderer validates lineage before invoking this adapter. The
+    adapter must nevertheless report the exact ownership it actually consumed so
+    the renderer can compare execution evidence with that validated contract. This
+    helper intentionally derives ownership only from explicit CINEOS character
+    metadata; filenames, reference ordering and visual similarity are never used to
+    infer identity ownership.
+    """
+
+    bindings: list[tuple[str, tuple[str, ...]]] = []
+    for index, character in enumerate(request.characters):
+        if not isinstance(character, dict):
+            continue
+        character_id = character.get("character_uuid", f"index:{index}")
+        if not isinstance(character_id, str) or not character_id.strip():
+            character_id = f"index:{index}"
+        else:
+            character_id = character_id.strip()
+        raw_ids = character.get("approved_reference_ids", [])
+        if isinstance(raw_ids, (list, tuple)) and raw_ids:
+            bindings.append((character_id, tuple(raw_ids)))
+    return tuple(bindings)
 
 
 class ProductionReferenceBoardAdapter:
@@ -121,11 +149,13 @@ class ProductionReferenceBoardAdapter:
             top = row * cell_height + (cell_height - target[1]) // 2
             board.paste(fitted, (left, top))
 
+        character_bindings = _character_reference_bindings(request)
         return MultiReferenceConditioningResult(
             image=board,
             consumed_reference_ids=expected_ids,
             adapter_id=PRODUCTION_REFERENCE_BOARD_ADAPTER_ID,
             adapter_version=PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION,
+            consumed_character_reference_ids=character_bindings or None,
         )
 
     def runtime_provenance(self) -> dict[str, Any]:
@@ -140,6 +170,7 @@ class ProductionReferenceBoardAdapter:
             "maximum_references": PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES,
             "composition": "deterministic_contain_fit_reference_board",
             "requires_unique_reference_ids": True,
+            "attests_character_reference_ownership": True,
         }
 
 
