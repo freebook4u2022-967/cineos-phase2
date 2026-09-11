@@ -124,4 +124,4 @@ def test_default_motion_policy_is_conservative_and_versioned() -> None:
     assert DEFAULT_MOTION_ACTIVITY_FLOOR == pytest.approx(1e-4)
     assert DEFAULT_MOTION_SUPPORT_FRACTION == pytest.approx(0.25)
     assert DEFAULT_MOTION_STEP_CEILING == pytest.approx(0.5)
-    assert SIGLIP2_QC_SCHEMA == "cineos-external-siglip2-video-qc/0.7"
+    assert SIGLIP2_QC_SCHEMA == "cineos-external-siglip2-video-qc/0.8"
