@@ -36,6 +36,27 @@ def _fake_requests(order: tuple[int, ...] = (0, 1, 2, 3, 4)):
     )
 
 
+def _multi_character_requests(*, bind_second_character: bool = True):
+    requests = list(_fake_requests())
+    second_refs = ["identity-b"] if bind_second_character else []
+    requests[1] = SimpleNamespace(
+        shot_id="shot-1",
+        content_hash=hashlib.sha256(b"multi-character-payload").hexdigest(),
+        characters=[
+            {
+                "character_uuid": "character-a",
+                "approved_reference_ids": ["identity-a"],
+            },
+            {
+                "character_uuid": "character-b",
+                "approved_reference_ids": second_refs,
+            },
+        ],
+        approved_reference_ids=["identity-a", "identity-b"],
+    )
+    return tuple(requests)
+
+
 def test_canonical_connected_fixture_binds_executable_gpu_challenges():
     result = validate_connected_benchmark_fixture(_FIXTURE_PATH, shot_count=5)
 
@@ -66,9 +87,32 @@ def test_preflight_hash_binds_exact_ordered_normalized_request_bundle(monkeypatc
             ensure_ascii=False,
         ).encode("utf-8")
     ).hexdigest()
-    assert result["schema"] == "cineos-connected-benchmark-fixture-preflight/0.2"
+    assert result["schema"] == "cineos-connected-benchmark-fixture-preflight/0.3"
     assert result["ordered_shot_ids"] == [request.shot_id for request in requests]
     assert result["normalized_request_bundle_sha256"] == expected_hash
+    assert result["identity_assignment_shot_ids"] == []
+
+
+def test_preflight_requires_explicit_identity_assignment_for_each_multi_character_cast_member(
+    monkeypatch,
+):
+    requests = _multi_character_requests(bind_second_character=False)
+    monkeypatch.setattr(fixture_preflight, "load_native_requests", lambda _: requests)
+
+    with pytest.raises(
+        ConnectedBenchmarkFixturePreflightError,
+        match="character-local approved_reference_ids for every cast member",
+    ):
+        preflight_connected_benchmark_fixture("requests.json", _FIXTURE_PATH)
+
+
+def test_preflight_records_explicit_multi_character_identity_assignment(monkeypatch):
+    requests = _multi_character_requests()
+    monkeypatch.setattr(fixture_preflight, "load_native_requests", lambda _: requests)
+
+    result = preflight_connected_benchmark_fixture("requests.json", _FIXTURE_PATH)
+
+    assert result["identity_assignment_shot_ids"] == ["shot-1"]
 
 
 def test_preflight_bundle_hash_changes_when_same_requests_are_reordered(monkeypatch):
