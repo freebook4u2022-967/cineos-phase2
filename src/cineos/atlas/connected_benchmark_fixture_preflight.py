@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .gpu_benchmark_cli import (
+    COMPETITIVE_CHALLENGE_METADATA_KEY,
     REQUIRED_COMPETITIVE_CHALLENGES,
     GPUProductionBenchmarkCLIError,
     load_native_requests,
@@ -113,6 +114,52 @@ def _normalized_request_bundle_binding(
         entries, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
     return tuple(ordered_shot_ids), hashlib.sha256(canonical).hexdigest()
+
+
+def _challenge_shot_bindings(
+    requests: Sequence[NativeShotRequest],
+) -> dict[str, list[str]]:
+    """Bind every mandatory difficult-case claim to the exact validated shot IDs.
+
+    ``load_native_requests`` already verifies the semantics behind each challenge tag.
+    Persisting the resulting challenge-to-shot mapping here prevents downstream GPU or
+    delivery evidence from presenting only an aggregate coverage list with no auditable
+    link back to the requests that actually exercised each stressor.
+    """
+
+    bindings = {challenge: [] for challenge in sorted(REQUIRED_COMPETITIVE_CHALLENGES)}
+    for index, request in enumerate(requests):
+        metadata = getattr(request, "metadata", None)
+        if not isinstance(metadata, Mapping):
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"validated request {index} is missing benchmark metadata"
+            )
+        raw_tags = metadata.get(COMPETITIVE_CHALLENGE_METADATA_KEY)
+        if not isinstance(raw_tags, Sequence) or isinstance(raw_tags, (str, bytes)):
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"validated request {index} is missing competitive challenge tags"
+            )
+        shot_id = getattr(request, "shot_id", None)
+        if not isinstance(shot_id, str) or not shot_id:
+            raise ConnectedBenchmarkFixturePreflightError(
+                f"validated request {index} is missing shot_id"
+            )
+        for challenge in raw_tags:
+            if challenge not in REQUIRED_COMPETITIVE_CHALLENGES:
+                raise ConnectedBenchmarkFixturePreflightError(
+                    f"validated request {index} contains unknown competitive challenge "
+                    f"{challenge!r}"
+                )
+            if shot_id not in bindings[challenge]:
+                bindings[challenge].append(shot_id)
+
+    missing = [challenge for challenge, shot_ids in bindings.items() if not shot_ids]
+    if missing:
+        raise ConnectedBenchmarkFixturePreflightError(
+            "validated request bundle lost mandatory competitive challenge coverage: "
+            + ", ".join(missing)
+        )
+    return bindings
 
 
 def _validate_multi_character_identity_assignment(
@@ -234,14 +281,16 @@ def preflight_connected_benchmark_fixture(
     identity_assignment_shot_ids = _validate_multi_character_identity_assignment(
         requests
     )
+    challenge_shot_ids = _challenge_shot_bindings(requests)
     ordered_shot_ids, bundle_sha256 = _normalized_request_bundle_binding(requests)
     result.update(
         {
-            "schema": "cineos-connected-benchmark-fixture-preflight/0.3",
+            "schema": "cineos-connected-benchmark-fixture-preflight/0.4",
             "request_manifest_path": Path(requests_path).as_posix(),
             "ordered_shot_ids": list(ordered_shot_ids),
             "normalized_request_bundle_sha256": bundle_sha256,
             "identity_assignment_shot_ids": list(identity_assignment_shot_ids),
+            "competitive_challenge_shot_ids": challenge_shot_ids,
         }
     )
     return result
