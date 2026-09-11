@@ -26,11 +26,16 @@ def _write_fixture(tmp_path: Path, payload: object) -> Path:
     return path
 
 
+def _benchmark_metadata() -> dict[str, object]:
+    return {"competitive_challenges": sorted(REQUIRED_COMPETITIVE_CHALLENGES)}
+
+
 def _fake_requests(order: tuple[int, ...] = (0, 1, 2, 3, 4)):
     return tuple(
         SimpleNamespace(
             shot_id=f"shot-{index}",
             content_hash=hashlib.sha256(f"payload-{index}".encode()).hexdigest(),
+            metadata=_benchmark_metadata(),
         )
         for index in order
     )
@@ -42,6 +47,7 @@ def _multi_character_requests(*, bind_second_character: bool = True):
     requests[1] = SimpleNamespace(
         shot_id="shot-1",
         content_hash=hashlib.sha256(b"multi-character-payload").hexdigest(),
+        metadata=_benchmark_metadata(),
         characters=[
             {
                 "character_uuid": "character-a",
@@ -87,10 +93,38 @@ def test_preflight_hash_binds_exact_ordered_normalized_request_bundle(monkeypatc
             ensure_ascii=False,
         ).encode("utf-8")
     ).hexdigest()
-    assert result["schema"] == "cineos-connected-benchmark-fixture-preflight/0.3"
+    assert result["schema"] == "cineos-connected-benchmark-fixture-preflight/0.4"
     assert result["ordered_shot_ids"] == [request.shot_id for request in requests]
     assert result["normalized_request_bundle_sha256"] == expected_hash
     assert result["identity_assignment_shot_ids"] == []
+
+
+def test_preflight_binds_each_competitive_challenge_to_exact_shot_ids(monkeypatch):
+    requests = _fake_requests()
+    monkeypatch.setattr(fixture_preflight, "load_native_requests", lambda _: requests)
+
+    result = preflight_connected_benchmark_fixture("requests.json", _FIXTURE_PATH)
+
+    expected_shot_ids = [request.shot_id for request in requests]
+    assert result["competitive_challenge_shot_ids"] == {
+        challenge: expected_shot_ids for challenge in sorted(REQUIRED_COMPETITIVE_CHALLENGES)
+    }
+
+
+def test_preflight_rejects_validated_bundle_missing_challenge_binding(monkeypatch):
+    requests = list(_fake_requests())
+    reduced = sorted(REQUIRED_COMPETITIVE_CHALLENGES - {"physics"})
+    for request in requests:
+        request.metadata["competitive_challenges"] = reduced
+    monkeypatch.setattr(
+        fixture_preflight, "load_native_requests", lambda _: tuple(requests)
+    )
+
+    with pytest.raises(
+        ConnectedBenchmarkFixturePreflightError,
+        match="lost mandatory competitive challenge coverage: physics",
+    ):
+        preflight_connected_benchmark_fixture("requests.json", _FIXTURE_PATH)
 
 
 def test_preflight_requires_explicit_identity_assignment_for_each_multi_character_cast_member(
@@ -134,7 +168,11 @@ def test_preflight_bundle_hash_changes_when_same_requests_are_reordered(monkeypa
 
 def test_preflight_rejects_noncanonical_validated_request_hash(monkeypatch):
     requests = list(_fake_requests())
-    requests[2] = SimpleNamespace(shot_id="shot-2", content_hash="g" * 64)
+    requests[2] = SimpleNamespace(
+        shot_id="shot-2",
+        content_hash="g" * 64,
+        metadata=_benchmark_metadata(),
+    )
     monkeypatch.setattr(
         fixture_preflight, "load_native_requests", lambda _: tuple(requests)
     )
