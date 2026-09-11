@@ -8,7 +8,11 @@ from cineos.atlas.diffusers_video import DiffusersVideoError
 from cineos.atlas.production_diffusers import ProductionDiffusersVideoRenderer
 
 
-def _request(*, approved_reference_ids: tuple[str, ...], characters: tuple[dict, ...]):
+def _request(
+    *,
+    approved_reference_ids: tuple[str, ...],
+    characters: tuple[dict, ...],
+):
     return SimpleNamespace(
         approved_reference_ids=approved_reference_ids,
         characters=characters,
