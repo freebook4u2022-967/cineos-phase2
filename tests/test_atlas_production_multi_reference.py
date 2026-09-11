@@ -61,9 +61,7 @@ def test_first_party_multi_reference_adapter_remains_production_evidence():
         bound["multi_reference_conditioning"]["requires_unique_reference_ids"] is True
     )
     assert (
-        bound["multi_reference_conditioning"][
-            "attests_character_reference_ownership"
-        ]
+        bound["multi_reference_conditioning"]["attests_character_reference_ownership"]
         is True
     )
 
