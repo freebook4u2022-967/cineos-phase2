@@ -23,12 +23,12 @@ def _runtime():
     }
 
 
-def _request(reference_ids, *, resolution=(1280, 704)):
+def _request(reference_ids, *, resolution=(1280, 704), characters=None):
     request = NativeShotRequest(
         shot_id="shot-001",
         scene_id="scene-001",
         camera={"resolution": resolution, "fps": 24, "duration": 1.0},
-        characters=[],
+        characters=list(characters or []),
         environment={},
         wardrobe=[],
         props=[],
@@ -60,6 +60,12 @@ def test_first_party_multi_reference_adapter_remains_production_evidence():
     assert (
         bound["multi_reference_conditioning"]["requires_unique_reference_ids"] is True
     )
+    assert (
+        bound["multi_reference_conditioning"][
+            "attests_character_reference_ownership"
+        ]
+        is True
+    )
 
 
 def test_arbitrary_multi_reference_adapter_downgrades_runtime_evidence():
@@ -77,6 +83,55 @@ def test_absent_multi_reference_adapter_preserves_default_runtime():
     assert bound["production_default_runtime"] is True
     assert bound["runtime_mode"] == "default"
     assert bound["injected_boundaries"]["multi_reference_adapter"] is False
+
+
+def test_first_party_adapter_attests_exact_multi_character_reference_ownership():
+    image_module = pytest.importorskip("PIL.Image")
+    adapter = ProductionReferenceBoardAdapter()
+    request = _request(
+        ("hero-front", "partner-front", "hero-profile"),
+        characters=(
+            {
+                "character_uuid": "hero",
+                "approved_reference_ids": ["hero-front", "hero-profile"],
+            },
+            {
+                "character_uuid": "partner",
+                "approved_reference_ids": ["partner-front"],
+            },
+        ),
+    )
+    images = (
+        image_module.new("RGB", (8, 8), (255, 0, 0)),
+        image_module.new("RGB", (8, 8), (0, 255, 0)),
+        image_module.new("RGB", (8, 8), (0, 0, 255)),
+    )
+
+    result = adapter(request, images)
+
+    assert result.consumed_reference_ids == (
+        "hero-front",
+        "partner-front",
+        "hero-profile",
+    )
+    assert result.consumed_character_reference_ids == (
+        ("hero", ("hero-front", "hero-profile")),
+        ("partner", ("partner-front",)),
+    )
+
+
+def test_first_party_adapter_does_not_infer_character_ownership_from_reference_order():
+    image_module = pytest.importorskip("PIL.Image")
+    adapter = ProductionReferenceBoardAdapter()
+    request = _request(("hero-front", "partner-front"))
+    images = (
+        image_module.new("RGB", (8, 8), (255, 0, 0)),
+        image_module.new("RGB", (8, 8), (0, 255, 0)),
+    )
+
+    result = adapter(request, images)
+
+    assert result.consumed_character_reference_ids is None
 
 
 def test_duplicate_reference_ids_fail_before_image_processing():
