@@ -303,9 +303,7 @@ def _validate_identity_consistency_bindings(
         if "identity_consistency" not in raw_tags:
             continue
         persistent = sorted(
-            binding
-            for binding in bindings_by_shot[index]
-            if occurrences[binding] >= 2
+            binding for binding in bindings_by_shot[index] if occurrences[binding] >= 2
         )
         if not persistent:
             raise ConnectedBenchmarkFixturePreflightError(
