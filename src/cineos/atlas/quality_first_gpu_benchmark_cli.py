@@ -101,6 +101,75 @@ def _is_sha256_hexdigest(value: Any) -> bool:
     return True
 
 
+def _expected_character_reference_bindings(
+    request: NativeShotRequest,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Return the renderer-canonical character-to-reference ownership contract."""
+
+    bindings: list[tuple[str, tuple[str, ...]]] = []
+    for index, character in enumerate(request.characters):
+        if not isinstance(character, dict):
+            continue
+        character_id = character.get("character_uuid", f"index:{index}")
+        if not isinstance(character_id, str) or not character_id.strip():
+            character_id = f"index:{index}"
+        else:
+            character_id = character_id.strip()
+        raw_ids = character.get("approved_reference_ids", [])
+        if isinstance(raw_ids, (list, tuple)) and raw_ids:
+            bindings.append((character_id, tuple(raw_ids)))
+    return tuple(bindings)
+
+
+def _validate_character_reference_binding(
+    conditioning: dict[str, Any],
+    request: NativeShotRequest,
+    *,
+    shot_index: int,
+) -> None:
+    """Bind receipt identity ownership to the exact CINEOS character contract."""
+
+    expected_bindings = _expected_character_reference_bindings(request)
+    reported = conditioning.get("consumed_character_reference_ids")
+    if not expected_bindings:
+        if reported not in (None, []):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {shot_index} reports character reference ownership for an unmapped request"
+            )
+        return
+    if not isinstance(reported, (list, tuple)):
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} is missing character-to-reference conditioning provenance"
+        )
+
+    normalized: list[tuple[str, tuple[str, ...]]] = []
+    for binding_index, binding in enumerate(reported):
+        if not isinstance(binding, dict):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {shot_index} character reference binding {binding_index} is malformed"
+            )
+        character_id = binding.get("character_uuid")
+        reference_ids = binding.get("reference_ids")
+        if (
+            not isinstance(character_id, str)
+            or not character_id.strip()
+            or not isinstance(reference_ids, (list, tuple))
+            or any(
+                not isinstance(reference_id, str) or not reference_id.strip()
+                for reference_id in reference_ids
+            )
+        ):
+            raise GPUProductionBenchmarkCLIError(
+                f"shot {shot_index} character reference binding {binding_index} is malformed"
+            )
+        normalized.append((character_id.strip(), tuple(reference_ids)))
+
+    if tuple(normalized) != expected_bindings:
+        raise GPUProductionBenchmarkCLIError(
+            f"shot {shot_index} character-to-reference conditioning does not match the approved ownership contract"
+        )
+
+
 def _validate_conditioning_binding(
     result: Any,
     request: NativeShotRequest,
@@ -117,7 +186,9 @@ def _validate_conditioning_binding(
     and the exact image supplied to the external foundation. When immutable manifest
     digests are supplied by the production entrypoint, the renderer-computed hashes
     must also match those approved bytes exactly; a correct reference ID alone is not
-    sufficient evidence of identity conditioning.
+    sufficient evidence of identity conditioning. Character-local identity ownership
+    is independently rebound here so a receipt cannot retain the global reference set
+    while swapping which character consumed which approved identity source.
 
     Generic/legacy result objects that predate this production evidence field retain
     their historical compatibility outside the real production renderer boundary.
@@ -148,6 +219,8 @@ def _validate_conditioning_binding(
         raise GPUProductionBenchmarkCLIError(
             f"shot {shot_index} conditioning references do not match the approved reference board"
         )
+
+    _validate_character_reference_binding(conditioning, request, shot_index=shot_index)
 
     consumed_hashes = conditioning.get("consumed_reference_sha256")
     if (
