@@ -117,6 +117,53 @@ class NativeShotRequest:
     metadata: dict[str, Any] = field(default_factory=dict)
     content_hash: str = ""
 
+    def validate_reference_integrity(self) -> None:
+        """Reject duplicated identity inputs before hashing or renderer execution.
+
+        Repeating the same approved identity reference can accidentally overweight one
+        image in a multi-reference adapter while the provenance layer collapses it to
+        a set. Character-local duplicates are equally ambiguous. Production requests
+        therefore fail closed instead of silently changing conditioning strength.
+        """
+
+        seen_approved: set[str] = set()
+        for index, reference_id in enumerate(self.approved_reference_ids):
+            if not isinstance(reference_id, str) or not reference_id.strip():
+                raise ValueError(
+                    f"approved_reference_ids[{index}] must be a non-empty string"
+                )
+            if reference_id in seen_approved:
+                raise ValueError(
+                    "approved_reference_ids must not contain duplicate reference IDs: "
+                    f"{reference_id!r}"
+                )
+            seen_approved.add(reference_id)
+
+        for character_index, character in enumerate(self.characters):
+            if not isinstance(character, dict):
+                continue
+            reference_ids = character.get("approved_reference_ids")
+            if reference_ids is None:
+                continue
+            if not isinstance(reference_ids, (list, tuple)):
+                raise ValueError(
+                    f"characters[{character_index}].approved_reference_ids must be a sequence"
+                )
+            seen_character: set[str] = set()
+            for reference_index, reference_id in enumerate(reference_ids):
+                if not isinstance(reference_id, str) or not reference_id.strip():
+                    raise ValueError(
+                        "characters["
+                        f"{character_index}].approved_reference_ids[{reference_index}] "
+                        "must be a non-empty string"
+                    )
+                if reference_id in seen_character:
+                    raise ValueError(
+                        f"characters[{character_index}].approved_reference_ids must not "
+                        f"contain duplicate reference IDs: {reference_id!r}"
+                    )
+                seen_character.add(reference_id)
+
     def validate_timing_integrity(self) -> None:
         """Fail closed on malformed timing while preserving 0.1 frame aliases.
 
@@ -276,6 +323,7 @@ class NativeShotRequest:
                 )
 
     def payload(self) -> dict[str, Any]:
+        self.validate_reference_integrity()
         self.validate_timing_integrity()
         data = asdict(self)
         data.pop("content_hash", None)
@@ -298,6 +346,7 @@ class NativeShotRequest:
         return self.content_hash
 
     def to_dict(self) -> dict[str, Any]:
+        self.validate_reference_integrity()
         self.validate_timing_integrity()
         if not self.content_hash:
             self.refresh_hash()
