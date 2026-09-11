@@ -95,7 +95,9 @@ def test_multi_character_reference_ownership_requires_character_uuid() -> None:
         ProductionDiffusersVideoRenderer._validate_character_reference_lineage(request)
 
 
-def test_single_character_without_approved_identity_reference_remains_compatible() -> None:
+def test_single_character_without_approved_identity_reference_remains_compatible() -> (
+    None
+):
     request = _request(
         approved_reference_ids=(),
         characters=({"character_uuid": "alice", "approved_reference_ids": []},),
