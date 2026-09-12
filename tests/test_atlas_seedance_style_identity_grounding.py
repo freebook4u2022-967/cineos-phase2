@@ -52,4 +52,6 @@ def test_identity_challenge_accepts_persistent_character_and_reference():
     coverage = validate_challenge_coverage(requests)
 
     assert coverage.complete is True
-    assert coverage.to_dict()["schema"] == "cineos-seedance-style-challenge-coverage/0.2"
+    assert (
+        coverage.to_dict()["schema"] == "cineos-seedance-style-challenge-coverage/0.2"
+    )
