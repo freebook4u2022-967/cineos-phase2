@@ -41,14 +41,20 @@ class SemanticScorerComponent:
         if not callable(self.scorer):
             raise TypeError("semantic scorer component scorer must be callable")
         if not isinstance(self.measured_metrics, tuple) or not self.measured_metrics:
-            raise ValueError("semantic scorer component measured_metrics must be non-empty")
+            raise ValueError(
+                "semantic scorer component measured_metrics must be non-empty"
+            )
         normalized: list[str] = []
         for metric in self.measured_metrics:
             if not isinstance(metric, str) or not metric.strip():
-                raise ValueError("semantic scorer metric names must be non-empty strings")
+                raise ValueError(
+                    "semantic scorer metric names must be non-empty strings"
+                )
             normalized.append(metric.strip())
         if len(set(normalized)) != len(normalized):
-            raise ValueError("semantic scorer component cannot declare duplicate metrics")
+            raise ValueError(
+                "semantic scorer component cannot declare duplicate metrics"
+            )
         object.__setattr__(self, "name", self.name.strip())
         object.__setattr__(self, "measured_metrics", tuple(normalized))
 
@@ -69,7 +75,9 @@ class ProductionSemanticScorerEnsemble:
         if not materialized:
             raise ValueError("semantic scorer ensemble requires at least one component")
         if any(not isinstance(item, SemanticScorerComponent) for item in materialized):
-            raise TypeError("components must contain only SemanticScorerComponent values")
+            raise TypeError(
+                "components must contain only SemanticScorerComponent values"
+            )
 
         names = [item.name for item in materialized]
         if len(set(names)) != len(names):

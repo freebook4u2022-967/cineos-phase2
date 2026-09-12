@@ -133,7 +133,11 @@ def test_ensemble_rejects_duplicate_metric_ownership() -> None:
 @pytest.mark.parametrize(
     ("metrics", "declared", "match"),
     [
-        ({"identity_similarity": 0.9}, ("identity_similarity", "motion_quality"), "missing"),
+        (
+            {"identity_similarity": 0.9},
+            ("identity_similarity", "motion_quality"),
+            "missing",
+        ),
         (
             {"identity_similarity": 0.9, "motion_quality": 0.8},
             ("identity_similarity",),
