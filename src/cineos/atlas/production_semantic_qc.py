@@ -17,6 +17,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from .latentsync_syncnet_scorer import (
+    LatentSyncSyncNetScorer,
+    latentsync_syncnet_component,
+)
+from .qwen25vl_semantic_judge import QWEN25VL_METRICS, Qwen25VLSemanticJudge
 from .semantic_video_ensemble import (
     ProductionSemanticScorerEnsemble,
     SemanticScorerComponent,
@@ -24,7 +29,7 @@ from .semantic_video_ensemble import (
 )
 from .sequence_quality import CHALLENGE_METRIC_REQUIREMENTS
 
-PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.1"
+PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.2"
 CORE_SEMANTIC_METRICS = ("identity_similarity", "motion_quality")
 _CHALLENGE_METADATA_KEYS = ("competitive_challenges", "benchmark_challenges")
 
@@ -132,11 +137,43 @@ def build_production_semantic_scorer(
     return ensemble
 
 
+def build_seedance_challenge_semantic_scorer(
+    core_scorer: Any,
+    shots: Sequence[Any],
+    *,
+    visual_judge: Qwen25VLSemanticJudge,
+    av_sync_scorer: LatentSyncSyncNetScorer,
+) -> ProductionSemanticScorerEnsemble:
+    """Compose the audited difficult-case production scorer stack.
+
+    Qwen2.5-VL owns only the seven visual difficult-case metrics it actually judges.
+    LatentSync SyncNet independently owns dialogue lip-sync from real audio/video
+    evidence. Keeping the two components disjoint prevents a visual-only model from
+    satisfying the AV challenge and preserves transparent external-model provenance.
+    """
+
+    if not isinstance(visual_judge, Qwen25VLSemanticJudge):
+        raise TypeError("visual_judge must be Qwen25VLSemanticJudge")
+    if not isinstance(av_sync_scorer, LatentSyncSyncNetScorer):
+        raise TypeError("av_sync_scorer must be LatentSyncSyncNetScorer")
+    visual_component = SemanticScorerComponent(
+        name="qwen25vl_visual_difficult_cases",
+        scorer=visual_judge,
+        measured_metrics=QWEN25VL_METRICS,
+    )
+    return build_production_semantic_scorer(
+        core_scorer,
+        shots,
+        specialists=(visual_component, latentsync_syncnet_component(av_sync_scorer)),
+    )
+
+
 __all__ = [
     "CORE_SEMANTIC_METRICS",
     "PRODUCTION_SEMANTIC_QC_SCHEMA",
     "ProductionSemanticQCError",
     "build_production_semantic_scorer",
+    "build_seedance_challenge_semantic_scorer",
     "required_semantic_metrics",
     "validate_production_semantic_capabilities",
 ]
