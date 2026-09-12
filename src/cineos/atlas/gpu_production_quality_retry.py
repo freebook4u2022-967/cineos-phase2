@@ -18,6 +18,7 @@ from .connected_continuity_evidence import (
 )
 from .foundation_profiles import FoundationExecutionProfile
 from .gpu_connected_benchmark import (
+    GPUConnectedBenchmarkError,
     GPUConnectedBenchmarkReceipt,
     _remove_stale_manifest,
     _validate_requests,
