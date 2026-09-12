@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,6 +149,56 @@ def _validate_structural_challenge_grounding(
                 )
 
 
+def _validate_sequence_identity_grounding(
+    requests: Sequence[NativeShotRequest],
+    challenges_by_request: Sequence[Sequence[str]],
+) -> None:
+    """Require identity challenges to exercise a persistent character and reference.
+
+    Reusing an approved reference identifier alone is not enough: the same conditioned
+    character identity must also appear in another connected shot. This prevents a
+    shared/global reference from making a sequence of unrelated characters look like
+    an identity-consistency benchmark. Character-to-reference ownership is validated
+    later by the production reference/evidence path when that richer mapping exists.
+    """
+
+    character_occurrences = Counter(
+        character_id
+        for request in requests
+        for character_id in set(_conditioned_character_ids(request))
+    )
+    reference_occurrences = Counter(
+        reference_id
+        for request in requests
+        for reference_id in set(request.approved_reference_ids)
+    )
+
+    for request, challenges in zip(requests, challenges_by_request, strict=True):
+        if "identity_consistency" not in challenges:
+            continue
+        shot_key = f"{request.scene_id}/{request.shot_id}"
+        persistent_characters = {
+            character_id
+            for character_id in _conditioned_character_ids(request)
+            if character_occurrences[character_id] >= 2
+        }
+        if not persistent_characters:
+            raise SeedanceStyleChallengeError(
+                f"shot {shot_key} declares identity_consistency but none of its "
+                "conditioned character identities persists into another connected shot"
+            )
+        persistent_references = {
+            reference_id
+            for reference_id in request.approved_reference_ids
+            if reference_occurrences[reference_id] >= 2
+        }
+        if not persistent_references:
+            raise SeedanceStyleChallengeError(
+                f"shot {shot_key} declares identity_consistency but none of its "
+                "approved identity references persists into another connected shot"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class ChallengeCoverage:
     """Auditable declaration of which hard cases are exercised by which shots."""
@@ -168,7 +219,7 @@ class ChallengeCoverage:
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
-            "schema": "cineos-seedance-style-challenge-coverage/0.1",
+            "schema": "cineos-seedance-style-challenge-coverage/0.2",
             "required_challenges": list(REQUIRED_CHALLENGES),
             "complete": self.complete,
             "missing": list(self.missing),
@@ -216,12 +267,16 @@ def validate_challenge_coverage(
     coverage: dict[str, list[str]] = {
         challenge: [] for challenge in REQUIRED_CHALLENGES
     }
+    challenges_by_request: list[tuple[str, ...]] = []
     for request in requests:
         shot_key = f"{request.scene_id}/{request.shot_id}"
         challenges = _normalized_challenges(request)
+        challenges_by_request.append(challenges)
         _validate_structural_challenge_grounding(request, challenges)
         for challenge in challenges:
             coverage[challenge].append(shot_key)
+
+    _validate_sequence_identity_grounding(requests, challenges_by_request)
 
     frozen = ChallengeCoverage(
         challenge_to_shots={
