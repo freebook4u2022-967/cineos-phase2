@@ -157,7 +157,9 @@ def test_challenge_plan_rejects_unknown_self_declared_case():
         validate_challenge_coverage(requests)
 
 
-def test_multi_character_challenge_requires_two_conditioned_identities_before_gpu(tmp_path):
+def test_multi_character_challenge_requires_two_conditioned_identities_before_gpu(
+    tmp_path,
+):
     requests = _complete_requests()
     requests[1].characters = [{"character_id": "lead"}]
     requests[1].approved_reference_ids = ["lead-approved-reference"]
