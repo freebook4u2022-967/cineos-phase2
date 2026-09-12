@@ -47,7 +47,7 @@ def test_first_party_multi_reference_adapter_remains_production_evidence():
 
     bound = bind_production_multi_reference_runtime(_runtime(), adapter)
 
-    assert adapter.adapter_version == "0.1.3"
+    assert adapter.adapter_version == "0.1.4"
     assert bound["production_default_runtime"] is True
     assert bound["runtime_mode"] == "default"
     assert bound["injected_boundaries"]["multi_reference_adapter"] is False
@@ -57,6 +57,13 @@ def test_first_party_multi_reference_adapter_remains_production_evidence():
     assert bound["multi_reference_conditioning"]["adapter_id"] == adapter.adapter_id
     assert bound["multi_reference_conditioning"]["adapter_version"] == (
         adapter.adapter_version
+    )
+    assert bound["multi_reference_conditioning"]["layout_policy"] == (
+        "equal_character_area_then_reference_area"
+    )
+    assert (
+        bound["multi_reference_conditioning"]["prevents_reference_count_area_bias"]
+        is True
     )
     assert (
         bound["multi_reference_conditioning"]["requires_unique_reference_ids"] is True
@@ -116,6 +123,44 @@ def test_first_party_adapter_attests_exact_multi_character_reference_ownership()
     assert result.consumed_character_reference_ids == (
         ("hero", ("hero-front", "hero-profile")),
         ("partner", ("partner-front",)),
+    )
+
+
+def test_multi_character_board_balances_area_before_splitting_extra_views():
+    image_module = pytest.importorskip("PIL.Image")
+    adapter = ProductionReferenceBoardAdapter()
+    request = _request(
+        ("hero-front", "partner-front", "hero-profile"),
+        resolution=(120, 80),
+        characters=(
+            {
+                "character_uuid": "hero",
+                "approved_reference_ids": ["hero-front", "hero-profile"],
+            },
+            {
+                "character_uuid": "partner",
+                "approved_reference_ids": ["partner-front"],
+            },
+        ),
+    )
+    images = (
+        image_module.new("RGB", (30, 80), (255, 0, 0)),
+        image_module.new("RGB", (60, 80), (0, 255, 0)),
+        image_module.new("RGB", (30, 80), (0, 0, 255)),
+    )
+
+    result = adapter(request, images)
+
+    # Hero owns the left half and its two views subdivide only that half. Partner
+    # owns the entire right half even though it has one approved view. Reference
+    # count therefore cannot silently give one character more conditioning area.
+    assert result.image.getpixel((10, 40)) == (255, 0, 0)
+    assert result.image.getpixel((40, 40)) == (0, 0, 255)
+    assert result.image.getpixel((90, 40)) == (0, 255, 0)
+    assert result.consumed_reference_ids == (
+        "hero-front",
+        "partner-front",
+        "hero-profile",
     )
 
 
