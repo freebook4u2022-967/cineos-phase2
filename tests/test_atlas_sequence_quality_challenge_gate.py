@@ -5,7 +5,6 @@ from cineos.atlas.sequence_quality import (
     SequenceQualityError,
 )
 
-
 BASE_METRICS = {
     "identity_similarity": 0.95,
     "temporal_consistency": 0.95,
@@ -46,9 +45,7 @@ def test_low_anatomy_score_rejects_even_when_core_and_overall_are_strong():
 
     assert report["accepted"] is False
     assert "anatomy_quality" in report["failed_metrics"]
-    assert report["required_challenge_metrics"] == {
-        "anatomy_quality": "hands_anatomy"
-    }
+    assert report["required_challenge_metrics"] == {"anatomy_quality": "hands_anatomy"}
 
 
 def test_object_interaction_challenge_requires_dedicated_interaction_measurement():
