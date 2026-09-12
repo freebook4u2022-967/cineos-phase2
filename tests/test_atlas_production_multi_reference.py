@@ -162,6 +162,10 @@ def test_multi_character_board_balances_area_before_splitting_extra_views():
         "partner-front",
         "hero-profile",
     )
+    assert result.consumed_character_reference_ids == (
+        ("hero", ("hero-front", "hero-profile")),
+        ("partner", ("partner-front",)),
+    )
 
 
 def test_first_party_adapter_does_not_infer_character_ownership_from_reference_order():
