@@ -95,11 +95,15 @@ def _parse_metrics(raw: str) -> dict[str, float]:
         raise Qwen25VLSemanticJudgeError("Qwen2.5-VL returned empty semantic evidence")
     match = _JSON_OBJECT.search(raw.strip())
     if match is None:
-        raise Qwen25VLSemanticJudgeError("Qwen2.5-VL response did not contain a JSON object")
+        raise Qwen25VLSemanticJudgeError(
+            "Qwen2.5-VL response did not contain a JSON object"
+        )
     try:
         payload = json.loads(match.group(0))
     except json.JSONDecodeError as exc:
-        raise Qwen25VLSemanticJudgeError("Qwen2.5-VL semantic JSON was malformed") from exc
+        raise Qwen25VLSemanticJudgeError(
+            "Qwen2.5-VL semantic JSON was malformed"
+        ) from exc
     if not isinstance(payload, dict):
         raise Qwen25VLSemanticJudgeError("Qwen2.5-VL semantic result must be an object")
     actual = set(payload)
@@ -119,7 +123,9 @@ def _parse_metrics(raw: str) -> dict[str, float]:
     for name in QWEN25VL_METRICS:
         value = payload[name]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise Qwen25VLSemanticJudgeError(f"semantic metric {name!r} must be numeric")
+            raise Qwen25VLSemanticJudgeError(
+                f"semantic metric {name!r} must be numeric"
+            )
         numeric = float(value)
         if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
             raise Qwen25VLSemanticJudgeError(
@@ -148,13 +154,17 @@ class Qwen25VLSemanticJudge:
         if not isinstance(model_id, str) or not model_id.strip():
             raise ValueError("model_id must be non-empty")
         if not re.fullmatch(r"[0-9a-f]{40}", revision):
-            raise ValueError("revision must be an immutable 40-character git commit SHA")
+            raise ValueError(
+                "revision must be an immutable 40-character git commit SHA"
+            )
         if dtype not in {"bfloat16", "float16", "float32"}:
             raise ValueError("dtype must be bfloat16, float16, or float32")
         if max_new_tokens < 64:
             raise ValueError("max_new_tokens must be at least 64")
         if (model is None) is not (processor is None):
-            raise ValueError("model and processor must either both be supplied or both omitted")
+            raise ValueError(
+                "model and processor must either both be supplied or both omitted"
+            )
         self.model_id = model_id.strip()
         self.revision = revision
         self.device_map = device_map
@@ -248,7 +258,9 @@ class Qwen25VLSemanticJudge:
                 tokenize=False,
                 add_generation_prompt=True,
             )
-            inputs = processor(text=[text], images=images, padding=True, return_tensors="pt")
+            inputs = processor(
+                text=[text], images=images, padding=True, return_tensors="pt"
+            )
             model_device = getattr(model, "device", None)
             if model_device is not None and hasattr(inputs, "to"):
                 inputs = inputs.to(model_device)
@@ -257,8 +269,12 @@ class Qwen25VLSemanticJudge:
                 max_new_tokens=self.max_new_tokens,
                 do_sample=False,
             )
-            input_ids = inputs["input_ids"] if isinstance(inputs, Mapping) else inputs.input_ids
-            trimmed = [out[len(inp) :] for inp, out in zip(input_ids, generated, strict=True)]
+            input_ids = (
+                inputs["input_ids"] if isinstance(inputs, Mapping) else inputs.input_ids
+            )
+            trimmed = [
+                out[len(inp) :] for inp, out in zip(input_ids, generated, strict=True)
+            ]
             decoded = processor.batch_decode(
                 trimmed,
                 skip_special_tokens=True,

@@ -45,7 +45,9 @@ class _Processor:
         self.images = images
         return _Inputs(input_ids=[[10, 11]])
 
-    def batch_decode(self, token_ids, *, skip_special_tokens, clean_up_tokenization_spaces):
+    def batch_decode(
+        self, token_ids, *, skip_special_tokens, clean_up_tokenization_spaces
+    ):
         assert token_ids == [[12, 13]]
         assert skip_special_tokens is True
         assert clean_up_tokenization_spaces is False
@@ -96,7 +98,9 @@ def test_qwen25vl_judge_executes_injected_real_model_boundary() -> None:
     assert "dialogue_lip_sync" not in result
 
 
-def test_qwen25vl_provenance_is_external_pinned_and_explicit_about_limitations() -> None:
+def test_qwen25vl_provenance_is_external_pinned_and_explicit_about_limitations() -> (
+    None
+):
     judge = Qwen25VLSemanticJudge(model=_Model(), processor=_Processor("{}"))
 
     provenance = judge.runtime_provenance()
@@ -107,7 +111,9 @@ def test_qwen25vl_provenance_is_external_pinned_and_explicit_about_limitations()
     assert provenance["model_revision"] == QWEN25VL_MODEL_REVISION
     assert len(provenance["model_revision"]) == 40
     assert provenance["model_license"] == "Apache-2.0"
-    assert "does not measure audio-visual dialogue lip-sync" in provenance["limitations"]
+    assert (
+        "does not measure audio-visual dialogue lip-sync" in provenance["limitations"]
+    )
     assert set(provenance["measured_metrics"]) == set(QWEN25VL_METRICS)
 
 
