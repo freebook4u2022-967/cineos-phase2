@@ -10,7 +10,7 @@ foundation; this scorer never invents identity evidence from RGB statistics.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -59,6 +59,27 @@ def _character_ids(shot: Any) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _declares_multi_character_interaction(shot: Any) -> bool:
+    """Return whether the shot explicitly claims the competitive interaction case.
+
+    Generic multi-character editing must remain free to use shot/reverse-shot coverage.
+    Co-presence is therefore required only for the difficult-case benchmark label that
+    claims actual multi-character interaction in the rendered artifact.
+    """
+
+    metadata = getattr(shot, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return False
+    raw = metadata.get("benchmark_challenges")
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        return False
+    return any(
+        isinstance(value, str)
+        and value.strip().lower() == "multi_character_interaction"
+        for value in raw
+    )
+
+
 def _lower_tail_score(values: Sequence[float], quantile: float) -> float:
     ordered = sorted(float(value) for value in values)
     if not ordered:
@@ -95,6 +116,12 @@ class EmbeddingBankVideoIdentitySource:
     closer (or nearly as close) to another cast member is scored as identity failure,
     preventing character swaps or identity collapse from receiving a strong aggregate
     identity score merely because both people resemble some approved cast anchor.
+
+    A shot that explicitly declares the competitive ``multi_character_interaction``
+    challenge must additionally contain semantic observations of at least two distinct
+    cast identities in the same sampled frames. This prevents two disjoint solo
+    appearances from masquerading as an interaction benchmark. Ordinary multi-character
+    shots are not subject to this requirement.
     """
 
     identity_bank: CharacterIdentityEmbeddingBank
@@ -155,8 +182,10 @@ class EmbeddingBankVideoIdentitySource:
         required_temporal_bins = min(len(frames), self.minimum_temporal_bins)
         enforce_temporal_distribution = self.minimum_observation_fraction > 0.0
         scores_by_character: dict[str, list[float]] = {}
+        observed_frames_by_character: dict[str, set[int]] = {}
         for character_id in character_ids:
             observations: list[float] = []
+            observed_frame_indices: set[int] = set()
             observed_temporal_bins: set[int] = set()
             for frame_index, frame in enumerate(frames):
                 vector = self.frame_encoder(
@@ -190,6 +219,7 @@ class EmbeddingBankVideoIdentitySource:
                 ):
                     score = 0.0
                 observations.append(score)
+                observed_frame_indices.add(frame_index)
                 if enforce_temporal_distribution:
                     observed_temporal_bins.add(
                         _temporal_bin(
@@ -215,9 +245,33 @@ class EmbeddingBankVideoIdentitySource:
                     "temporal bins"
                 )
             scores_by_character[character_id] = observations
+            observed_frames_by_character[character_id] = observed_frame_indices
 
         if not scores_by_character:
             raise VideoIdentityMetricError("video identity scoring found no characters")
+
+        if _declares_multi_character_interaction(shot):
+            required_copresence = max(
+                1, math.ceil(len(frames) * self.minimum_observation_fraction)
+            )
+            strongest_pair_copresence = max(
+                (
+                    len(
+                        observed_frames_by_character[left]
+                        & observed_frames_by_character[right]
+                    )
+                    for left_index, left in enumerate(character_ids)
+                    for right in character_ids[left_index + 1 :]
+                ),
+                default=0,
+            )
+            if strongest_pair_copresence < required_copresence:
+                raise VideoIdentityMetricError(
+                    "multi_character_interaction requires at least two distinct cast "
+                    "identities to be semantically observed together in "
+                    f"{required_copresence} sampled frame(s); strongest pair covered "
+                    f"{strongest_pair_copresence}"
+                )
 
         character_scores = [
             _lower_tail_score(values, self.lower_tail_quantile)
