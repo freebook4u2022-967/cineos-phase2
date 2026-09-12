@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from cineos.benchmarks.exceptions import BenchmarkError
+from cineos.benchmarks.metrics import METRIC_NAMES
 from cineos.benchmarks.runner import BenchmarkRunner
 from cineos.benchmarks.seedance_competitive import seedance_competitive_suite
 
@@ -105,6 +106,56 @@ def test_qc_case_requires_reject_rerender_recovery_path():
         "validation_pass_rate": 1.0,
         "render_completion_rate": 1.0,
     }
+
+
+def test_difficult_cases_require_direct_measured_quality_signals():
+    suite = seedance_competitive_suite()
+    by_id = {case.case_id: case for case in suite.cases}
+
+    assert suite.suite_version == "1.1.0"
+    assert (
+        by_id["competitive-hands-object"].validation_thresholds[
+            "anatomy_integrity_score"
+        ]
+        >= 0.86
+    )
+    assert (
+        by_id["competitive-hands-object"].validation_thresholds[
+            "contact_consistency_score"
+        ]
+        >= 0.84
+    )
+    assert (
+        by_id["competitive-walk-run"].validation_thresholds[
+            "locomotion_coherence_score"
+        ]
+        >= 0.84
+    )
+    assert (
+        by_id["competitive-walk-run"].validation_thresholds[
+            "anatomy_integrity_score"
+        ]
+        >= 0.86
+    )
+    assert (
+        by_id["competitive-fast-camera"].validation_thresholds[
+            "camera_motion_coherence_score"
+        ]
+        >= 0.82
+    )
+    assert (
+        by_id["competitive-physics-weather"].validation_thresholds[
+            "physics_consistency_score"
+        ]
+        >= 0.82
+    )
+
+    threshold_names = {
+        name
+        for case in suite.cases
+        for name in case.validation_thresholds
+    }
+    assert threshold_names <= set(METRIC_NAMES)
 
 
 def test_competitive_suite_hash_is_stable_and_foundation_provenance_is_explicit():
