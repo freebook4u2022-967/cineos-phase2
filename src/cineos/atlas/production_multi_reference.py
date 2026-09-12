@@ -213,7 +213,9 @@ def _character_aware_reference_cells(
 
     try:
         return tuple(reference_cells[reference_id] for reference_id in expected_ids)
-    except KeyError as exc:  # defensive: ownership validation should make this impossible
+    except (
+        KeyError
+    ) as exc:  # defensive: ownership validation should make this impossible
         raise ProductionMultiReferenceError(
             "character-aware reference board is missing an approved identity reference"
         ) from exc
