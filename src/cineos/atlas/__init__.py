@@ -9,6 +9,11 @@ from .capabilities import (
     RendererCapabilities,
     Resolution,
 )
+from .composite_semantic_scorer import (
+    COMPOSITE_SEMANTIC_SCORER_SCHEMA,
+    CompositeSemanticScorerError,
+    CompositeSemanticVideoScorer,
+)
 from .connected_continuity_evidence import (
     ConnectedContinuityEvidenceError,
     production_visual_continuity_evidence,
@@ -89,7 +94,10 @@ from .session import RendererSession
 __all__ = [
     "BaseRenderer",
     "AtlasRuntime",
+    "COMPOSITE_SEMANTIC_SCORER_SCHEMA",
     "CapabilityError",
+    "CompositeSemanticScorerError",
+    "CompositeSemanticVideoScorer",
     "ConnectedContinuityEvidenceError",
     "DiffusersVideoError",
     "DiffusersVideoRenderer",
