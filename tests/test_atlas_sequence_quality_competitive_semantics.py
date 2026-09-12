@@ -78,6 +78,27 @@ def test_competitive_challenge_accepts_strong_dedicated_metric(challenge, metric
     assert report["required_challenge_metrics"] == {metric: challenge}
 
 
+def test_every_declared_challenge_requires_its_own_measurement():
+    shot = SimpleNamespace(
+        metadata={
+            "competitive_challenges": [
+                "walking_running",
+                "fast_camera_movement",
+                "physics",
+            ]
+        }
+    )
+    metrics = {
+        **_BASE_METRICS,
+        "locomotion_quality": 0.95,
+        "camera_motion_quality": 0.95,
+    }
+    evaluator = CineosSequenceQualityEvaluator(lambda *_args, **_kwargs: metrics)
+
+    with pytest.raises(SequenceQualityError, match="physics_plausibility"):
+        evaluator("unused.mp4", shot=shot, attempt_index=0)
+
+
 def test_generic_shot_remains_backward_compatible_without_specialist_metrics():
     shot = SimpleNamespace(metadata={})
     evaluator = CineosSequenceQualityEvaluator(
