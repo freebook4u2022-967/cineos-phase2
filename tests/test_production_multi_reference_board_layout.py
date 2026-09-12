@@ -8,7 +8,9 @@ from cineos.atlas.production_multi_reference import ProductionReferenceBoardAdap
 Image = pytest.importorskip("PIL.Image")
 
 
-def _request(reference_ids: tuple[str, ...], *, resolution: tuple[int, int]) -> NativeShotRequest:
+def _request(
+    reference_ids: tuple[str, ...], *, resolution: tuple[int, int]
+) -> NativeShotRequest:
     return NativeShotRequest(
         request_id="reference-board-layout",
         shot_id="shot-reference-board-layout",
