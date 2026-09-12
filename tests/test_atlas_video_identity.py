@@ -68,7 +68,7 @@ def test_lower_tail_identity_catches_brief_character_drift():
     assert score < 0.20
 
 
-def test_multi_character_score_is_weakest_character_not_average():
+def test_multi_character_score_rejects_observation_closer_to_other_cast_identity():
     bank = CharacterIdentityEmbeddingBank()
     bank.build_character("lead", [(1.0, 0.0), (0.99, 0.01)])
     bank.build_character("partner", [(0.0, 1.0), (0.01, 0.99)])
@@ -91,9 +91,11 @@ def test_multi_character_score_is_weakest_character_not_average():
         attempt_index=1,
     )
 
-    partner_score = bank.similarity("partner", (0.8, 0.2))
-    assert score == pytest.approx(max(0.0, partner_score))
-    assert score < 0.30
+    assert bank.similarity("partner", (0.8, 0.2)) > 0.0
+    assert bank.similarity("lead", (0.8, 0.2)) > bank.similarity(
+        "partner", (0.8, 0.2)
+    )
+    assert score == 0.0
 
 
 def test_missing_anchor_fails_closed():
