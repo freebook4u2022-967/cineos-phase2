@@ -22,13 +22,18 @@ CORE_METRICS = (
 )
 PRODUCTION_MEASUREMENT_SCHEMA = "cineos-sequence-quality-measurement/0.1"
 
-# These difficult cases have dedicated semantic measurements in the production
-# scorer. A competitive shot claiming one of them must provide and pass the
-# corresponding metric; a high core average cannot compensate for a failed hand,
-# object-interaction, or lip-sync result.
+# Competitive challenge declarations are promises about a specific visual behavior.
+# They must therefore be backed by a dedicated measured metric. Generic identity,
+# temporal, or motion scores are useful core evidence, but cannot prove locomotion,
+# interaction, camera execution, lighting-transition fidelity, or physics by proxy.
 CHALLENGE_METRIC_REQUIREMENTS = {
+    "multi_character_interaction": "multi_character_interaction_quality",
     "hands_anatomy": "anatomy_quality",
+    "walking_running": "locomotion_quality",
     "object_interaction": "object_interaction_quality",
+    "fast_camera_movement": "camera_motion_quality",
+    "lighting_changes": "lighting_transition_quality",
+    "physics": "physics_plausibility",
     "dialogue_lip_sync": "dialogue_lip_sync",
     # The newer Seedance-style naming is accepted as an alias at the quality boundary.
     "dialogue": "dialogue_lip_sync",
@@ -45,8 +50,13 @@ class SequenceQualityPolicy:
     artifact_floor: float = 0.90
     motion_floor: float = 0.72
     overall_floor: float = 0.80
+    multi_character_interaction_floor: float = 0.76
     anatomy_floor: float = 0.78
+    locomotion_floor: float = 0.74
     object_interaction_floor: float = 0.76
+    camera_motion_floor: float = 0.72
+    lighting_transition_floor: float = 0.74
+    physics_plausibility_floor: float = 0.74
     dialogue_lip_sync_floor: float = 0.74
 
     def __post_init__(self) -> None:
@@ -56,8 +66,13 @@ class SequenceQualityPolicy:
             "artifact_floor": self.artifact_floor,
             "motion_floor": self.motion_floor,
             "overall_floor": self.overall_floor,
+            "multi_character_interaction_floor": self.multi_character_interaction_floor,
             "anatomy_floor": self.anatomy_floor,
+            "locomotion_floor": self.locomotion_floor,
             "object_interaction_floor": self.object_interaction_floor,
+            "camera_motion_floor": self.camera_motion_floor,
+            "lighting_transition_floor": self.lighting_transition_floor,
+            "physics_plausibility_floor": self.physics_plausibility_floor,
             "dialogue_lip_sync_floor": self.dialogue_lip_sync_floor,
         }
         for name, value in values.items():
@@ -66,14 +81,19 @@ class SequenceQualityPolicy:
 
     def snapshot(self) -> dict[str, float | str]:
         return {
-            "schema": "cineos-sequence-quality-policy/0.2",
+            "schema": "cineos-sequence-quality-policy/0.3",
             "identity_floor": self.identity_floor,
             "temporal_floor": self.temporal_floor,
             "artifact_floor": self.artifact_floor,
             "motion_floor": self.motion_floor,
             "overall_floor": self.overall_floor,
+            "multi_character_interaction_floor": self.multi_character_interaction_floor,
             "anatomy_floor": self.anatomy_floor,
+            "locomotion_floor": self.locomotion_floor,
             "object_interaction_floor": self.object_interaction_floor,
+            "camera_motion_floor": self.camera_motion_floor,
+            "lighting_transition_floor": self.lighting_transition_floor,
+            "physics_plausibility_floor": self.physics_plausibility_floor,
             "dialogue_lip_sync_floor": self.dialogue_lip_sync_floor,
         }
 
@@ -145,11 +165,7 @@ def _overall_score(metrics: Mapping[str, float]) -> float:
         + 0.20 * metrics["artifact_integrity"]
         + 0.18 * metrics["motion_quality"]
     )
-    optional_names = (
-        "anatomy_quality",
-        "object_interaction_quality",
-        "dialogue_lip_sync",
-    )
+    optional_names = tuple(dict.fromkeys(CHALLENGE_METRIC_REQUIREMENTS.values()))
     optional = [metrics[name] for name in optional_names if name in metrics]
     if not optional:
         return core
@@ -188,8 +204,25 @@ def _quality_report(
         "temporal_consistency": "reduce cross-frame and cross-shot temporal drift",
         "artifact_integrity": "remove corruption, malformed frames, and export artifacts",
         "motion_quality": "stabilize physically plausible subject and camera motion",
+        "multi_character_interaction_quality": (
+            "repair measured multi-character interaction, contact, turn-taking, and identity separation"
+        ),
         "anatomy_quality": "repair hand, finger, limb, and body anatomy before acceptance",
-        "object_interaction_quality": "repair contact, grip, occlusion, and object interaction fidelity",
+        "locomotion_quality": (
+            "repair measured walking/running gait, foot contact, balance, and limb timing"
+        ),
+        "object_interaction_quality": (
+            "repair contact, grip, occlusion, and object interaction fidelity"
+        ),
+        "camera_motion_quality": (
+            "repair measured fast-camera trajectory, framing continuity, and motion coherence"
+        ),
+        "lighting_transition_quality": (
+            "repair measured lighting-transition continuity, exposure response, and scene consistency"
+        ),
+        "physics_plausibility": (
+            "repair measured physical causality, trajectories, collisions, and material response"
+        ),
         "dialogue_lip_sync": "improve measured mouth-to-dialogue synchronization",
     }
     for name, threshold in thresholds.items():
@@ -198,8 +231,13 @@ def _quality_report(
             directives.append(directive_by_metric[name])
 
     challenge_thresholds = {
+        "multi_character_interaction_quality": policy.multi_character_interaction_floor,
         "anatomy_quality": policy.anatomy_floor,
+        "locomotion_quality": policy.locomotion_floor,
         "object_interaction_quality": policy.object_interaction_floor,
+        "camera_motion_quality": policy.camera_motion_floor,
+        "lighting_transition_quality": policy.lighting_transition_floor,
+        "physics_plausibility": policy.physics_plausibility_floor,
         "dialogue_lip_sync": policy.dialogue_lip_sync_floor,
     }
     for name in required:
@@ -216,7 +254,7 @@ def _quality_report(
 
     accepted = not failures
     return {
-        "schema": "cineos-sequence-quality-report/0.2",
+        "schema": "cineos-sequence-quality-report/0.3",
         "accepted": accepted,
         "decision": "accept" if accepted else "reject",
         "score": overall,
