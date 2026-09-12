@@ -75,12 +75,19 @@ class EmbeddingBankVideoIdentitySource:
     score uses a lower-tail quantile so a brief identity collapse cannot be hidden by
     otherwise strong frames. The shot score is the weakest character score, preventing
     a stable lead actor from masking drift in another visible character.
+
+    For multi-character shots, every semantic observation must also discriminate its
+    assigned identity from the other conditioned cast identities. An embedding that is
+    closer (or nearly as close) to another cast member is scored as identity failure,
+    preventing character swaps or identity collapse from receiving a strong aggregate
+    identity score merely because both people resemble some approved cast anchor.
     """
 
     identity_bank: CharacterIdentityEmbeddingBank
     frame_encoder: CharacterFrameEncoder
     minimum_observations_per_character: int = 3
     lower_tail_quantile: float = 0.20
+    minimum_cross_character_margin: float = 0.05
 
     def __post_init__(self) -> None:
         if not isinstance(self.identity_bank, CharacterIdentityEmbeddingBank):
@@ -91,6 +98,10 @@ class EmbeddingBankVideoIdentitySource:
             raise ValueError("minimum_observations_per_character must be positive")
         if not 0.0 <= self.lower_tail_quantile <= 1.0:
             raise ValueError("lower_tail_quantile must be between 0 and 1")
+        if not 0.0 <= self.minimum_cross_character_margin <= 2.0:
+            raise ValueError(
+                "minimum_cross_character_margin must be between 0 and 2"
+            )
 
     def __call__(
         self,
@@ -106,8 +117,8 @@ class EmbeddingBankVideoIdentitySource:
                 "video identity scoring requires sampled frames"
             )
 
-        scores_by_character: dict[str, list[float]] = {}
-        for character_id in _character_ids(shot):
+        character_ids = _character_ids(shot)
+        for character_id in character_ids:
             try:
                 self.identity_bank.get(character_id)
             except KeyError as exc:
@@ -115,6 +126,8 @@ class EmbeddingBankVideoIdentitySource:
                     f"no approved identity anchor exists for character {character_id!r}"
                 ) from exc
 
+        scores_by_character: dict[str, list[float]] = {}
+        for character_id in character_ids:
             observations: list[float] = []
             for frame_index, frame in enumerate(frames):
                 vector = self.frame_encoder(
@@ -127,11 +140,27 @@ class EmbeddingBankVideoIdentitySource:
                     continue
                 try:
                     similarity = self.identity_bank.similarity(character_id, vector)
-                except (TypeError, ValueError) as exc:
+                    if len(character_ids) > 1:
+                        impostor_similarity = max(
+                            self.identity_bank.similarity(other_character_id, vector)
+                            for other_character_id in character_ids
+                            if other_character_id != character_id
+                        )
+                    else:
+                        impostor_similarity = None
+                except (KeyError, TypeError, ValueError) as exc:
                     raise VideoIdentityMetricError(
                         f"invalid identity embedding for character {character_id!r}"
                     ) from exc
-                observations.append(max(0.0, min(1.0, float(similarity))))
+
+                score = max(0.0, min(1.0, float(similarity)))
+                if (
+                    impostor_similarity is not None
+                    and float(similarity) - float(impostor_similarity)
+                    < self.minimum_cross_character_margin
+                ):
+                    score = 0.0
+                observations.append(score)
 
             if len(observations) < self.minimum_observations_per_character:
                 raise VideoIdentityMetricError(
