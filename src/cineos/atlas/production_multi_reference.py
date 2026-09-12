@@ -89,7 +89,9 @@ def _validated_character_reference_bindings(
                 f"approved reference per character: {character_id!r} has none"
             )
 
-        escaped = [reference_id for reference_id in raw_ids if reference_id not in approved]
+        escaped = [
+            reference_id for reference_id in raw_ids if reference_id not in approved
+        ]
         if escaped:
             raise ProductionMultiReferenceError(
                 "character conditioning references are not approved by the shot: "
