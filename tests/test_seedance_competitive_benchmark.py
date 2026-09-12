@@ -132,9 +132,7 @@ def test_difficult_cases_require_direct_measured_quality_signals():
         >= 0.84
     )
     assert (
-        by_id["competitive-walk-run"].validation_thresholds[
-            "anatomy_integrity_score"
-        ]
+        by_id["competitive-walk-run"].validation_thresholds["anatomy_integrity_score"]
         >= 0.86
     )
     assert (
@@ -151,9 +149,7 @@ def test_difficult_cases_require_direct_measured_quality_signals():
     )
 
     threshold_names = {
-        name
-        for case in suite.cases
-        for name in case.validation_thresholds
+        name for case in suite.cases for name in case.validation_thresholds
     }
     assert threshold_names <= set(METRIC_NAMES)
 
