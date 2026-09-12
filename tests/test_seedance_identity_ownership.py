@@ -111,7 +111,9 @@ def test_identity_grounding_preserves_legacy_global_reference_compatibility() ->
     )
 
 
-def test_identity_grounding_fails_closed_when_local_ownership_does_not_persist() -> None:
+def test_identity_grounding_fails_closed_when_local_ownership_does_not_persist() -> (
+    None
+):
     requests = [
         _request(
             "shot-1",

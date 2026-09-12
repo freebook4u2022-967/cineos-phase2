@@ -127,13 +127,17 @@ def _character_reference_pairs(
             raise SeedanceStyleChallengeError(
                 f"shot {request.scene_id}/{request.shot_id} characters[{index}] must be a mapping"
             )
-        identities = _conditioned_character_ids_for_entry(request, character, index=index)
+        identities = _conditioned_character_ids_for_entry(
+            request, character, index=index
+        )
         if identities is None:
             continue
         raw_references = character.get("approved_reference_ids")
         if raw_references is None:
             continue
-        if not isinstance(raw_references, Sequence) or isinstance(raw_references, (str, bytes)):
+        if not isinstance(raw_references, Sequence) or isinstance(
+            raw_references, (str, bytes)
+        ):
             raise SeedanceStyleChallengeError(
                 f"shot {request.scene_id}/{request.shot_id} characters[{index}].approved_reference_ids "
                 "must be a sequence"
@@ -241,11 +245,11 @@ def _validate_sequence_identity_grounding(
         for request in requests
         for reference_id in set(request.approved_reference_ids)
     )
-    pairs_by_request = [set(_character_reference_pairs(request)) for request in requests]
+    pairs_by_request = [
+        set(_character_reference_pairs(request)) for request in requests
+    ]
     ownership_declared = any(pairs_by_request)
-    pair_occurrences = Counter(
-        pair for pairs in pairs_by_request for pair in pairs
-    )
+    pair_occurrences = Counter(pair for pairs in pairs_by_request for pair in pairs)
 
     for request_index, (request, challenges) in enumerate(
         zip(requests, challenges_by_request, strict=True)
