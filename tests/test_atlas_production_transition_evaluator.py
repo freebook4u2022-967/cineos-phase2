@@ -217,10 +217,23 @@ def _strict_receipt(tmp_path: Path, *, omit_lineage_at: int | None = None):
     )
 
 
+def _isolate_transition_contract(monkeypatch) -> None:
+    challenge_coverage = object()
+    monkeypatch.setattr(
+        "cineos.atlas.gpu_production_quality_retry.validate_challenge_coverage",
+        lambda _requests: challenge_coverage,
+    )
+    monkeypatch.setattr(
+        "cineos.atlas.gpu_production_quality_retry.bind_challenge_coverage",
+        lambda receipt, _coverage: receipt,
+    )
+
+
 def test_strict_production_entry_requires_terminal_frame_lineage(
     monkeypatch, tmp_path: Path
 ) -> None:
     aggregate = _strict_receipt(tmp_path, omit_lineage_at=2)
+    _isolate_transition_contract(monkeypatch)
     monkeypatch.setattr(
         "cineos.atlas.gpu_production_quality_retry."
         "run_production_quality_retry_connected_gpu_benchmark",
@@ -249,6 +262,7 @@ def test_strict_production_entry_accepts_complete_lineage_and_transition_evidenc
     monkeypatch, tmp_path: Path
 ) -> None:
     aggregate = _strict_receipt(tmp_path)
+    _isolate_transition_contract(monkeypatch)
     monkeypatch.setattr(
         "cineos.atlas.gpu_production_quality_retry."
         "run_production_quality_retry_connected_gpu_benchmark",
