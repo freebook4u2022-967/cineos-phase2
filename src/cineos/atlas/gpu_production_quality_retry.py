@@ -36,7 +36,10 @@ from .production_continuity_identity import compose_continuity_identity_board
 from .production_multi_reference import ProductionReferenceBoardAdapter
 from .production_references import ProductionReferenceError, ProductionReferenceLoader
 from .quality_retry import QualityRetryPolicy
-from .seedance_style_challenge import bind_challenge_coverage, validate_challenge_coverage
+from .seedance_style_challenge import (
+    bind_challenge_coverage,
+    validate_challenge_coverage,
+)
 from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
 
