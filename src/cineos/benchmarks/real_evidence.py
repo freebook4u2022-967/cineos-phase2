@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -71,9 +72,12 @@ def validate_real_inference_evidence(
             raise BenchmarkError(f"required metric is not measured: {name}")
         if isinstance(metric.value, bool) or not isinstance(metric.value, (int, float)):
             raise BenchmarkError(f"required metric is not numeric: {name}")
-        if float(metric.value) < threshold:
+        numeric_value = float(metric.value)
+        if not math.isfinite(numeric_value):
+            raise BenchmarkError(f"required metric is not finite: {name}")
+        if numeric_value < threshold:
             raise BenchmarkError(
-                f"metric {name}={float(metric.value):.4f} is below threshold {threshold:.4f}"
+                f"metric {name}={numeric_value:.4f} is below threshold {threshold:.4f}"
             )
 
     origin = foundation.get("origin")
