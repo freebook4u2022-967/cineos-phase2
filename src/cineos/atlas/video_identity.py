@@ -76,6 +76,12 @@ class EmbeddingBankVideoIdentitySource:
     otherwise strong frames. The shot score is the weakest character score, preventing
     a stable lead actor from masking drift in another visible character.
 
+    Identity evidence must also cover a meaningful fraction of sampled frames. This
+    prevents a long shot from passing on only a few clean detections while the character
+    disappears, becomes untrackable, or collapses for most of the shot. Integrations
+    that intentionally preserve the legacy absolute-count-only contract can set
+    ``minimum_observation_fraction`` to ``0.0`` explicitly.
+
     For multi-character shots, every semantic observation must also discriminate its
     assigned identity from the other conditioned cast identities. An embedding that is
     closer (or nearly as close) to another cast member is scored as identity failure,
@@ -88,6 +94,7 @@ class EmbeddingBankVideoIdentitySource:
     minimum_observations_per_character: int = 3
     lower_tail_quantile: float = 0.20
     minimum_cross_character_margin: float = 0.05
+    minimum_observation_fraction: float = 0.40
 
     def __post_init__(self) -> None:
         if not isinstance(self.identity_bank, CharacterIdentityEmbeddingBank):
@@ -100,6 +107,8 @@ class EmbeddingBankVideoIdentitySource:
             raise ValueError("lower_tail_quantile must be between 0 and 1")
         if not 0.0 <= self.minimum_cross_character_margin <= 2.0:
             raise ValueError("minimum_cross_character_margin must be between 0 and 2")
+        if not 0.0 <= self.minimum_observation_fraction <= 1.0:
+            raise ValueError("minimum_observation_fraction must be between 0 and 1")
 
     def __call__(
         self,
@@ -124,6 +133,10 @@ class EmbeddingBankVideoIdentitySource:
                     f"no approved identity anchor exists for character {character_id!r}"
                 ) from exc
 
+        required_observations = max(
+            self.minimum_observations_per_character,
+            math.ceil(len(frames) * self.minimum_observation_fraction),
+        )
         scores_by_character: dict[str, list[float]] = {}
         for character_id in character_ids:
             observations: list[float] = []
@@ -160,11 +173,11 @@ class EmbeddingBankVideoIdentitySource:
                     score = 0.0
                 observations.append(score)
 
-            if len(observations) < self.minimum_observations_per_character:
+            if len(observations) < required_observations:
                 raise VideoIdentityMetricError(
                     f"character {character_id!r} produced {len(observations)} semantic "
                     "identity observations; "
-                    f"{self.minimum_observations_per_character} required"
+                    f"{required_observations} required across {len(frames)} sampled frames"
                 )
             scores_by_character[character_id] = observations
 

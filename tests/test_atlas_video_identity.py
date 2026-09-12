@@ -135,6 +135,62 @@ def test_insufficient_detected_character_observations_fail_closed():
         )
 
 
+def test_sparse_identity_observations_fail_even_when_absolute_minimum_is_met():
+    bank = CharacterIdentityEmbeddingBank()
+    bank.build_character("lead", [(1.0, 0.0)])
+
+    def encode(_frame, *, frame_index, **_kwargs):
+        return (1.0, 0.0) if frame_index < 3 else None
+
+    source = EmbeddingBankVideoIdentitySource(
+        identity_bank=bank,
+        frame_encoder=encode,
+        minimum_observations_per_character=3,
+    )
+
+    with pytest.raises(VideoIdentityMetricError, match="4 required across 10 sampled frames"):
+        source(
+            "candidate.mp4",
+            shot=Shot(["lead"]),
+            frames=_frames(10),
+            attempt_index=0,
+        )
+
+
+def test_legacy_absolute_observation_contract_can_be_selected_explicitly():
+    bank = CharacterIdentityEmbeddingBank()
+    bank.build_character("lead", [(1.0, 0.0)])
+
+    def encode(_frame, *, frame_index, **_kwargs):
+        return (1.0, 0.0) if frame_index < 3 else None
+
+    source = EmbeddingBankVideoIdentitySource(
+        identity_bank=bank,
+        frame_encoder=encode,
+        minimum_observations_per_character=3,
+        minimum_observation_fraction=0.0,
+    )
+
+    assert source(
+        "candidate.mp4",
+        shot=Shot(["lead"]),
+        frames=_frames(10),
+        attempt_index=0,
+    ) > 0.99
+
+
+def test_invalid_minimum_observation_fraction_is_rejected():
+    bank = CharacterIdentityEmbeddingBank()
+    bank.build_character("lead", [(1.0, 0.0)])
+
+    with pytest.raises(ValueError, match="minimum_observation_fraction"):
+        EmbeddingBankVideoIdentitySource(
+            identity_bank=bank,
+            frame_encoder=lambda _frame, **_kwargs: (1.0, 0.0),
+            minimum_observation_fraction=1.01,
+        )
+
+
 def test_character_metadata_is_required():
     bank = CharacterIdentityEmbeddingBank()
     bank.build_character("lead", [(1.0, 0.0)])
