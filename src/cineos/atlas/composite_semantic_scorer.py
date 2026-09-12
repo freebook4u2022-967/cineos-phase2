@@ -154,7 +154,8 @@ class CompositeSemanticVideoScorer:
         missing = sorted(_PRIMARY_METRICS - set(primary))
         if missing:
             raise CompositeSemanticScorerError(
-                "primary semantic scorer missing required metric(s): " + ", ".join(missing)
+                "primary semantic scorer missing required metric(s): "
+                + ", ".join(missing)
             )
         illegal_primary = sorted(_OBSERVER_METRICS.intersection(primary))
         if illegal_primary:
@@ -174,7 +175,9 @@ class CompositeSemanticVideoScorer:
                 ),
                 role=f"specialist[{index}]",
             )
-            forbidden = sorted((_PRIMARY_METRICS | _OBSERVER_METRICS).intersection(metrics))
+            forbidden = sorted(
+                (_PRIMARY_METRICS | _OBSERVER_METRICS).intersection(metrics)
+            )
             if forbidden:
                 raise CompositeSemanticScorerError(
                     f"specialist[{index}] cannot replace core/observer metric(s): "

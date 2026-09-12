@@ -99,7 +99,9 @@ def test_composite_rejects_duplicate_specialist_metric_ownership() -> None:
     right = _Scorer({"anatomy_quality": 0.9}, name="right")
     composite = CompositeSemanticVideoScorer(primary, [left, right])
 
-    with pytest.raises(CompositeSemanticScorerError, match="duplicates metric ownership"):
+    with pytest.raises(
+        CompositeSemanticScorerError, match="duplicates metric ownership"
+    ):
         composite(
             _sample(),
             artifact=Path("shot.mp4"),
