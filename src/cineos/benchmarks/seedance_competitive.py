@@ -37,21 +37,35 @@ COMPETITIVE_CASES = (
         "Hands and object interaction",
         "Stress anatomy, grasp persistence, prop state, and contact during a handoff.",
         ("multi_character", "prop_continuity"),
-        {"prop_continuity_score": 0.86, "temporal_stability": 0.84},
+        {
+            "anatomy_integrity_score": 0.86,
+            "contact_consistency_score": 0.84,
+            "prop_continuity_score": 0.86,
+            "temporal_stability": 0.84,
+        },
     ),
     (
         "walk-run",
         "Walking and running body dynamics",
         "Stress full-body anatomy, gait, foot contact, identity, and motion coherence.",
         ("full_body_motion", "identity_lock"),
-        {"identity_score": 0.86, "temporal_stability": 0.84},
+        {
+            "anatomy_integrity_score": 0.86,
+            "locomotion_coherence_score": 0.84,
+            "identity_score": 0.86,
+            "temporal_stability": 0.84,
+        },
     ),
     (
         "fast-camera",
         "Fast camera movement",
         "Stress subject persistence through whip-pan, orbit, and rapid dolly movement.",
         ("camera_motion", "identity_lock"),
-        {"identity_score": 0.84, "temporal_stability": 0.82},
+        {
+            "camera_motion_coherence_score": 0.82,
+            "identity_score": 0.84,
+            "temporal_stability": 0.82,
+        },
     ),
     (
         "lighting-transition",
@@ -65,7 +79,11 @@ COMPETITIVE_CASES = (
         "Weather and lightweight physics",
         "Stress rain, cloth/hair response, splashes, and environment persistence.",
         ("weather", "physics"),
-        {"environment_continuity_score": 0.84, "temporal_stability": 0.82},
+        {
+            "physics_consistency_score": 0.82,
+            "environment_continuity_score": 0.84,
+            "temporal_stability": 0.82,
+        },
     ),
     (
         "scene-boundary",
@@ -125,7 +143,7 @@ def seedance_competitive_suite() -> BenchmarkSuite:
     )
     return BenchmarkSuite(
         suite_id=str(uuid.UUID("04a5ad04-dc31-5b2b-8ebf-78fa5d26829f")),
-        suite_version="1.0.0",
+        suite_version="1.1.0",
         cases=cases,
         target_platform="gpu",
         renderer_profile="external-pretrained-foundation+cineos-control",
