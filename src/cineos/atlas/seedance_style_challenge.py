@@ -168,7 +168,7 @@ class ChallengeCoverage:
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
-            "schema": "cineos-seedance-style-challenge-coverage/0.2",
+            "schema": "cineos-seedance-style-challenge-coverage/0.1",
             "required_challenges": list(REQUIRED_CHALLENGES),
             "complete": self.complete,
             "missing": list(self.missing),
