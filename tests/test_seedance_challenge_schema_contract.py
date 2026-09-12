@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from cineos.atlas.seedance_style_challenge import ChallengeCoverage, REQUIRED_CHALLENGES
+from cineos.atlas.seedance_style_challenge import REQUIRED_CHALLENGES, ChallengeCoverage
 
 
 def test_competitive_challenge_contract_uses_production_supported_schema() -> None:
