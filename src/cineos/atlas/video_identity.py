@@ -205,7 +205,10 @@ class EmbeddingBankVideoIdentitySource:
                     "identity observations; "
                     f"{required_observations} required across {len(frames)} sampled frames"
                 )
-            if enforce_temporal_distribution and len(observed_temporal_bins) < required_temporal_bins:
+            if (
+                enforce_temporal_distribution
+                and len(observed_temporal_bins) < required_temporal_bins
+            ):
                 raise VideoIdentityMetricError(
                     f"character {character_id!r} identity observations covered "
                     f"{len(observed_temporal_bins)} of {required_temporal_bins} required "
