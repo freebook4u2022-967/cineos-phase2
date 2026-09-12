@@ -38,7 +38,9 @@ def _av_scorer(tmp_path: Path) -> LatentSyncSyncNetScorer:
     )
 
 
-def test_seedance_stack_has_disjoint_visual_and_av_metric_ownership(tmp_path: Path) -> None:
+def test_seedance_stack_has_disjoint_visual_and_av_metric_ownership(
+    tmp_path: Path,
+) -> None:
     shots = [
         SimpleNamespace(
             metadata={
