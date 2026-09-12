@@ -39,7 +39,9 @@ def test_release_gate_rejects_nonfinite_measured_threshold_metric(tmp_path, valu
     )
     _write_expected_outputs(tmp_path)
 
-    with pytest.raises(BenchmarkError, match="required metric is not finite: identity_score"):
+    with pytest.raises(
+        BenchmarkError, match="required metric is not finite: identity_score"
+    ):
         validate_real_inference_evidence(
             case,
             result,
