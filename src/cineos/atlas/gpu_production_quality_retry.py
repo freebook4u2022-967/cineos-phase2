@@ -36,6 +36,7 @@ from .production_continuity_identity import compose_continuity_identity_board
 from .production_multi_reference import ProductionReferenceBoardAdapter
 from .production_references import ProductionReferenceError, ProductionReferenceLoader
 from .quality_retry import QualityRetryPolicy
+from .seedance_style_challenge import bind_challenge_coverage, validate_challenge_coverage
 from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
 
@@ -258,7 +259,14 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
     shot_executor: ShotExecutor = execute_foundation_gpu_shot,
     shot_executor_kwargs: dict[str, Any] | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
-    """Run the strict production sequence gate with visual lineage and seam QC."""
+    """Run the strict production sequence gate with visual lineage and seam QC.
+
+    Competitive production evidence is also required to declare every agreed
+    difficult-case category before any expensive GPU execution starts. The resulting
+    coverage contract is embedded in the returned receipt serialization and the
+    connected benchmark manifest so the later production attestation content-addresses
+    the exact benchmark scope rather than merely a successful 5-10-shot run.
+    """
 
     if not isinstance(
         transition_evaluator,
@@ -267,6 +275,11 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
         raise ProductionGPUQualityRetryError(
             "competitive production continuity requires attested transition evidence"
         )
+    try:
+        challenge_coverage = validate_challenge_coverage(requests)
+    except GPUConnectedBenchmarkError as exc:
+        raise ProductionGPUQualityRetryError(str(exc)) from exc
+
     receipt = run_production_quality_retry_connected_gpu_benchmark(
         benchmark_id,
         requests,
@@ -323,7 +336,7 @@ def run_production_continuity_quality_retry_connected_gpu_benchmark(
         raise ProductionGPUQualityRetryError(
             "one or more accepted transitions lack production measurement evidence"
         )
-    return receipt
+    return bind_challenge_coverage(receipt, challenge_coverage)
 
 
 __all__ = [
