@@ -116,6 +116,74 @@ def _conditioned_character_ids(request: NativeShotRequest) -> tuple[str, ...]:
     return tuple(identities)
 
 
+def _character_reference_pairs(
+    request: NativeShotRequest,
+) -> tuple[tuple[str, str], ...]:
+    """Return explicit character-to-reference ownership declared by a native shot."""
+
+    pairs: set[tuple[str, str]] = set()
+    for index, character in enumerate(request.characters):
+        if not isinstance(character, Mapping):
+            raise SeedanceStyleChallengeError(
+                f"shot {request.scene_id}/{request.shot_id} characters[{index}] must be a mapping"
+            )
+        identities = _conditioned_character_ids_for_entry(request, character, index=index)
+        if identities is None:
+            continue
+        raw_references = character.get("approved_reference_ids")
+        if raw_references is None:
+            continue
+        if not isinstance(raw_references, Sequence) or isinstance(raw_references, (str, bytes)):
+            raise SeedanceStyleChallengeError(
+                f"shot {request.scene_id}/{request.shot_id} characters[{index}].approved_reference_ids "
+                "must be a sequence"
+            )
+        for reference_index, value in enumerate(raw_references):
+            if not isinstance(value, str) or not value.strip():
+                raise SeedanceStyleChallengeError(
+                    f"shot {request.scene_id}/{request.shot_id} characters[{index}]."
+                    f"approved_reference_ids[{reference_index}] must be a non-empty string"
+                )
+            pairs.add((identities, value.strip()))
+    return tuple(sorted(pairs))
+
+
+def _conditioned_character_ids_for_entry(
+    request: NativeShotRequest,
+    character: Mapping[str, Any],
+    *,
+    index: int,
+) -> str | None:
+    """Resolve one character entry using the canonical/legacy identity contract."""
+
+    canonical = character.get("character_uuid")
+    legacy = character.get("character_id")
+    if canonical is not None and (
+        not isinstance(canonical, str) or not canonical.strip()
+    ):
+        raise SeedanceStyleChallengeError(
+            f"shot {request.scene_id}/{request.shot_id} characters[{index}].character_uuid "
+            "must be non-empty when supplied"
+        )
+    if legacy is not None and (not isinstance(legacy, str) or not legacy.strip()):
+        raise SeedanceStyleChallengeError(
+            f"shot {request.scene_id}/{request.shot_id} characters[{index}].character_id "
+            "must be non-empty when supplied"
+        )
+    if canonical is not None and legacy is not None:
+        if canonical.strip() != legacy.strip():
+            raise SeedanceStyleChallengeError(
+                f"shot {request.scene_id}/{request.shot_id} characters[{index}] has "
+                "conflicting character_uuid/character_id"
+            )
+        return canonical.strip()
+    if canonical is not None:
+        return canonical.strip()
+    if legacy is not None:
+        return legacy.strip()
+    return None
+
+
 def _validate_structural_challenge_grounding(
     request: NativeShotRequest,
     challenges: Sequence[str],
@@ -153,13 +221,14 @@ def _validate_sequence_identity_grounding(
     requests: Sequence[NativeShotRequest],
     challenges_by_request: Sequence[Sequence[str]],
 ) -> None:
-    """Require identity challenges to exercise a persistent character and reference.
+    """Require identity challenges to preserve character/reference ownership.
 
-    Reusing an approved reference identifier alone is not enough: the same conditioned
-    character identity must also appear in another connected shot. This prevents a
-    shared/global reference from making a sequence of unrelated characters look like
-    an identity-consistency benchmark. Character-to-reference ownership is validated
-    later by the production reference/evidence path when that richer mapping exists.
+    Modern native requests can explicitly assign approved references to individual
+    characters. When that richer mapping exists anywhere in the connected sequence,
+    identity consistency must preserve at least one exact character/reference pair
+    across shots; a globally persistent reference set is not sufficient because it
+    can hide references being swapped between characters. Legacy requests that do
+    not declare character-local ownership keep the historical global-reference rule.
     """
 
     character_occurrences = Counter(
@@ -172,8 +241,15 @@ def _validate_sequence_identity_grounding(
         for request in requests
         for reference_id in set(request.approved_reference_ids)
     )
+    pairs_by_request = [set(_character_reference_pairs(request)) for request in requests]
+    ownership_declared = any(pairs_by_request)
+    pair_occurrences = Counter(
+        pair for pairs in pairs_by_request for pair in pairs
+    )
 
-    for request, challenges in zip(requests, challenges_by_request, strict=True):
+    for request_index, (request, challenges) in enumerate(
+        zip(requests, challenges_by_request, strict=True)
+    ):
         if "identity_consistency" not in challenges:
             continue
         shot_key = f"{request.scene_id}/{request.shot_id}"
@@ -187,6 +263,18 @@ def _validate_sequence_identity_grounding(
                 f"shot {shot_key} declares identity_consistency but none of its "
                 "conditioned character identities persists into another connected shot"
             )
+        if ownership_declared:
+            persistent_pairs = {
+                pair
+                for pair in pairs_by_request[request_index]
+                if pair[0] in persistent_characters and pair_occurrences[pair] >= 2
+            }
+            if not persistent_pairs:
+                raise SeedanceStyleChallengeError(
+                    f"shot {shot_key} declares identity_consistency but none of its "
+                    "character-to-reference ownership pairs persists into another connected shot"
+                )
+            continue
         persistent_references = {
             reference_id
             for reference_id in request.approved_reference_ids
