@@ -7,7 +7,6 @@ from cineos.atlas.sequence_quality import (
     SequenceQualityError,
 )
 
-
 _BASE_METRICS = {
     "identity_similarity": 0.95,
     "temporal_consistency": 0.95,
@@ -28,7 +27,9 @@ _BASE_METRICS = {
 )
 def test_competitive_challenge_requires_dedicated_measured_metric(challenge, metric):
     shot = SimpleNamespace(metadata={"competitive_challenges": [challenge]})
-    evaluator = CineosSequenceQualityEvaluator(lambda *_args, **_kwargs: dict(_BASE_METRICS))
+    evaluator = CineosSequenceQualityEvaluator(
+        lambda *_args, **_kwargs: dict(_BASE_METRICS)
+    )
 
     with pytest.raises(SequenceQualityError, match=metric):
         evaluator("unused.mp4", shot=shot, attempt_index=0)
@@ -79,7 +80,9 @@ def test_competitive_challenge_accepts_strong_dedicated_metric(challenge, metric
 
 def test_generic_shot_remains_backward_compatible_without_specialist_metrics():
     shot = SimpleNamespace(metadata={})
-    evaluator = CineosSequenceQualityEvaluator(lambda *_args, **_kwargs: dict(_BASE_METRICS))
+    evaluator = CineosSequenceQualityEvaluator(
+        lambda *_args, **_kwargs: dict(_BASE_METRICS)
+    )
 
     report = evaluator("unused.mp4", shot=shot, attempt_index=0)
 
