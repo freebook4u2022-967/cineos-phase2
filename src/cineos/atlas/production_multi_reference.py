@@ -16,7 +16,7 @@ from .production_diffusers import MultiReferenceConditioningResult
 
 MULTI_REFERENCE_RUNTIME_SCHEMA = "cineos-production-multi-reference-runtime/0.1"
 PRODUCTION_REFERENCE_BOARD_ADAPTER_ID = "cineos.production.reference_board"
-PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION = "0.1.2"
+PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION = "0.1.3"
 PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES = 4
 
 
@@ -135,6 +135,42 @@ def _character_reference_bindings(
     return _validated_character_reference_bindings(request)
 
 
+def _reference_board_cells(
+    reference_count: int, width: int, height: int
+) -> tuple[tuple[int, int, int, int], ...]:
+    """Return deterministic full-frame cells for two to four references.
+
+    Three-reference conditioning deliberately uses a 2+1 layout: two equal cells on
+    the top row and one full-width cell on the bottom row. The previous generic 2x2
+    layout left one quadrant permanently gray, wasting 25% of the available
+    conditioning canvas and shrinking the third identity to a quarter-frame cell.
+    """
+
+    half_width = width // 2
+    half_height = height // 2
+    if reference_count == 2:
+        return (
+            (0, 0, half_width, height),
+            (half_width, 0, width - half_width, height),
+        )
+    if reference_count == 3:
+        return (
+            (0, 0, half_width, half_height),
+            (half_width, 0, width - half_width, half_height),
+            (0, half_height, width, height - half_height),
+        )
+    if reference_count == 4:
+        return (
+            (0, 0, half_width, half_height),
+            (half_width, 0, width - half_width, half_height),
+            (0, half_height, half_width, height - half_height),
+            (half_width, half_height, width - half_width, height - half_height),
+        )
+    raise ProductionMultiReferenceError(
+        "production reference board requires two to four approved references"
+    )
+
+
 class ProductionReferenceBoardAdapter:
     """Compose 2-4 approved references into a deterministic shot-aspect board.
 
@@ -205,14 +241,8 @@ class ProductionReferenceBoardAdapter:
                 "shot camera resolution must be positive for reference-board composition"
             )
 
-        columns, rows = (2, 1) if len(references) == 2 else (2, 2)
+        cells = _reference_board_cells(len(references), width, height)
         board = Image.new("RGB", (width, height), (127, 127, 127))
-        cell_width = width // columns
-        cell_height = height // rows
-        if cell_width <= 0 or cell_height <= 0:
-            raise ProductionMultiReferenceError(
-                "shot camera resolution is too small for multi-reference board layout"
-            )
 
         for index, source in enumerate(references):
             if not hasattr(source, "convert") or not hasattr(source, "resize"):
@@ -225,6 +255,11 @@ class ProductionReferenceBoardAdapter:
                 raise ProductionMultiReferenceError(
                     f"approved reference {expected_ids[index]!r} has invalid dimensions"
                 )
+            cell_left, cell_top, cell_width, cell_height = cells[index]
+            if cell_width <= 0 or cell_height <= 0:
+                raise ProductionMultiReferenceError(
+                    "shot camera resolution is too small for multi-reference board layout"
+                )
             scale = min(cell_width / source_width, cell_height / source_height)
             target = (
                 max(1, round(source_width * scale)),
@@ -232,10 +267,8 @@ class ProductionReferenceBoardAdapter:
             )
             resampling = getattr(Image, "Resampling", Image)
             fitted = image.resize(target, resampling.LANCZOS)
-            column = index % columns
-            row = index // columns
-            left = column * cell_width + (cell_width - target[0]) // 2
-            top = row * cell_height + (cell_height - target[1]) // 2
+            left = cell_left + (cell_width - target[0]) // 2
+            top = cell_top + (cell_height - target[1]) // 2
             board.paste(fitted, (left, top))
 
         return MultiReferenceConditioningResult(
