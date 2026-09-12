@@ -16,7 +16,7 @@ from .production_diffusers import MultiReferenceConditioningResult
 
 MULTI_REFERENCE_RUNTIME_SCHEMA = "cineos-production-multi-reference-runtime/0.1"
 PRODUCTION_REFERENCE_BOARD_ADAPTER_ID = "cineos.production.reference_board"
-PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION = "0.1.3"
+PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION = "0.1.4"
 PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES = 4
 
 
@@ -171,13 +171,63 @@ def _reference_board_cells(
     )
 
 
+def _character_aware_reference_cells(
+    expected_ids: tuple[str, ...],
+    character_bindings: tuple[tuple[str, tuple[str, ...]], ...],
+    width: int,
+    height: int,
+) -> tuple[tuple[int, int, int, int], ...]:
+    """Allocate equal board area per character before splitting their references.
+
+    Reference count is not identity importance. Without this second-stage layout a
+    character with two approved views can consume twice the conditioning canvas of a
+    co-star represented by one view. For audited multi-character requests, divide the
+    frame between characters first, then divide each character cell between that
+    character's own references. Legacy requests and single-character requests retain
+    the historical reference-count layout exactly.
+    """
+
+    if len(character_bindings) <= 1:
+        return _reference_board_cells(len(expected_ids), width, height)
+
+    character_cells = _reference_board_cells(len(character_bindings), width, height)
+    reference_cells: dict[str, tuple[int, int, int, int]] = {}
+    for (_character_id, reference_ids), character_cell in zip(
+        character_bindings, character_cells, strict=True
+    ):
+        cell_left, cell_top, cell_width, cell_height = character_cell
+        if len(reference_ids) == 1:
+            local_cells = ((0, 0, cell_width, cell_height),)
+        else:
+            local_cells = _reference_board_cells(
+                len(reference_ids), cell_width, cell_height
+            )
+        for reference_id, local_cell in zip(reference_ids, local_cells, strict=True):
+            local_left, local_top, local_width, local_height = local_cell
+            reference_cells[reference_id] = (
+                cell_left + local_left,
+                cell_top + local_top,
+                local_width,
+                local_height,
+            )
+
+    try:
+        return tuple(reference_cells[reference_id] for reference_id in expected_ids)
+    except KeyError as exc:  # defensive: ownership validation should make this impossible
+        raise ProductionMultiReferenceError(
+            "character-aware reference board is missing an approved identity reference"
+        ) from exc
+
+
 class ProductionReferenceBoardAdapter:
     """Compose 2-4 approved references into a deterministic shot-aspect board.
 
     No generated pixels, labels, face swaps, or external services are involved.
     Each source is contain-fitted into a stable cell without cropping so identity
-    evidence is not silently discarded. The adapter is CINEOS-owned preprocessing,
-    not a native capability claim about the external video foundation.
+    evidence is not silently discarded. For audited multi-character requests the
+    board gives each character equal canvas area before subdividing that character's
+    approved views, preventing reference-count bias. The adapter is CINEOS-owned
+    preprocessing, not a native capability claim about the external video foundation.
 
     Every approved reference id must be unique. Repeating one identity under the
     same id could otherwise occupy multiple board cells and make a two-character
@@ -241,7 +291,9 @@ class ProductionReferenceBoardAdapter:
                 "shot camera resolution must be positive for reference-board composition"
             )
 
-        cells = _reference_board_cells(len(references), width, height)
+        cells = _character_aware_reference_cells(
+            expected_ids, character_bindings, width, height
+        )
         board = Image.new("RGB", (width, height), (127, 127, 127))
 
         for index, source in enumerate(references):
@@ -290,6 +342,8 @@ class ProductionReferenceBoardAdapter:
             "adapter_version": PRODUCTION_REFERENCE_BOARD_ADAPTER_VERSION,
             "maximum_references": PRODUCTION_REFERENCE_BOARD_MAXIMUM_REFERENCES,
             "composition": "deterministic_contain_fit_reference_board",
+            "layout_policy": "equal_character_area_then_reference_area",
+            "prevents_reference_count_area_bias": True,
             "requires_unique_reference_ids": True,
             "attests_character_reference_ownership": True,
         }
