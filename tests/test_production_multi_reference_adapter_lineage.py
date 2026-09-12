@@ -7,7 +7,7 @@ from cineos.atlas.production_multi_reference import (
 )
 
 
-def _request(reference_ids, characters):
+def _request(reference_ids, characters, *, refresh_hash=True):
     request = NativeShotRequest(
         shot_id="shot-lineage",
         scene_id="scene-lineage",
@@ -22,7 +22,8 @@ def _request(reference_ids, characters):
         deterministic_seed=17,
         renderer_requirements={},
     )
-    request.refresh_hash()
+    if refresh_hash:
+        request.refresh_hash()
     return request
 
 
@@ -68,6 +69,7 @@ def test_adapter_rejects_reference_escaping_shot_approval_before_composition():
                 "approved_reference_ids": ["bob-ref"],
             },
         ),
+        refresh_hash=False,
     )
 
     with pytest.raises(ProductionMultiReferenceError, match="not approved by the shot"):
@@ -88,6 +90,7 @@ def test_adapter_rejects_ambiguous_character_reference_owner_before_composition(
                 "approved_reference_ids": ["shared-ref", "bob-ref"],
             },
         ),
+        refresh_hash=False,
     )
 
     with pytest.raises(ProductionMultiReferenceError, match="ambiguously assigned"):
