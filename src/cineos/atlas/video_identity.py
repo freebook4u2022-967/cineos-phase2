@@ -67,6 +67,12 @@ def _lower_tail_score(values: Sequence[float], quantile: float) -> float:
     return ordered[index]
 
 
+def _temporal_bin(frame_index: int, frame_count: int, bin_count: int) -> int:
+    """Map a sampled frame index into an evenly spaced temporal evidence bin."""
+
+    return min(bin_count - 1, (frame_index * bin_count) // frame_count)
+
+
 @dataclass(slots=True)
 class EmbeddingBankVideoIdentitySource:
     """Measure rendered identity against approved multi-reference character anchors.
@@ -76,11 +82,13 @@ class EmbeddingBankVideoIdentitySource:
     otherwise strong frames. The shot score is the weakest character score, preventing
     a stable lead actor from masking drift in another visible character.
 
-    Identity evidence must also cover a meaningful fraction of sampled frames. This
-    prevents a long shot from passing on only a few clean detections while the character
-    disappears, becomes untrackable, or collapses for most of the shot. Integrations
-    that intentionally preserve the legacy absolute-count-only contract can set
-    ``minimum_observation_fraction`` to ``0.0`` explicitly.
+    Identity evidence must also cover a meaningful fraction of sampled frames and be
+    distributed across the shot timeline. This prevents a long shot from passing on a
+    cluster of clean detections near only the beginning or end while the character
+    disappears, becomes untrackable, or collapses elsewhere. Integrations that
+    intentionally preserve the legacy absolute-count-only contract can set
+    ``minimum_observation_fraction`` to ``0.0`` explicitly; that also disables temporal
+    distribution enforcement.
 
     For multi-character shots, every semantic observation must also discriminate its
     assigned identity from the other conditioned cast identities. An embedding that is
@@ -95,6 +103,7 @@ class EmbeddingBankVideoIdentitySource:
     lower_tail_quantile: float = 0.20
     minimum_cross_character_margin: float = 0.05
     minimum_observation_fraction: float = 0.40
+    minimum_temporal_bins: int = 3
 
     def __post_init__(self) -> None:
         if not isinstance(self.identity_bank, CharacterIdentityEmbeddingBank):
@@ -109,6 +118,12 @@ class EmbeddingBankVideoIdentitySource:
             raise ValueError("minimum_cross_character_margin must be between 0 and 2")
         if not 0.0 <= self.minimum_observation_fraction <= 1.0:
             raise ValueError("minimum_observation_fraction must be between 0 and 1")
+        if not isinstance(self.minimum_temporal_bins, int) or isinstance(
+            self.minimum_temporal_bins, bool
+        ):
+            raise TypeError("minimum_temporal_bins must be an integer")
+        if self.minimum_temporal_bins <= 0:
+            raise ValueError("minimum_temporal_bins must be positive")
 
     def __call__(
         self,
@@ -137,9 +152,12 @@ class EmbeddingBankVideoIdentitySource:
             self.minimum_observations_per_character,
             math.ceil(len(frames) * self.minimum_observation_fraction),
         )
+        required_temporal_bins = min(len(frames), self.minimum_temporal_bins)
+        enforce_temporal_distribution = self.minimum_observation_fraction > 0.0
         scores_by_character: dict[str, list[float]] = {}
         for character_id in character_ids:
             observations: list[float] = []
+            observed_temporal_bins: set[int] = set()
             for frame_index, frame in enumerate(frames):
                 vector = self.frame_encoder(
                     frame,
@@ -172,12 +190,26 @@ class EmbeddingBankVideoIdentitySource:
                 ):
                     score = 0.0
                 observations.append(score)
+                if enforce_temporal_distribution:
+                    observed_temporal_bins.add(
+                        _temporal_bin(
+                            frame_index,
+                            len(frames),
+                            required_temporal_bins,
+                        )
+                    )
 
             if len(observations) < required_observations:
                 raise VideoIdentityMetricError(
                     f"character {character_id!r} produced {len(observations)} semantic "
                     "identity observations; "
                     f"{required_observations} required across {len(frames)} sampled frames"
+                )
+            if enforce_temporal_distribution and len(observed_temporal_bins) < required_temporal_bins:
+                raise VideoIdentityMetricError(
+                    f"character {character_id!r} identity observations covered "
+                    f"{len(observed_temporal_bins)} of {required_temporal_bins} required "
+                    "temporal bins"
                 )
             scores_by_character[character_id] = observations
 
