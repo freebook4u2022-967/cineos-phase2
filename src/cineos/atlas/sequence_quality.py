@@ -2,14 +2,14 @@
 
 This module does not claim that an external foundation model is CINEOS-native.
 It owns the benchmark decision around generated artifacts so that identity,
-temporal, artifact, and motion evidence are evaluated consistently before the
-existing reject/rerender loop accepts a shot into a film sequence.
+temporal, artifact, motion, and difficult-case evidence are evaluated consistently
+before the existing reject/rerender loop accepts a shot into a film sequence.
 """
 
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +22,19 @@ CORE_METRICS = (
 )
 PRODUCTION_MEASUREMENT_SCHEMA = "cineos-sequence-quality-measurement/0.1"
 
+# These difficult cases have dedicated semantic measurements in the production
+# scorer. A competitive shot claiming one of them must provide and pass the
+# corresponding metric; a high core average cannot compensate for a failed hand,
+# object-interaction, or lip-sync result.
+CHALLENGE_METRIC_REQUIREMENTS = {
+    "hands_anatomy": "anatomy_quality",
+    "object_interaction": "object_interaction_quality",
+    "dialogue_lip_sync": "dialogue_lip_sync",
+    # The newer Seedance-style naming is accepted as an alias at the quality boundary.
+    "dialogue": "dialogue_lip_sync",
+}
+_CHALLENGE_METADATA_KEYS = ("competitive_challenges", "benchmark_challenges")
+
 
 @dataclass(frozen=True, slots=True)
 class SequenceQualityPolicy:
@@ -32,6 +45,9 @@ class SequenceQualityPolicy:
     artifact_floor: float = 0.90
     motion_floor: float = 0.72
     overall_floor: float = 0.80
+    anatomy_floor: float = 0.78
+    object_interaction_floor: float = 0.76
+    dialogue_lip_sync_floor: float = 0.74
 
     def __post_init__(self) -> None:
         values = {
@@ -40,6 +56,9 @@ class SequenceQualityPolicy:
             "artifact_floor": self.artifact_floor,
             "motion_floor": self.motion_floor,
             "overall_floor": self.overall_floor,
+            "anatomy_floor": self.anatomy_floor,
+            "object_interaction_floor": self.object_interaction_floor,
+            "dialogue_lip_sync_floor": self.dialogue_lip_sync_floor,
         }
         for name, value in values.items():
             if not 0.0 <= value <= 1.0:
@@ -47,12 +66,15 @@ class SequenceQualityPolicy:
 
     def snapshot(self) -> dict[str, float | str]:
         return {
-            "schema": "cineos-sequence-quality-policy/0.1",
+            "schema": "cineos-sequence-quality-policy/0.2",
             "identity_floor": self.identity_floor,
             "temporal_floor": self.temporal_floor,
             "artifact_floor": self.artifact_floor,
             "motion_floor": self.motion_floor,
             "overall_floor": self.overall_floor,
+            "anatomy_floor": self.anatomy_floor,
+            "object_interaction_floor": self.object_interaction_floor,
+            "dialogue_lip_sync_floor": self.dialogue_lip_sync_floor,
         }
 
 
@@ -80,6 +102,40 @@ def _validated_metrics(report: Mapping[str, Any]) -> dict[str, float]:
     return metrics
 
 
+def _shot_challenge_tags(shot: Any) -> frozenset[str]:
+    """Return normalized difficult-case declarations without trusting malformed metadata."""
+
+    metadata = getattr(shot, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return frozenset()
+
+    tags: set[str] = set()
+    for key in _CHALLENGE_METADATA_KEYS:
+        raw = metadata.get(key)
+        if raw is None:
+            continue
+        if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+            raise SequenceQualityError(
+                f"shot quality challenge metadata {key!r} must be a sequence"
+            )
+        for value in raw:
+            if not isinstance(value, str) or not value.strip():
+                raise SequenceQualityError(
+                    f"shot quality challenge metadata {key!r} contains an invalid tag"
+                )
+            tags.add(value.strip())
+    return frozenset(tags)
+
+
+def _required_challenge_metrics(shot: Any) -> dict[str, str]:
+    tags = _shot_challenge_tags(shot)
+    return {
+        metric_name: challenge
+        for challenge, metric_name in CHALLENGE_METRIC_REQUIREMENTS.items()
+        if challenge in tags
+    }
+
+
 def _overall_score(metrics: Mapping[str, float]) -> float:
     """Weight identity/temporal evidence above secondary aesthetic metrics."""
 
@@ -102,8 +158,22 @@ def _overall_score(metrics: Mapping[str, float]) -> float:
 
 
 def _quality_report(
-    metrics: Mapping[str, float], policy: SequenceQualityPolicy
+    metrics: Mapping[str, float],
+    policy: SequenceQualityPolicy,
+    *,
+    required_challenge_metrics: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    required = dict(required_challenge_metrics or {})
+    missing_required = sorted(metric for metric in required if metric not in metrics)
+    if missing_required:
+        details = ", ".join(
+            f"{metric} ({required[metric]})" for metric in missing_required
+        )
+        raise SequenceQualityError(
+            "competitive difficult-case quality evidence missing required metric(s): "
+            + details
+        )
+
     overall = _overall_score(metrics)
     failures: list[str] = []
     directives: list[str] = []
@@ -118,8 +188,22 @@ def _quality_report(
         "temporal_consistency": "reduce cross-frame and cross-shot temporal drift",
         "artifact_integrity": "remove corruption, malformed frames, and export artifacts",
         "motion_quality": "stabilize physically plausible subject and camera motion",
+        "anatomy_quality": "repair hand, finger, limb, and body anatomy before acceptance",
+        "object_interaction_quality": "repair contact, grip, occlusion, and object interaction fidelity",
+        "dialogue_lip_sync": "improve measured mouth-to-dialogue synchronization",
     }
     for name, threshold in thresholds.items():
+        if metrics[name] < threshold:
+            failures.append(name)
+            directives.append(directive_by_metric[name])
+
+    challenge_thresholds = {
+        "anatomy_quality": policy.anatomy_floor,
+        "object_interaction_quality": policy.object_interaction_floor,
+        "dialogue_lip_sync": policy.dialogue_lip_sync_floor,
+    }
+    for name in required:
+        threshold = challenge_thresholds[name]
         if metrics[name] < threshold:
             failures.append(name)
             directives.append(directive_by_metric[name])
@@ -132,13 +216,14 @@ def _quality_report(
 
     accepted = not failures
     return {
-        "schema": "cineos-sequence-quality-report/0.1",
+        "schema": "cineos-sequence-quality-report/0.2",
         "accepted": accepted,
         "decision": "accept" if accepted else "reject",
         "score": overall,
         "metrics": dict(metrics),
         "failed_metrics": failures,
         "directives": directives,
+        "required_challenge_metrics": dict(required),
         "policy": policy.snapshot(),
     }
 
@@ -176,14 +261,7 @@ def _validated_semantic_scorer_provenance(
 
 
 class CineosSequenceQualityEvaluator:
-    """Callable bridge from measured shot metrics to the rerender loop.
-
-    ``metric_extractor`` must inspect the rendered artifact and return normalized
-    metrics in [0, 1]. Core metrics are mandatory so a missing observer cannot
-    silently turn into an acceptance. This generic evaluator is intentionally
-    suitable for deterministic tests as well as research experiments; production
-    milestone evidence should use :class:`ArtifactMeasuredSequenceQualityEvaluator`.
-    """
+    """Callable bridge from measured shot metrics to the rerender loop."""
 
     def __init__(
         self, metric_extractor: Any, policy: SequenceQualityPolicy | None = None
@@ -208,25 +286,15 @@ class CineosSequenceQualityEvaluator:
         if not isinstance(raw, Mapping):
             raise SequenceQualityError("quality metric extractor must return a mapping")
         metrics = _validated_metrics(raw)
-        return _quality_report(metrics, self.policy)
+        return _quality_report(
+            metrics,
+            self.policy,
+            required_challenge_metrics=_required_challenge_metrics(shot),
+        )
 
 
 class ArtifactMeasuredSequenceQualityEvaluator:
-    """Production evaluator requiring attested metrics bound to the rendered video.
-
-    A production metric extractor must explicitly attest that it is a real
-    artifact-measurement observer, expose a stable ``observer_id``, inspect the
-    actual rendered artifact, and return a structured measurement envelope bound
-    to the SHA-256 of that artifact. Merely wrapping a synthetic lambda that knows
-    the artifact hash is not sufficient for production milestone evidence.
-
-    The per-call measurement must repeat the production-evidence attestation.
-    This prevents a dynamically downgraded or partially initialized observer from
-    being promoted merely because its Python object advertised production support
-    at construction time. Learned semantic-scorer provenance, when supplied by the
-    observer, is validated and retained in the final report for model/revision
-    auditability.
-    """
+    """Production evaluator requiring attested metrics bound to the rendered video."""
 
     production_measurement_evidence = True
 
@@ -301,7 +369,11 @@ class ArtifactMeasuredSequenceQualityEvaluator:
             )
         semantic_scorer = _validated_semantic_scorer_provenance(raw)
         metrics = _validated_metrics(raw_metrics)
-        report = _quality_report(metrics, self.policy)
+        report = _quality_report(
+            metrics,
+            self.policy,
+            required_challenge_metrics=_required_challenge_metrics(shot),
+        )
         report["production_measurement_evidence"] = True
         measurement: dict[str, Any] = {
             "schema": PRODUCTION_MEASUREMENT_SCHEMA,
@@ -317,6 +389,7 @@ class ArtifactMeasuredSequenceQualityEvaluator:
 
 
 __all__ = [
+    "CHALLENGE_METRIC_REQUIREMENTS",
     "CORE_METRICS",
     "PRODUCTION_MEASUREMENT_SCHEMA",
     "ArtifactMeasuredSequenceQualityEvaluator",
