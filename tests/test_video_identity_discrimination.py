@@ -6,7 +6,6 @@ from cineos.atlas.video_identity import EmbeddingBankVideoIdentitySource
 from cineos.native_image.identity_bank import CharacterIdentityEmbeddingBank
 from cineos.native_image.neural_decoder import DecodedRGBFrame
 
-
 _FRAME = DecodedRGBFrame(width=1, height=1, rgb=b"\x00\x00\x00")
 _FRAMES = (_FRAME, _FRAME, _FRAME)
 
@@ -58,10 +57,7 @@ def test_multi_character_identity_collapse_is_rejected():
 
 
 def test_multi_character_identity_swap_is_rejected():
-    assert (
-        _score({"alice": (0.0, 1.0), "bob": (1.0, 0.0)}, "alice", "bob")
-        == 0.0
-    )
+    assert _score({"alice": (0.0, 1.0), "bob": (1.0, 0.0)}, "alice", "bob") == 0.0
 
 
 def test_near_ambiguous_identity_respects_configured_margin():

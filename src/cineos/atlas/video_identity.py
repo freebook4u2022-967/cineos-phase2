@@ -99,9 +99,7 @@ class EmbeddingBankVideoIdentitySource:
         if not 0.0 <= self.lower_tail_quantile <= 1.0:
             raise ValueError("lower_tail_quantile must be between 0 and 1")
         if not 0.0 <= self.minimum_cross_character_margin <= 2.0:
-            raise ValueError(
-                "minimum_cross_character_margin must be between 0 and 2"
-            )
+            raise ValueError("minimum_cross_character_margin must be between 0 and 2")
 
     def __call__(
         self,
