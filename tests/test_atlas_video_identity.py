@@ -92,9 +92,7 @@ def test_multi_character_score_rejects_observation_closer_to_other_cast_identity
     )
 
     assert bank.similarity("partner", (0.8, 0.2)) > 0.0
-    assert bank.similarity("lead", (0.8, 0.2)) > bank.similarity(
-        "partner", (0.8, 0.2)
-    )
+    assert bank.similarity("lead", (0.8, 0.2)) > bank.similarity("partner", (0.8, 0.2))
     assert score == 0.0
 
 
