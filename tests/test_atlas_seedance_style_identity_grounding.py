@@ -17,6 +17,7 @@ def _request(index: int, *, persistent_characters: bool) -> NativeShotRequest:
             {"character_id": f"lead-{index}"},
             {"character_id": f"partner-{index}"},
         ]
+    speaker_id = characters[0]["character_id"]
     request = NativeShotRequest(
         shot_id=f"shot-{index}",
         scene_id="scene-seedance-identity",
@@ -26,7 +27,15 @@ def _request(index: int, *, persistent_characters: bool) -> NativeShotRequest:
         wardrobe=[],
         props=[{"prop_id": "case"}],
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
-        performance={},
+        performance={
+            "dialogue_timing": [
+                {
+                    "speaker_id": speaker_id,
+                    "start_seconds": 0.25,
+                    "end_seconds": 1.25,
+                }
+            ]
+        },
         approved_reference_ids=["lead-ref", "partner-ref"],
         deterministic_seed=9100 + index,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
