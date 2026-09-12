@@ -34,17 +34,26 @@ def _request(index: int, challenges: list[str]) -> NativeShotRequest:
             }
         ]
 
+    characters = [{"character_id": "lead"}]
+    approved_reference_ids = ["lead-approved-reference"]
+    props = []
+    if "multi_character_interaction" in challenges:
+        characters.append({"character_id": "support"})
+        approved_reference_ids.append("support-approved-reference")
+    if "object_interaction" in challenges:
+        props.append({"prop_id": "parcel", "description": "sealed parcel"})
+
     request = NativeShotRequest(
         shot_id=f"shot-{index}",
         scene_id="scene-competitive",
         camera={"movement": "tracking"},
-        characters=[{"character_id": "lead"}],
+        characters=characters,
         environment={"location": "street"},
         wardrobe=[],
-        props=[],
+        props=props,
         continuity={"previous_shot": None if index == 0 else f"shot-{index - 1}"},
         performance=performance,
-        approved_reference_ids=["lead-approved-reference"],
+        approved_reference_ids=approved_reference_ids,
         deterministic_seed=7000 + index,
         renderer_requirements={"fps": 24.0, "duration_seconds": 2.0},
         metadata={"benchmark_challenges": challenges},
@@ -148,6 +157,53 @@ def test_challenge_plan_rejects_unknown_self_declared_case():
         validate_challenge_coverage(requests)
 
 
+def test_multi_character_challenge_requires_two_conditioned_identities_before_gpu(tmp_path):
+    requests = _complete_requests()
+    requests[1].characters = [{"character_id": "lead"}]
+    requests[1].approved_reference_ids = ["lead-approved-reference"]
+    requests[1].refresh_hash()
+    calls = []
+
+    def executor(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("structurally invalid challenge must fail before GPU")
+
+    with pytest.raises(
+        SeedanceStyleChallengeError, match="fewer than two distinct conditioned"
+    ):
+        run_seedance_style_gpu_benchmark(
+            "single-character-interaction",
+            requests,
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            shot_executor=executor,
+        )
+
+    assert calls == []
+
+
+def test_object_interaction_challenge_requires_declared_prop_before_gpu(tmp_path):
+    requests = _complete_requests()
+    requests[1].props = []
+    requests[1].refresh_hash()
+    calls = []
+
+    def executor(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("structurally invalid challenge must fail before GPU")
+
+    with pytest.raises(SeedanceStyleChallengeError, match="has no declared props"):
+        run_seedance_style_gpu_benchmark(
+            "object-interaction-without-prop",
+            requests,
+            WAN22_TI2V_5B_PROFILE,
+            output_dir=tmp_path,
+            shot_executor=executor,
+        )
+
+    assert calls == []
+
+
 def test_successful_challenge_run_binds_coverage_contract_to_receipt_and_manifest(
     tmp_path,
 ):
@@ -174,7 +230,7 @@ def test_successful_challenge_run_binds_coverage_contract_to_receipt_and_manifes
     payload = json.loads(Path(receipt.manifest_path).read_text(encoding="utf-8"))
     contract = payload["competitive_challenge_contract"]
     assert contract == serialized_contract
-    assert contract["schema"] == "cineos-seedance-style-challenge-coverage/0.1"
+    assert contract["schema"] == "cineos-seedance-style-challenge-coverage/0.2"
     assert contract["complete"] is True
     assert contract["missing"] == []
     assert len(contract["contract_sha256"]) == 64

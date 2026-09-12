@@ -72,6 +72,82 @@ def _normalized_challenges(request: NativeShotRequest) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _conditioned_character_ids(request: NativeShotRequest) -> tuple[str, ...]:
+    """Return distinct conditioned cast identities without inventing identity aliases."""
+
+    identities: list[str] = []
+    seen: set[str] = set()
+    for index, character in enumerate(request.characters):
+        if not isinstance(character, Mapping):
+            raise SeedanceStyleChallengeError(
+                f"shot {request.scene_id}/{request.shot_id} characters[{index}] must be a mapping"
+            )
+        canonical = character.get("character_uuid")
+        legacy = character.get("character_id")
+        if canonical is not None and (
+            not isinstance(canonical, str) or not canonical.strip()
+        ):
+            raise SeedanceStyleChallengeError(
+                f"shot {request.scene_id}/{request.shot_id} characters[{index}].character_uuid "
+                "must be non-empty when supplied"
+            )
+        if legacy is not None and (not isinstance(legacy, str) or not legacy.strip()):
+            raise SeedanceStyleChallengeError(
+                f"shot {request.scene_id}/{request.shot_id} characters[{index}].character_id "
+                "must be non-empty when supplied"
+            )
+        if canonical is not None and legacy is not None:
+            if canonical.strip() != legacy.strip():
+                raise SeedanceStyleChallengeError(
+                    f"shot {request.scene_id}/{request.shot_id} characters[{index}] has "
+                    "conflicting character_uuid/character_id"
+                )
+            identity = canonical.strip()
+        elif canonical is not None:
+            identity = canonical.strip()
+        elif legacy is not None:
+            identity = legacy.strip()
+        else:
+            continue
+        if identity not in seen:
+            identities.append(identity)
+            seen.add(identity)
+    return tuple(identities)
+
+
+def _validate_structural_challenge_grounding(
+    request: NativeShotRequest,
+    challenges: Sequence[str],
+) -> None:
+    """Reject challenge labels that contradict directly observable request structure.
+
+    This intentionally enforces only hard cases whose prerequisites are unambiguous
+    in the native request contract. It does not pretend that structural declarations
+    prove visual quality; artifact-bound GPU/QC evidence remains the quality authority.
+    """
+
+    challenge_set = set(challenges)
+    shot_key = f"{request.scene_id}/{request.shot_id}"
+    if "multi_character_interaction" in challenge_set:
+        character_ids = _conditioned_character_ids(request)
+        if len(character_ids) < 2:
+            raise SeedanceStyleChallengeError(
+                f"shot {shot_key} declares multi_character_interaction but has fewer "
+                "than two distinct conditioned character identities"
+            )
+    if "object_interaction" in challenge_set:
+        if not isinstance(request.props, list) or not request.props:
+            raise SeedanceStyleChallengeError(
+                f"shot {shot_key} declares object_interaction but has no declared props"
+            )
+        for index, prop in enumerate(request.props):
+            if not isinstance(prop, Mapping) or not prop:
+                raise SeedanceStyleChallengeError(
+                    f"shot {shot_key} props[{index}] must be a non-empty mapping for "
+                    "object_interaction"
+                )
+
+
 @dataclass(frozen=True, slots=True)
 class ChallengeCoverage:
     """Auditable declaration of which hard cases are exercised by which shots."""
@@ -92,7 +168,7 @@ class ChallengeCoverage:
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
-            "schema": "cineos-seedance-style-challenge-coverage/0.1",
+            "schema": "cineos-seedance-style-challenge-coverage/0.2",
             "required_challenges": list(REQUIRED_CHALLENGES),
             "complete": self.complete,
             "missing": list(self.missing),
@@ -142,7 +218,9 @@ def validate_challenge_coverage(
     }
     for request in requests:
         shot_key = f"{request.scene_id}/{request.shot_id}"
-        for challenge in _normalized_challenges(request):
+        challenges = _normalized_challenges(request)
+        _validate_structural_challenge_grounding(request, challenges)
+        for challenge in challenges:
             coverage[challenge].append(shot_key)
 
     frozen = ChallengeCoverage(
