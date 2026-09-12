@@ -108,6 +108,25 @@ class ChallengeCoverage:
         return payload
 
 
+@dataclass(frozen=True, slots=True)
+class ChallengeBoundGPUConnectedBenchmarkReceipt(GPUConnectedBenchmarkReceipt):
+    """Connected receipt whose serialized evidence includes benchmark hard-case scope.
+
+    This remains an instance of :class:`GPUConnectedBenchmarkReceipt` so existing
+    consumers keep their attribute/type contract. Only competitive benchmark paths
+    construct it; generic and legacy connected benchmarks remain unchanged.
+    """
+
+    competitive_challenge_contract: Mapping[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super(ChallengeBoundGPUConnectedBenchmarkReceipt, self).to_dict()
+        payload["competitive_challenge_contract"] = dict(
+            self.competitive_challenge_contract or {}
+        )
+        return payload
+
+
 def validate_challenge_coverage(
     requests: Sequence[NativeShotRequest],
 ) -> ChallengeCoverage:
@@ -139,10 +158,13 @@ def validate_challenge_coverage(
     return frozen
 
 
-def _bind_coverage_to_manifest(
+def bind_challenge_coverage(
     receipt: GPUConnectedBenchmarkReceipt,
     coverage: ChallengeCoverage,
-) -> None:
+) -> ChallengeBoundGPUConnectedBenchmarkReceipt:
+    """Bind declared difficult-case scope to both receipt serialization and manifest."""
+
+    contract = coverage.to_dict()
     manifest = Path(receipt.manifest_path)
     try:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
@@ -159,7 +181,20 @@ def _bind_coverage_to_manifest(
             "connected benchmark manifest chain hash does not match completed receipt"
         )
 
-    payload["competitive_challenge_contract"] = coverage.to_dict()
+    bound = ChallengeBoundGPUConnectedBenchmarkReceipt(
+        benchmark_id=receipt.benchmark_id,
+        profile_id=receipt.profile_id,
+        origin=receipt.origin,
+        shot_receipts=receipt.shot_receipts,
+        chain_sha256=receipt.chain_sha256,
+        total_output_bytes=receipt.total_output_bytes,
+        elapsed_seconds=receipt.elapsed_seconds,
+        manifest_path=receipt.manifest_path,
+        quality_reports=receipt.quality_reports,
+        dialogue_shot_ids=receipt.dialogue_shot_ids,
+        competitive_challenge_contract=contract,
+    )
+    payload["competitive_challenge_contract"] = contract
     temporary = manifest.with_suffix(manifest.suffix + ".challenge.tmp")
     try:
         temporary.write_text(
@@ -175,6 +210,7 @@ def _bind_coverage_to_manifest(
         raise SeedanceStyleChallengeError(
             f"cannot bind competitive challenge contract to benchmark manifest: {manifest}"
         ) from exc
+    return bound
 
 
 def run_seedance_style_gpu_benchmark(
@@ -198,15 +234,16 @@ def run_seedance_style_gpu_benchmark(
         profile,
         **kwargs,
     )
-    _bind_coverage_to_manifest(receipt, coverage)
-    return receipt
+    return bind_challenge_coverage(receipt, coverage)
 
 
 __all__ = [
     "CHALLENGE_METADATA_KEY",
     "REQUIRED_CHALLENGES",
+    "ChallengeBoundGPUConnectedBenchmarkReceipt",
     "ChallengeCoverage",
     "SeedanceStyleChallengeError",
+    "bind_challenge_coverage",
     "run_seedance_style_gpu_benchmark",
     "validate_challenge_coverage",
 ]
