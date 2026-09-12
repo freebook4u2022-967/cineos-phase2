@@ -148,7 +148,9 @@ def test_sparse_identity_observations_fail_even_when_absolute_minimum_is_met():
         minimum_observations_per_character=3,
     )
 
-    with pytest.raises(VideoIdentityMetricError, match="4 required across 10 sampled frames"):
+    with pytest.raises(
+        VideoIdentityMetricError, match="4 required across 10 sampled frames"
+    ):
         source(
             "candidate.mp4",
             shot=Shot(["lead"]),
@@ -171,12 +173,15 @@ def test_legacy_absolute_observation_contract_can_be_selected_explicitly():
         minimum_observation_fraction=0.0,
     )
 
-    assert source(
-        "candidate.mp4",
-        shot=Shot(["lead"]),
-        frames=_frames(10),
-        attempt_index=0,
-    ) > 0.99
+    assert (
+        source(
+            "candidate.mp4",
+            shot=Shot(["lead"]),
+            frames=_frames(10),
+            attempt_index=0,
+        )
+        > 0.99
+    )
 
 
 def test_invalid_minimum_observation_fraction_is_rejected():
