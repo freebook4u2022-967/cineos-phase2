@@ -6,12 +6,16 @@ import pytest
 
 from cineos.atlas.diffusers_video import DiffusersVideoResult
 from cineos.atlas.foundation_profiles import WAN22_TI2V_5B_PROFILE
-from cineos.atlas.gpu_connected_benchmark import GPUConnectedBenchmarkError
+from cineos.atlas.gpu_connected_benchmark import (
+    GPUConnectedBenchmarkError,
+    GPUConnectedBenchmarkReceipt,
+)
 from cineos.atlas.gpu_foundation_smoke import GPUFoundationExecutionReceipt
 from cineos.atlas.gpu_preflight import GPUExecutionPlan
 from cineos.atlas.native_request import NativeShotRequest
 from cineos.atlas.seedance_style_challenge import (
     REQUIRED_CHALLENGES,
+    ChallengeBoundGPUConnectedBenchmarkReceipt,
     SeedanceStyleChallengeError,
     run_seedance_style_gpu_benchmark,
     validate_challenge_coverage,
@@ -144,7 +148,9 @@ def test_challenge_plan_rejects_unknown_self_declared_case():
         validate_challenge_coverage(requests)
 
 
-def test_successful_challenge_run_binds_coverage_contract_to_gpu_manifest(tmp_path):
+def test_successful_challenge_run_binds_coverage_contract_to_receipt_and_manifest(
+    tmp_path,
+):
     requests = _complete_requests()
 
     def executor(request, profile, *, output_dir):
@@ -159,8 +165,15 @@ def test_successful_challenge_run_binds_coverage_contract_to_gpu_manifest(tmp_pa
         shot_executor=executor,
     )
 
+    assert isinstance(receipt, GPUConnectedBenchmarkReceipt)
+    assert isinstance(receipt, ChallengeBoundGPUConnectedBenchmarkReceipt)
+    serialized_contract = receipt.to_dict()["competitive_challenge_contract"]
+    assert serialized_contract["complete"] is True
+    assert serialized_contract["missing"] == []
+
     payload = json.loads(Path(receipt.manifest_path).read_text(encoding="utf-8"))
     contract = payload["competitive_challenge_contract"]
+    assert contract == serialized_contract
     assert contract["schema"] == "cineos-seedance-style-challenge-coverage/0.1"
     assert contract["complete"] is True
     assert contract["missing"] == []
