@@ -18,6 +18,15 @@ on:
         required: true
         type: boolean
         default: false
+      latentsync_repository_path:
+        description: Absolute path to pinned external LatentSync checkout on the GPU runner
+        required: true
+      latentsync_checkpoint_path:
+        description: Absolute path to approved LatentSync SyncNet checkpoint on the GPU runner
+        required: true
+      latentsync_checkpoint_sha256:
+        description: Approved lowercase SHA-256 for the SyncNet checkpoint bytes
+        required: true
 
 permissions:
   contents: read
@@ -218,6 +227,10 @@ jobs:
           from cineos.atlas.foundation_snapshot_integrity import (
               write_foundation_snapshot_manifest,
           )
+          from cineos.atlas.qwen25vl_semantic_judge import (
+              QWEN25VL_MODEL_ID,
+              QWEN25VL_MODEL_REVISION,
+          )
           from cineos.atlas.siglip2_video_scorer import (
               SIGLIP2_QC_MODEL_ID,
               SIGLIP2_QC_REVISION,
@@ -273,9 +286,23 @@ jobs:
                   f"expected={SIGLIP2_QC_REVISION} resolved={resolved_qc_revision}"
               )
 
+          qwen_snapshot_path = Path(
+              snapshot_download(
+                  repo_id=QWEN25VL_MODEL_ID,
+                  revision=QWEN25VL_MODEL_REVISION,
+              )
+          ).resolve()
+          resolved_qwen_revision = qwen_snapshot_path.name
+          if resolved_qwen_revision != QWEN25VL_MODEL_REVISION:
+              raise SystemExit(
+                  "Qwen2.5-VL specialist-QC snapshot resolved to unexpected revision: "
+                  f"expected={QWEN25VL_MODEL_REVISION} resolved={resolved_qwen_revision}"
+              )
+
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
               env_file.write(f"CINEOS_FOUNDATION_SNAPSHOT={snapshot_path}\n")
               env_file.write(f"CINEOS_FOUNDATION_INTEGRITY_MANIFEST={integrity_path}\n")
+              env_file.write(f"CINEOS_QWEN25VL_SNAPSHOT={qwen_snapshot_path}\n")
 
           print(f"foundation_profile_id={profile_id}")
           print(f"foundation_model_id={model_id}")
@@ -288,8 +315,26 @@ jobs:
           print(f"qc_model_id={SIGLIP2_QC_MODEL_ID}")
           print(f"qc_revision={SIGLIP2_QC_REVISION}")
           print(f"qc_snapshot={qc_snapshot_path}")
+          print(f"specialist_qc_model_id={QWEN25VL_MODEL_ID}")
+          print(f"specialist_qc_revision={QWEN25VL_MODEL_REVISION}")
+          print(f"specialist_qc_snapshot={qwen_snapshot_path}")
           PY
           test -s "${{ runner.temp }}/cineos-connected-production/foundation-snapshot-integrity.json"
+
+      - name: Fail closed on specialist semantic QC dependencies before inference
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/cineos-connected-production
+          LATENTSYNC_REPOSITORY_PATH: ${{ inputs.latentsync_repository_path }}
+          LATENTSYNC_CHECKPOINT_PATH: ${{ inputs.latentsync_checkpoint_path }}
+          LATENTSYNC_CHECKPOINT_SHA256: ${{ inputs.latentsync_checkpoint_sha256 }}
+        run: |
+          python -m cineos.atlas.production_semantic_qc_dependency_gate \
+            --qwen-snapshot "$CINEOS_QWEN25VL_SNAPSHOT" \
+            --latentsync-repository "$LATENTSYNC_REPOSITORY_PATH" \
+            --latentsync-checkpoint "$LATENTSYNC_CHECKPOINT_PATH" \
+            --latentsync-checkpoint-sha256 "$LATENTSYNC_CHECKPOINT_SHA256" \
+            | tee "$OUTPUT_DIR/production-semantic-qc-dependency-readiness.json"
+          test -s "$OUTPUT_DIR/production-semantic-qc-dependency-readiness.json"
 
       - name: Verify acquired foundation bytes immediately before inference
         run: |
