@@ -80,9 +80,10 @@ def test_seedance_stack_has_disjoint_visual_and_av_metric_ownership(
     assert components["qwen25vl_visual_difficult_cases"]["scorer"]["origin"] == (
         "external_pretrained"
     )
-    assert components["qwen25vl_visual_difficult_cases"]["scorer"][
-        "runtime_source"
-    ] == ("pinned_huggingface_snapshot")
+    assert (
+        components["qwen25vl_visual_difficult_cases"]["scorer"]["runtime_source"]
+        == "pinned_huggingface_snapshot"
+    )
     assert components["latentsync_syncnet_av"]["scorer"]["origin"] == (
         "external_pretrained"
     )
