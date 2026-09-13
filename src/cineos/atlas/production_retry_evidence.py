@@ -35,6 +35,54 @@ def _sha256(value: Any, *, field: str) -> str:
     return digest
 
 
+def _validate_attempt_measurement_binding(
+    attempt: Mapping[str, Any],
+    *,
+    output_hash: str,
+    shot_id: str,
+    attempt_index: int,
+) -> None:
+    """Bind production QC evidence to the exact candidate rendered on this attempt.
+
+    A production rerender chain must not be able to carry a quality decision measured
+    on an earlier candidate into a later attempt. The artifact-measured evaluator
+    already verifies this while it runs; this second check makes the persisted retry
+    manifest independently fail closed if measurement evidence is stale, missing, or
+    substituted after a reject/rerender cycle.
+    """
+
+    if attempt.get("production_measurement_evidence") is not True:
+        raise ProductionRetryEvidenceError(
+            f"{shot_id} attempt {attempt_index} lacks production measurement evidence"
+        )
+    measurement = attempt.get("measurement")
+    if not isinstance(measurement, Mapping):
+        raise ProductionRetryEvidenceError(
+            f"{shot_id} attempt {attempt_index} production measurement is missing"
+        )
+    if measurement.get("schema") != "cineos-sequence-quality-measurement/0.1":
+        raise ProductionRetryEvidenceError(
+            f"{shot_id} attempt {attempt_index} production measurement schema is unsupported"
+        )
+    if measurement.get("observer_attested") is not True:
+        raise ProductionRetryEvidenceError(
+            f"{shot_id} attempt {attempt_index} observer attestation is missing"
+        )
+    if measurement.get("measurement_attested") is not True:
+        raise ProductionRetryEvidenceError(
+            f"{shot_id} attempt {attempt_index} measurement attestation is missing"
+        )
+    measured_hash = _sha256(
+        measurement.get("artifact_sha256"),
+        field=f"{shot_id} attempt {attempt_index} measurement artifact_sha256",
+    )
+    if measured_hash != output_hash:
+        raise ProductionRetryEvidenceError(
+            f"{shot_id} attempt {attempt_index} production measurement artifact does not "
+            "match the retry candidate"
+        )
+
+
 def _transition_attempt_index(
     transition: Mapping[str, Any],
     *,
@@ -232,6 +280,25 @@ def validate_production_quality_retry_gate(
                     f"{shot_id} first attempt does not use original request hash"
                 )
             normalized_attempts.append((attempt, request_hash, output_hash))
+
+        # Backwards-compatible generic retry runs need not pretend to be production
+        # measurements. Once the accepted attempt attests production evidence,
+        # however, every candidate that influenced the reject/rerender chain must be
+        # independently artifact-bound; a mixed production/non-production lineage is
+        # not valid production evidence.
+        production_measurement_lineage = (
+            attempts[-1].get("production_measurement_evidence") is True
+        )
+        if production_measurement_lineage:
+            for index, (attempt, _request_hash, output_hash) in enumerate(
+                normalized_attempts
+            ):
+                _validate_attempt_measurement_binding(
+                    attempt,
+                    output_hash=output_hash,
+                    shot_id=shot_id,
+                    attempt_index=index,
+                )
 
         transition_attempts = shot.get("transition_attempts", [])
         if not isinstance(transition_attempts, list):
