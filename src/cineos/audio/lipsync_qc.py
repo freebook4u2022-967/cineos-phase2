@@ -239,7 +239,9 @@ def validate_lipsync_quality_evidence(
                 "lip-sync analyzer origin does not match pinned provenance"
             )
         if analyzer_id != pinned.analyzer_id:
-            raise LipSyncQCError("lip-sync analyzer ID does not match pinned provenance")
+            raise LipSyncQCError(
+                "lip-sync analyzer ID does not match pinned provenance"
+            )
         if revision != pinned.analyzer_revision:
             raise LipSyncQCError(
                 "lip-sync analyzer revision does not match pinned provenance"
