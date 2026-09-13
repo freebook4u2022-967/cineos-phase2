@@ -51,12 +51,16 @@ def test_specialist_metric_must_be_attested_by_component_provenance():
         [_Specialist(["anatomy_quality"], {"object_interaction_quality": 0.7})],
     )
 
-    with pytest.raises(CompositeSemanticScorerError, match="not attested by provenance"):
+    with pytest.raises(
+        CompositeSemanticScorerError, match="not attested by provenance"
+    ):
         _score(composite)
 
 
 def test_specialist_metric_ownership_must_be_unique_before_inference():
-    with pytest.raises(CompositeSemanticScorerError, match="duplicates metric ownership"):
+    with pytest.raises(
+        CompositeSemanticScorerError, match="duplicates metric ownership"
+    ):
         CompositeSemanticVideoScorer(
             _Primary(),
             [
@@ -67,7 +71,9 @@ def test_specialist_metric_ownership_must_be_unique_before_inference():
 
 
 def test_specialist_must_declare_nonempty_metric_ownership():
-    with pytest.raises(CompositeSemanticScorerError, match="non-empty measured_metrics"):
+    with pytest.raises(
+        CompositeSemanticScorerError, match="non-empty measured_metrics"
+    ):
         CompositeSemanticVideoScorer(_Primary(), [_Specialist([], {})])
 
 

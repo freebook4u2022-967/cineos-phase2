@@ -239,9 +239,7 @@ class CompositeSemanticVideoScorer:
                     f"specialist[{index}] cannot replace core/observer metric(s): "
                     + ", ".join(forbidden)
                 )
-            undeclared = sorted(
-                set(metrics) - self._specialist_metric_ownership[index]
-            )
+            undeclared = sorted(set(metrics) - self._specialist_metric_ownership[index])
             if undeclared:
                 raise CompositeSemanticScorerError(
                     f"specialist[{index}] emitted metric(s) not attested by provenance: "
