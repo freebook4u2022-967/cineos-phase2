@@ -36,7 +36,6 @@ QWEN25VL_METRICS = (
     "physics_plausibility",
 )
 _PROMPT_SCHEMA_VERSION = "cineos-qwen25vl-difficult-case-rubric/0.1"
-_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
 
 class Qwen25VLSemanticJudgeError(RuntimeError):
@@ -93,16 +92,12 @@ Do not return prose, markdown, explanations, confidence fields, or extra keys.
 def _parse_metrics(raw: str) -> dict[str, float]:
     if not isinstance(raw, str) or not raw.strip():
         raise Qwen25VLSemanticJudgeError("Qwen2.5-VL returned empty semantic evidence")
-    match = _JSON_OBJECT.search(raw.strip())
-    if match is None:
-        raise Qwen25VLSemanticJudgeError(
-            "Qwen2.5-VL response did not contain a JSON object"
-        )
+    candidate = raw.strip()
     try:
-        payload = json.loads(match.group(0))
+        payload = json.loads(candidate)
     except json.JSONDecodeError as exc:
         raise Qwen25VLSemanticJudgeError(
-            "Qwen2.5-VL semantic JSON was malformed"
+            "Qwen2.5-VL response must be exactly one JSON object with no surrounding prose or markdown"
         ) from exc
     if not isinstance(payload, dict):
         raise Qwen25VLSemanticJudgeError("Qwen2.5-VL semantic result must be an object")
