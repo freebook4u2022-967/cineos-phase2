@@ -1,8 +1,8 @@
 """Compose independent production semantic scorers without relabelling ownership.
 
 Identity/motion and difficult-case measurements intentionally come from separate
-model families.  This bridge lets the artifact observer consume one scorer while
-preserving each component's provenance and rejecting metric collisions.  External
+model families. This bridge lets the artifact observer consume one scorer while
+preserving each component's provenance and rejecting metric collisions. External
 pretrained components remain external; composition is CINEOS-owned orchestration,
 not a claim that their weights are CINEOS-native.
 """
@@ -15,7 +15,7 @@ from typing import Any
 
 from .artifact_video_observer import RGBVideoSample
 
-COMPOSITE_SEMANTIC_SCORER_SCHEMA = "cineos-composite-semantic-scorer/0.1"
+COMPOSITE_SEMANTIC_SCORER_SCHEMA = "cineos-composite-semantic-scorer/0.2"
 _PRIMARY_METRICS = frozenset({"identity_similarity", "motion_quality"})
 _OBSERVER_METRICS = frozenset({"artifact_integrity", "temporal_consistency"})
 
@@ -53,6 +53,42 @@ def _component_provenance(component: Any, *, role: str) -> dict[str, Any]:
     return provenance
 
 
+def _declared_specialist_metrics(
+    provenance: Mapping[str, Any], *, role: str
+) -> frozenset[str]:
+    """Return the exact semantic metric ownership attested by a specialist.
+
+    Production specialists are not allowed to rely on orchestration inference for
+    ownership. Their provenance must explicitly name every metric they can emit so
+    later score evidence cannot be relabelled independently of the model/runtime
+    attestation that produced it.
+    """
+
+    raw = provenance.get("measured_metrics")
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise CompositeSemanticScorerError(
+            f"{role} provenance requires a non-empty measured_metrics sequence"
+        )
+    metrics: list[str] = []
+    for name in raw:
+        if not isinstance(name, str) or not name.strip() or name != name.strip():
+            raise CompositeSemanticScorerError(
+                f"{role} provenance contains an invalid measured metric name"
+            )
+        metrics.append(name)
+    if len(set(metrics)) != len(metrics):
+        raise CompositeSemanticScorerError(
+            f"{role} provenance contains duplicate measured metric ownership"
+        )
+    forbidden = sorted((_PRIMARY_METRICS | _OBSERVER_METRICS).intersection(metrics))
+    if forbidden:
+        raise CompositeSemanticScorerError(
+            f"{role} provenance cannot claim core/observer metric(s): "
+            + ", ".join(forbidden)
+        )
+    return frozenset(metrics)
+
+
 def _metric_mapping(raw: Any, *, role: str) -> dict[str, float]:
     if not isinstance(raw, Mapping):
         raise CompositeSemanticScorerError(
@@ -81,7 +117,8 @@ class CompositeSemanticVideoScorer:
     """Merge one primary identity/motion scorer with specialist semantic scorers.
 
     Every component must explicitly attest real production measurement evidence and
-    publish runtime provenance.  Specialist scorers may add difficult-case metrics,
+    publish runtime provenance. Specialist scorers must additionally declare exact
+    metric ownership in ``measured_metrics``. They may add difficult-case metrics,
     but cannot replace identity/motion or observer-owned transport metrics. Duplicate
     ownership fails closed so benchmark evidence always has one unambiguous source.
     """
@@ -112,6 +149,19 @@ class CompositeSemanticVideoScorer:
             _component_provenance(component, role=f"specialist[{index}]")
             for index, component in enumerate(self.specialists)
         )
+        self._specialist_metric_ownership = tuple(
+            _declared_specialist_metrics(provenance, role=f"specialist[{index}]")
+            for index, provenance in enumerate(self._specialist_provenance)
+        )
+        claimed: set[str] = set()
+        for index, owned in enumerate(self._specialist_metric_ownership):
+            duplicates = sorted(claimed.intersection(owned))
+            if duplicates:
+                raise CompositeSemanticScorerError(
+                    f"specialist[{index}] provenance duplicates metric ownership: "
+                    + ", ".join(duplicates)
+                )
+            claimed.update(owned)
 
     def runtime_provenance(self) -> dict[str, Any]:
         return {
@@ -120,7 +170,13 @@ class CompositeSemanticVideoScorer:
             "production_measurement_evidence": True,
             "ownership": {
                 "primary": sorted(_PRIMARY_METRICS),
-                "specialists": "additive_non_core_semantic_metrics",
+                "specialists": [
+                    {
+                        "role": f"specialist[{index}]",
+                        "measured_metrics": sorted(owned),
+                    }
+                    for index, owned in enumerate(self._specialist_metric_ownership)
+                ],
             },
             "components": [
                 {"role": "primary", "provenance": dict(self._primary_provenance)},
@@ -182,6 +238,14 @@ class CompositeSemanticVideoScorer:
                 raise CompositeSemanticScorerError(
                     f"specialist[{index}] cannot replace core/observer metric(s): "
                     + ", ".join(forbidden)
+                )
+            undeclared = sorted(
+                set(metrics) - self._specialist_metric_ownership[index]
+            )
+            if undeclared:
+                raise CompositeSemanticScorerError(
+                    f"specialist[{index}] emitted metric(s) not attested by provenance: "
+                    + ", ".join(undeclared)
                 )
             duplicates = sorted(set(merged).intersection(metrics))
             if duplicates:
