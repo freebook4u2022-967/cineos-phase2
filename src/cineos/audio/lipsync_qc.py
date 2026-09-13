@@ -239,9 +239,7 @@ def validate_lipsync_quality_evidence(
                 "lip-sync analyzer origin does not match pinned provenance"
             )
         if analyzer_id != pinned.analyzer_id:
-            raise LipSyncQCError(
-                "lip-sync analyzer ID does not match pinned provenance"
-            )
+            raise LipSyncQCError("lip-sync analyzer ID does not match pinned provenance")
         if revision != pinned.analyzer_revision:
             raise LipSyncQCError(
                 "lip-sync analyzer revision does not match pinned provenance"
@@ -359,6 +357,19 @@ class ExternalLipSyncAnalyzer:
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise LipSyncQCError("external lip-sync analyzer execution failed") from exc
+
+        # The analyzer is an external process and therefore must not be trusted to leave
+        # its inputs untouched. Re-hash after it exits so evidence cannot be attributed
+        # to bytes that were replaced or modified during measurement.
+        if _sha256_file(video) != video_sha:
+            raise LipSyncQCError(
+                "lip-sync video artifact changed during external analyzer execution"
+            )
+        if _sha256_file(audio) != audio_sha:
+            raise LipSyncQCError(
+                "lip-sync audio artifact changed during external analyzer execution"
+            )
+
         try:
             measured = json.loads(completed.stdout)
         except (json.JSONDecodeError, TypeError) as exc:
