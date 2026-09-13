@@ -7,6 +7,10 @@ from types import SimpleNamespace
 import pytest
 
 from cineos.atlas.artifact_video_observer import RGBVideoSample
+from cineos.atlas.composite_semantic_scorer import (
+    CompositeSemanticScorerError,
+    CompositeSemanticVideoScorer,
+)
 from cineos.atlas.qwen25vl_semantic_judge import (
     QWEN25VL_METRICS,
     QWEN25VL_MODEL_ID,
@@ -64,6 +68,21 @@ class _Model:
         return [[10, 11, 12, 13]]
 
 
+class _Primary:
+    semantic_measurement_evidence = True
+
+    def runtime_provenance(self):
+        return {
+            "schema": "test-primary/0.1",
+            "origin": "test_measured_runtime",
+            "production_measurement_evidence": True,
+        }
+
+    def __call__(self, sample, *, artifact, shot, attempt_index):
+        del sample, artifact, shot, attempt_index
+        return {"identity_similarity": 0.9, "motion_quality": 0.9}
+
+
 def _valid_payload(value: float = 0.81) -> dict[str, float]:
     return {name: value for name in QWEN25VL_METRICS}
 
@@ -98,15 +117,14 @@ def test_qwen25vl_judge_executes_injected_real_model_boundary() -> None:
     assert "dialogue_lip_sync" not in result
 
 
-def test_qwen25vl_provenance_is_external_pinned_and_explicit_about_limitations() -> (
-    None
-):
+def test_qwen25vl_injected_runtime_is_not_production_measurement_evidence() -> None:
     judge = Qwen25VLSemanticJudge(model=_Model(), processor=_Processor("{}"))
 
     provenance = judge.runtime_provenance()
 
     assert provenance["origin"] == "external_pretrained"
-    assert provenance["production_measurement_evidence"] is True
+    assert provenance["production_measurement_evidence"] is False
+    assert provenance["runtime_source"] == "injected_runtime"
     assert provenance["model_id"] == QWEN25VL_MODEL_ID
     assert provenance["model_revision"] == QWEN25VL_MODEL_REVISION
     assert len(provenance["model_revision"]) == 40
@@ -115,6 +133,37 @@ def test_qwen25vl_provenance_is_external_pinned_and_explicit_about_limitations()
         "does not measure audio-visual dialogue lip-sync" in provenance["limitations"]
     )
     assert set(provenance["measured_metrics"]) == set(QWEN25VL_METRICS)
+
+
+def test_qwen25vl_default_pinned_runtime_attests_production_evidence_without_loading() -> (
+    None
+):
+    judge = Qwen25VLSemanticJudge()
+
+    provenance = judge.runtime_provenance()
+
+    assert provenance["production_measurement_evidence"] is True
+    assert provenance["runtime_source"] == "pinned_huggingface_snapshot"
+    assert provenance["model_id"] == QWEN25VL_MODEL_ID
+    assert provenance["model_revision"] == QWEN25VL_MODEL_REVISION
+    assert provenance["sampling"]["mode"] == "independent_artifact_decode"
+
+
+def test_composite_rejects_injected_qwen_as_production_specialist() -> None:
+    judge = Qwen25VLSemanticJudge(model=_Model(), processor=_Processor("{}"))
+
+    with pytest.raises(
+        CompositeSemanticScorerError,
+        match="specialist\[0\].*production measurement evidence",
+    ):
+        CompositeSemanticVideoScorer(_Primary(), [judge])
+
+
+def test_qwen25vl_rejects_partial_runtime_injection() -> None:
+    with pytest.raises(ValueError, match="both be supplied or both omitted"):
+        Qwen25VLSemanticJudge(model=_Model())
+    with pytest.raises(ValueError, match="both be supplied or both omitted"):
+        Qwen25VLSemanticJudge(processor=_Processor("{}"))
 
 
 def test_qwen25vl_rejects_mutable_model_revision() -> None:
