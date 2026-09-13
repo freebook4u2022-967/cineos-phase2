@@ -154,7 +154,7 @@ def test_composite_rejects_injected_qwen_as_production_specialist() -> None:
 
     with pytest.raises(
         CompositeSemanticScorerError,
-        match="specialist\[0\].*production measurement evidence",
+        match=r"specialist\[0\].*production measurement evidence",
     ):
         CompositeSemanticVideoScorer(_Primary(), [judge])
 
