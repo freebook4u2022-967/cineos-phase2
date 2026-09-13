@@ -36,6 +36,7 @@ class _SpecialistScorer:
             "schema": "test-specialist/0.1",
             "origin": "external_pretrained",
             "production_measurement_evidence": True,
+            "measured_metrics": ["anatomy_quality"],
         }
 
     def __call__(self, sample, *, artifact: Path, shot, attempt_index: int):
