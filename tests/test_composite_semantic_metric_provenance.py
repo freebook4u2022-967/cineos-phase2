@@ -11,6 +11,9 @@ from cineos.atlas.composite_semantic_scorer import (
 class _Primary:
     semantic_measurement_evidence = True
 
+    def __init__(self, extra_metrics=None):
+        self.extra_metrics = dict(extra_metrics or {})
+
     def runtime_provenance(self):
         return {
             "schema": "test-primary/0.1",
@@ -19,7 +22,11 @@ class _Primary:
         }
 
     def __call__(self, sample, *, artifact, shot, attempt_index):
-        return {"identity_similarity": 0.9, "motion_quality": 0.8}
+        return {
+            "identity_similarity": 0.9,
+            "motion_quality": 0.8,
+            **self.extra_metrics,
+        }
 
 
 class _Specialist:
@@ -43,6 +50,30 @@ class _Specialist:
 
 def _score(composite):
     return composite(None, artifact=Path("shot.mp4"), shot=object(), attempt_index=0)
+
+
+def test_primary_cannot_masquerade_as_specialist_semantic_evidence():
+    composite = CompositeSemanticVideoScorer(
+        _Primary({"anatomy_quality": 0.99}),
+        [],
+    )
+
+    with pytest.raises(
+        CompositeSemanticScorerError, match="outside its attested ownership"
+    ):
+        _score(composite)
+
+
+def test_primary_cannot_emit_observer_owned_transport_metric():
+    composite = CompositeSemanticVideoScorer(
+        _Primary({"artifact_integrity": 0.99}),
+        [],
+    )
+
+    with pytest.raises(
+        CompositeSemanticScorerError, match="outside its attested ownership"
+    ):
+        _score(composite)
 
 
 def test_specialist_metric_must_be_attested_by_component_provenance():
