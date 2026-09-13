@@ -108,6 +108,20 @@ def _valid_gate():
     return gate, receipts
 
 
+def _attest_production_measurements(gate):
+    for shot in gate["shots"]:
+        for attempt in shot["attempts"]:
+            attempt["production_measurement_evidence"] = True
+            attempt["measurement"] = {
+                "schema": "cineos-sequence-quality-measurement/0.1",
+                "observer_id": "test-production-observer/0.1",
+                "artifact_sha256": attempt["output_sha256"],
+                "observer_attested": True,
+                "measurement_attested": True,
+            }
+    return gate
+
+
 def test_validates_recovered_connected_shot_lineage():
     gate, receipts = _valid_gate()
 
@@ -122,6 +136,45 @@ def test_validates_recovered_connected_shot_lineage():
         "recovered_shot_ids": ["shot-2"],
         "transition_gate_applied": True,
     }
+
+
+def test_validates_every_candidate_in_production_measurement_lineage():
+    gate, receipts = _valid_gate()
+    gate = _attest_production_measurements(deepcopy(gate))
+
+    evidence = validate_production_quality_retry_gate(gate, receipts)
+
+    assert evidence["verified"] is True
+    assert evidence["rejected_attempts"] == 1
+
+
+def test_rejects_stale_measurement_from_previous_retry_candidate():
+    gate, receipts = _valid_gate()
+    gate = _attest_production_measurements(deepcopy(gate))
+    rejected_attempt = gate["shots"][1]["attempts"][0]
+    rejected_attempt["measurement"]["artifact_sha256"] = gate["shots"][1][
+        "attempts"
+    ][1]["output_sha256"]
+
+    with pytest.raises(
+        ProductionRetryEvidenceError,
+        match="production measurement artifact does not match the retry candidate",
+    ):
+        validate_production_quality_retry_gate(gate, receipts)
+
+
+def test_rejects_mixed_production_and_unattested_retry_candidates():
+    gate, receipts = _valid_gate()
+    gate = _attest_production_measurements(deepcopy(gate))
+    rejected_attempt = gate["shots"][1]["attempts"][0]
+    rejected_attempt.pop("production_measurement_evidence")
+    rejected_attempt.pop("measurement")
+
+    with pytest.raises(
+        ProductionRetryEvidenceError,
+        match="lacks production measurement evidence",
+    ):
+        validate_production_quality_retry_gate(gate, receipts)
 
 
 def test_rejects_accepted_attempt_before_final_attempt():
