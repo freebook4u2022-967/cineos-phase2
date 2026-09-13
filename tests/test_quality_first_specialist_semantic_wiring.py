@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from cineos.atlas import quality_first_gpu_benchmark_cli as cli
 from cineos.atlas.artifact_video_observer import ArtifactVideoMetricObserver
 from cineos.atlas.composite_semantic_scorer import CompositeSemanticVideoScorer
@@ -43,6 +45,10 @@ class _SpecialistScorer:
         return {"anatomy_quality": 0.89}
 
 
+class _DialogueShot:
+    metadata = {"benchmark_challenges": ["dialogue"]}
+
+
 class _UnusedSampler:
     def __call__(self, artifact):  # pragma: no cover - construction-only fixture
         raise AssertionError("sampler should not run in wiring test")
@@ -71,6 +77,49 @@ def test_quality_first_composes_pinned_specialist_around_primary(monkeypatch):
     assert provenance["components"][1]["provenance"]["origin"] == "external_pretrained"
 
 
+def test_dialogue_shot_fails_before_render_without_av_sync_runtime(monkeypatch):
+    base = _base_evaluator(_PrimaryScorer())
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: base)
+
+    with pytest.raises(cli.GPUProductionBenchmarkCLIError, match="LatentSync"):
+        cli._production_semantic_quality_evaluator([_DialogueShot()], None)
+
+
+def test_partial_av_sync_runtime_fails_closed(monkeypatch):
+    base = _base_evaluator(_PrimaryScorer())
+    monkeypatch.setattr(cli, "_production_quality_evaluator", lambda *args: base)
+
+    with pytest.raises(cli.GPUProductionBenchmarkCLIError, match="LatentSync"):
+        cli._production_semantic_quality_evaluator(
+            [],
+            None,
+            latentsync_repository_root="/verified/LatentSync",
+        )
+
+
+def test_cli_accepts_explicit_verified_av_sync_dependency_arguments():
+    args = cli._parser().parse_args(
+        [
+            "--requests",
+            "requests.json",
+            "--reference-manifest",
+            "references.json",
+            "--output-dir",
+            "out",
+            "--latentsync-repository",
+            "/verified/LatentSync",
+            "--latentsync-checkpoint",
+            "/verified/syncnet.pt",
+            "--latentsync-checkpoint-sha256",
+            "a" * 64,
+        ]
+    )
+
+    assert args.latentsync_repository == "/verified/LatentSync"
+    assert args.latentsync_checkpoint == "/verified/syncnet.pt"
+    assert args.latentsync_checkpoint_sha256 == "a" * 64
+
+
 def test_transition_qc_reuses_primary_encoder_from_composite(monkeypatch):
     primary = _PrimaryScorer()
     specialist = _SpecialistScorer()
@@ -78,6 +127,39 @@ def test_transition_qc_reuses_primary_encoder_from_composite(monkeypatch):
     evaluator = ArtifactMeasuredSequenceQualityEvaluator(
         ArtifactVideoMetricObserver(composite, sampler=_UnusedSampler())
     )
+    captured = {}
+
+    class _TransitionObserver:
+        production_measurement_evidence = True
+        observer_id = "test-transition-observer/0.1"
+
+        def __init__(self, adapter):
+            captured["primary"] = adapter.scorer
+
+        def __call__(self, *args, **kwargs):  # pragma: no cover - construction-only
+            raise AssertionError("transition observer should not run in wiring test")
+
+    monkeypatch.setattr(cli, "SigLIP2ArtifactTransitionObserver", _TransitionObserver)
+
+    cli._production_transition_evaluator(evaluator)
+
+    assert captured["primary"] is primary
+
+
+def test_transition_qc_reuses_primary_encoder_from_challenge_ensemble(monkeypatch):
+    primary = _PrimaryScorer()
+
+    class _Component:
+        name = "core_identity_motion"
+        scorer = primary
+
+    class _Ensemble:
+        components = (_Component(),)
+
+    evaluator = ArtifactMeasuredSequenceQualityEvaluator(
+        ArtifactVideoMetricObserver(_PrimaryScorer(), sampler=_UnusedSampler())
+    )
+    evaluator.metric_extractor.semantic_scorer = _Ensemble()
     captured = {}
 
     class _TransitionObserver:
