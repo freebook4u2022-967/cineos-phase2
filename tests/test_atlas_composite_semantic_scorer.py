@@ -16,17 +16,23 @@ from cineos.atlas.composite_semantic_scorer import (
 class _Scorer:
     semantic_measurement_evidence = True
 
-    def __init__(self, metrics, *, name: str) -> None:
+    def __init__(self, metrics, *, name: str, measured_metrics=None) -> None:
         self.metrics = dict(metrics)
         self.name = name
+        self.measured_metrics = (
+            None if measured_metrics is None else list(measured_metrics)
+        )
         self.calls = 0
 
     def runtime_provenance(self):
-        return {
+        provenance = {
             "schema": f"test-{self.name}/0.1",
             "origin": "external_pretrained",
             "production_measurement_evidence": True,
         }
+        if self.measured_metrics is not None:
+            provenance["measured_metrics"] = list(self.measured_metrics)
+        return provenance
 
     def __call__(self, sample, *, artifact, shot, attempt_index):
         assert sample.frames
@@ -46,7 +52,9 @@ def test_composite_merges_primary_and_specialist_metrics_with_provenance() -> No
         {"identity_similarity": 0.91, "motion_quality": 0.84}, name="siglip-motion"
     )
     specialist = _Scorer(
-        {"anatomy_quality": 0.82, "physics_plausibility": 0.79}, name="qwen"
+        {"anatomy_quality": 0.82, "physics_plausibility": 0.79},
+        name="qwen",
+        measured_metrics=("anatomy_quality", "physics_plausibility"),
     )
     composite = CompositeSemanticVideoScorer(primary, [specialist])
 
@@ -79,35 +87,35 @@ def test_composite_rejects_specialist_replacing_primary_metric() -> None:
     primary = _Scorer(
         {"identity_similarity": 0.9, "motion_quality": 0.8}, name="primary"
     )
-    specialist = _Scorer({"identity_similarity": 0.2}, name="specialist")
-    composite = CompositeSemanticVideoScorer(primary, [specialist])
+    specialist = _Scorer(
+        {"identity_similarity": 0.2},
+        name="specialist",
+        measured_metrics=("identity_similarity",),
+    )
 
-    with pytest.raises(CompositeSemanticScorerError, match="cannot replace"):
-        composite(
-            _sample(),
-            artifact=Path("shot.mp4"),
-            shot=SimpleNamespace(shot_id="s01"),
-            attempt_index=2,
-        )
+    with pytest.raises(CompositeSemanticScorerError, match="core/observer metric"):
+        CompositeSemanticVideoScorer(primary, [specialist])
 
 
 def test_composite_rejects_duplicate_specialist_metric_ownership() -> None:
     primary = _Scorer(
         {"identity_similarity": 0.9, "motion_quality": 0.8}, name="primary"
     )
-    left = _Scorer({"anatomy_quality": 0.8}, name="left")
-    right = _Scorer({"anatomy_quality": 0.9}, name="right")
-    composite = CompositeSemanticVideoScorer(primary, [left, right])
+    left = _Scorer(
+        {"anatomy_quality": 0.8},
+        name="left",
+        measured_metrics=("anatomy_quality",),
+    )
+    right = _Scorer(
+        {"anatomy_quality": 0.9},
+        name="right",
+        measured_metrics=("anatomy_quality",),
+    )
 
     with pytest.raises(
         CompositeSemanticScorerError, match="duplicates metric ownership"
     ):
-        composite(
-            _sample(),
-            artifact=Path("shot.mp4"),
-            shot=SimpleNamespace(shot_id="s01"),
-            attempt_index=2,
-        )
+        CompositeSemanticVideoScorer(primary, [left, right])
 
 
 def test_composite_rejects_primary_missing_identity_or_motion() -> None:
