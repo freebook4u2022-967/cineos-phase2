@@ -357,7 +357,7 @@ jobs:
             | tee "${{ runner.temp }}/cineos-connected-production/request-bundle-inference-gate.json"
           test -s "${{ runner.temp }}/cineos-connected-production/request-bundle-inference-gate.json"
 
-      - name: Run quality-first connected GPU benchmark with production visual QC
+      - name: Run quality-first connected GPU benchmark with production semantic QC
         env:
           HF_HOME: ${{ runner.temp }}/cineos-hf-cache
           HF_HUB_OFFLINE: "1"
@@ -373,6 +373,9 @@ jobs:
             --reference-manifest "${{ inputs.reference_manifest_path }}" \
             --output-dir "${{ runner.temp }}/cineos-connected-production" \
             --benchmark-id "${{ inputs.benchmark_id }}" \
+            --latentsync-repository "${{ inputs.latentsync_repository_path }}" \
+            --latentsync-checkpoint "${{ inputs.latentsync_checkpoint_path }}" \
+            --latentsync-checkpoint-sha256 "${{ inputs.latentsync_checkpoint_sha256 }}" \
             "${refresh_args[@]}"
 
       - name: Bind accepted renders to exact preflight request bundle
