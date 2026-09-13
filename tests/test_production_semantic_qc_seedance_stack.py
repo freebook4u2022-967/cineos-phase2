@@ -85,10 +85,7 @@ def test_seedance_stack_has_disjoint_visual_and_av_metric_ownership(
     assert "dialogue" not in visual_component["required_challenges"]
     assert "dialogue_lip_sync" not in visual_component["required_challenges"]
     assert visual_component["scorer"]["origin"] == "external_pretrained"
-    assert (
-        visual_component["scorer"]["runtime_source"]
-        == "pinned_huggingface_snapshot"
-    )
+    assert visual_component["scorer"]["runtime_source"] == "pinned_huggingface_snapshot"
     assert components["latentsync_syncnet_av"]["scorer"]["origin"] == (
         "external_pretrained"
     )
