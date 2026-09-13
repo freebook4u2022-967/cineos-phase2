@@ -6,6 +6,11 @@ from types import SimpleNamespace
 import pytest
 
 from cineos.atlas.artifact_video_observer import RGBVideoSample
+from cineos.atlas.latentsync_syncnet_scorer import (
+    DIALOGUE_CHALLENGES,
+    LatentSyncSyncNetScorer,
+    latentsync_syncnet_component,
+)
 from cineos.atlas.semantic_video_ensemble import (
     ProductionSemanticScorerEnsemble,
     SemanticScorerComponent,
@@ -99,6 +104,21 @@ def test_dialogue_specialist_runs_for_supported_dialogue_aliases(
     assert av.calls == 1
     component = ensemble.runtime_provenance()["components"][0]
     assert component["required_challenges"] == ["dialogue", "dialogue_lip_sync"]
+
+
+def test_latentsync_component_declares_dialogue_only_activation(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "syncnet.model"
+    checkpoint.write_bytes(b"checkpoint")
+    scorer = LatentSyncSyncNetScorer(
+        repository_root=tmp_path / "LatentSync",
+        checkpoint_path=checkpoint,
+        checkpoint_sha256="0" * 64,
+    )
+
+    component = latentsync_syncnet_component(scorer)
+
+    assert component.measured_metrics == ("dialogue_lip_sync",)
+    assert component.required_challenges == DIALOGUE_CHALLENGES
 
 
 def test_malformed_challenge_metadata_fails_closed_before_specialist_execution() -> (
