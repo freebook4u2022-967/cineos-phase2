@@ -73,7 +73,9 @@ def test_dialogue_specialist_is_not_called_for_non_dialogue_shot() -> None:
 
 
 @pytest.mark.parametrize("challenge", ["dialogue", "dialogue_lip_sync"])
-def test_dialogue_specialist_runs_for_supported_dialogue_aliases(challenge: str) -> None:
+def test_dialogue_specialist_runs_for_supported_dialogue_aliases(
+    challenge: str,
+) -> None:
     av = _CountingScorer({"dialogue_lip_sync": 1.0})
     ensemble = ProductionSemanticScorerEnsemble(
         (
@@ -99,7 +101,9 @@ def test_dialogue_specialist_runs_for_supported_dialogue_aliases(challenge: str)
     assert component["required_challenges"] == ["dialogue", "dialogue_lip_sync"]
 
 
-def test_malformed_challenge_metadata_fails_closed_before_specialist_execution() -> None:
+def test_malformed_challenge_metadata_fails_closed_before_specialist_execution() -> (
+    None
+):
     av = _CountingScorer({"dialogue_lip_sync": 1.0})
     ensemble = ProductionSemanticScorerEnsemble(
         (

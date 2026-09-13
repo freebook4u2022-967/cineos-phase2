@@ -89,7 +89,9 @@ class SemanticScorerComponent:
                 "semantic scorer component cannot declare duplicate metrics"
             )
         if not isinstance(self.required_challenges, tuple):
-            raise ValueError("semantic scorer component required_challenges must be a tuple")
+            raise ValueError(
+                "semantic scorer component required_challenges must be a tuple"
+            )
         normalized_challenges: list[str] = []
         for challenge in self.required_challenges:
             if not isinstance(challenge, str) or not challenge.strip():
@@ -103,9 +105,7 @@ class SemanticScorerComponent:
             )
         object.__setattr__(self, "name", self.name.strip())
         object.__setattr__(self, "measured_metrics", tuple(normalized))
-        object.__setattr__(
-            self, "required_challenges", tuple(normalized_challenges)
-        )
+        object.__setattr__(self, "required_challenges", tuple(normalized_challenges))
 
 
 class ProductionSemanticScorerEnsemble:
