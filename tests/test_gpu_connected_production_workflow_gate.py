@@ -43,7 +43,9 @@ def test_production_dependency_gate_binds_only_requested_approved_references() -
     assert "production dependency gate blocked model acquisition" in workflow
 
 
-def test_verified_latentsync_dependencies_are_bound_into_real_quality_benchmark() -> None:
+def test_verified_latentsync_dependencies_are_bound_into_real_quality_benchmark() -> (
+    None
+):
     workflow = _workflow_text()
 
     dependency_gate = workflow.index(
@@ -55,8 +57,14 @@ def test_verified_latentsync_dependencies_are_bound_into_real_quality_benchmark(
     assert dependency_gate < benchmark
 
     benchmark_block = workflow[benchmark:]
-    assert '--latentsync-repository "${{ inputs.latentsync_repository_path }}"' in benchmark_block
-    assert '--latentsync-checkpoint "${{ inputs.latentsync_checkpoint_path }}"' in benchmark_block
+    assert (
+        '--latentsync-repository "${{ inputs.latentsync_repository_path }}"'
+        in benchmark_block
+    )
+    assert (
+        '--latentsync-checkpoint "${{ inputs.latentsync_checkpoint_path }}"'
+        in benchmark_block
+    )
     assert (
         '--latentsync-checkpoint-sha256 "${{ inputs.latentsync_checkpoint_sha256 }}"'
         in benchmark_block
