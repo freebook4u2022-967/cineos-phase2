@@ -22,7 +22,7 @@ from typing import Any
 
 from .artifact_video_observer import FFmpegRGBSampler, RGBVideoSample, VideoSampler
 
-QWEN25VL_SEMANTIC_JUDGE_SCHEMA = "cineos-qwen25vl-semantic-judge/0.2"
+QWEN25VL_SEMANTIC_JUDGE_SCHEMA = "cineos-qwen25vl-semantic-judge/0.3"
 QWEN25VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 QWEN25VL_MODEL_REVISION = "b901af65fa3b2801b73d1c5b1ff59b89d81a708f"
 QWEN25VL_MODEL_LICENSE = "Apache-2.0"
@@ -168,6 +168,12 @@ class Qwen25VLSemanticJudge:
         self.device_map = device_map
         self.dtype = dtype
         self.max_new_tokens = int(max_new_tokens)
+        # Injected runtimes are useful for tests and controlled research, but their
+        # object identity cannot prove that the declared pinned model bytes were used.
+        # Keep them executable while refusing to promote their scores to production
+        # benchmark evidence. Production evidence is reserved for the internally
+        # loaded immutable Hugging Face revision.
+        self._runtime_injected = model is not None
         # The real production model path independently decodes substantially more
         # spatial detail than the 96x96 lightweight core-QC sample. Injected model
         # tests/research callers retain the historical upstream-sample behavior unless
@@ -223,10 +229,16 @@ class Qwen25VLSemanticJudge:
                 value = getattr(self.artifact_sampler, name, None)
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     sampling[name] = value
+        runtime_source = (
+            "injected_runtime"
+            if self._runtime_injected
+            else "pinned_huggingface_snapshot"
+        )
         return {
             "schema": QWEN25VL_SEMANTIC_JUDGE_SCHEMA,
             "origin": "external_pretrained",
-            "production_measurement_evidence": True,
+            "production_measurement_evidence": not self._runtime_injected,
+            "runtime_source": runtime_source,
             "model_id": self.model_id,
             "model_revision": self.revision,
             "model_license": QWEN25VL_MODEL_LICENSE,
