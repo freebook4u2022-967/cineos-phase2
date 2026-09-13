@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .artifact_video_observer import RGBVideoSample, VideoSampler
+from .artifact_video_observer import FFmpegRGBSampler, RGBVideoSample, VideoSampler
 
 QWEN25VL_SEMANTIC_JUDGE_SCHEMA = "cineos-qwen25vl-semantic-judge/0.2"
 QWEN25VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
@@ -173,6 +173,17 @@ class Qwen25VLSemanticJudge:
         self.device_map = device_map
         self.dtype = dtype
         self.max_new_tokens = int(max_new_tokens)
+        # The real production model path independently decodes substantially more
+        # spatial detail than the 96x96 lightweight core-QC sample. Injected model
+        # tests/research callers retain the historical upstream-sample behavior unless
+        # they explicitly provide their own artifact sampler.
+        if artifact_sampler is None and model is None:
+            artifact_sampler = FFmpegRGBSampler(
+                width=384,
+                height=384,
+                sample_fps=4.0,
+                max_frames=24,
+            )
         self.artifact_sampler = artifact_sampler
         self._model = model
         self._processor = processor
