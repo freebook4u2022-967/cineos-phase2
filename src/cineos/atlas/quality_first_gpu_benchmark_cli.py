@@ -1,9 +1,9 @@
 """Quality-first production entrypoint for connected GPU film benchmarks.
 
 This module wires CINEOS' production foundation selector into the real self-hosted
-CUDA benchmark path. External pretrained video weights remain explicitly identified
-by pinned provenance; CINEOS owns the selection, conditioning, continuity, QC and
-retry policy rather than the foundation weights themselves.
+CUDA benchmark path. External pretrained video/QC weights remain explicitly identified
+by pinned provenance; CINEOS owns selection, conditioning, continuity, QC and retry
+policy rather than the external foundation weights.
 """
 
 from __future__ import annotations
@@ -29,6 +29,10 @@ from .gpu_production_quality_retry import ProductionGPUQualityRetryError
 from .gpu_production_quality_retry import (
     run_production_continuity_quality_retry_connected_gpu_benchmark as run_production_quality_retry_connected_gpu_benchmark,
 )
+from .latentsync_syncnet_scorer import (
+    DIALOGUE_LIP_SYNC_METRIC,
+    LatentSyncSyncNetScorer,
+)
 from .native_request import NativeShotRequest
 from .production_benchmark_attestation import (
     ProductionBenchmarkAttestationError,
@@ -41,18 +45,17 @@ from .production_foundation_selection import (
     select_strongest_production_foundation,
 )
 from .production_references import ProductionReferenceError, ProductionReferenceLoader
+from .production_semantic_qc import (
+    build_seedance_challenge_semantic_scorer,
+    required_semantic_metrics,
+)
 from .qwen25vl_semantic_judge import Qwen25VLSemanticJudge
 from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
 
 
 class _PinnedSigLIP2BoundaryFeatureAdapter:
-    """Share the already-loaded pinned shot-QC encoder with seam measurement.
-
-    SigLIP2 remains an external pretrained measurement foundation. This narrow
-    adapter deliberately reuses the exact production scorer instance so transition
-    QC does not load a second model copy into scarce renderer VRAM.
-    """
+    """Share the already-loaded pinned shot-QC encoder with seam measurement."""
 
     def __init__(self, scorer: Any) -> None:
         if getattr(scorer, "semantic_measurement_evidence", False) is not True:
@@ -72,22 +75,54 @@ class _PinnedSigLIP2BoundaryFeatureAdapter:
         return self.scorer._encode_images(self.scorer._pil_frames(sample))
 
 
+def _dialogue_lipsync_required(requests: Sequence[NativeShotRequest]) -> bool:
+    return DIALOGUE_LIP_SYNC_METRIC in required_semantic_metrics(requests)
+
+
+def _build_av_sync_scorer(
+    *,
+    repository_root: str | Path | None,
+    checkpoint_path: str | Path | None,
+    checkpoint_sha256: str | None,
+) -> LatentSyncSyncNetScorer:
+    supplied = (
+        repository_root is not None,
+        checkpoint_path is not None,
+        checkpoint_sha256 is not None,
+    )
+    if not all(supplied):
+        raise GPUProductionBenchmarkCLIError(
+            "dialogue benchmark shots require the verified LatentSync repository, "
+            "SyncNet checkpoint, and approved checkpoint SHA-256 before rendering"
+        )
+    try:
+        return LatentSyncSyncNetScorer(
+            repository_root=repository_root,
+            checkpoint_path=checkpoint_path,
+            checkpoint_sha256=checkpoint_sha256,
+        )
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise GPUProductionBenchmarkCLIError(
+            f"cannot initialize measured dialogue lip-sync QC: {exc}"
+        ) from exc
+
+
 def _production_semantic_quality_evaluator(
     requests: Sequence[NativeShotRequest],
     reference_manifest: str | Path | None,
+    *,
+    latentsync_repository_root: str | Path | None = None,
+    latentsync_checkpoint_path: str | Path | None = None,
+    latentsync_checkpoint_sha256: str | None = None,
 ) -> Any:
-    """Compose core identity/motion QC with the pinned difficult-case visual judge.
+    """Compose measured identity/motion, visual-difficult-case and AV lip-sync QC.
 
-    The generic production CLI intentionally keeps its historical SigLIP2-only
-    behavior. The quality-first release path adds Qwen2.5-VL as an external,
-    provenance-preserving specialist so anatomy, interaction, locomotion, camera,
-    lighting and physics measurements participate in the same reject/rerender gate.
-    Dialogue lip-sync remains owned by the independent audio/visual specialist path.
-
-    A nonstandard evaluator returned by an injected private factory is passed through
-    unchanged. This preserves the historical test/integration injection seam; the
-    real production factory returns ArtifactMeasuredSequenceQualityEvaluator and is
-    therefore always upgraded to the specialist-composed observer.
+    The historical non-dialogue path stays compatible and still composes the pinned
+    Qwen2.5-VL visual specialist around the primary SigLIP2 scorer. When dialogue is
+    declared, the benchmark fails before rendering unless the exact LatentSync SyncNet
+    runtime is supplied. The dialogue path uses the challenge-scoped production
+    semantic ensemble so SyncNet runs only on dialogue shots and Qwen runs only on
+    visual difficult-case shots. All external foundations remain externally labelled.
     """
 
     base = _production_quality_evaluator(requests, reference_manifest)
@@ -99,19 +134,43 @@ def _production_semantic_quality_evaluator(
         raise GPUProductionBenchmarkCLIError(
             "production quality evaluator is missing its pinned primary semantic scorer"
         )
-    try:
-        composite = CompositeSemanticVideoScorer(
-            primary,
-            specialists=(Qwen25VLSemanticJudge(),),
+
+    dialogue_required = _dialogue_lipsync_required(requests)
+    any_av_config = any(
+        value is not None
+        for value in (
+            latentsync_repository_root,
+            latentsync_checkpoint_path,
+            latentsync_checkpoint_sha256,
         )
+    )
+    try:
+        if dialogue_required or any_av_config:
+            av_sync = _build_av_sync_scorer(
+                repository_root=latentsync_repository_root,
+                checkpoint_path=latentsync_checkpoint_path,
+                checkpoint_sha256=latentsync_checkpoint_sha256,
+            )
+            semantic_scorer = build_seedance_challenge_semantic_scorer(
+                primary,
+                requests,
+                visual_judge=Qwen25VLSemanticJudge(),
+                av_sync_scorer=av_sync,
+            )
+        else:
+            semantic_scorer = CompositeSemanticVideoScorer(
+                primary,
+                specialists=(Qwen25VLSemanticJudge(),),
+            )
     except (TypeError, ValueError, RuntimeError) as exc:
         raise GPUProductionBenchmarkCLIError(
             f"cannot initialize quality-first specialist semantic QC: {exc}"
         ) from exc
+
     sampler = getattr(observer, "sampler", None)
     observer_id = getattr(observer, "observer_id", "cineos-artifact-video-observer/0.1")
     composed_observer = ArtifactVideoMetricObserver(
-        composite,
+        semantic_scorer,
         sampler=sampler,
         observer_id=observer_id,
     )
@@ -120,6 +179,20 @@ def _production_semantic_quality_evaluator(
             "quality-first specialist semantic QC did not attest measured evidence"
         )
     return ArtifactMeasuredSequenceQualityEvaluator(composed_observer)
+
+
+def _primary_semantic_scorer(scorer: Any) -> Any:
+    primary = getattr(scorer, "primary", None)
+    if primary is not None:
+        return primary
+    components = getattr(scorer, "components", None)
+    if isinstance(components, Sequence) and not isinstance(components, (str, bytes)):
+        for component in components:
+            if getattr(component, "name", None) == "core_identity_motion":
+                candidate = getattr(component, "scorer", None)
+                if candidate is not None:
+                    return candidate
+    return scorer
 
 
 def _production_transition_evaluator(
@@ -133,12 +206,9 @@ def _production_transition_evaluator(
         raise GPUProductionBenchmarkCLIError(
             "production quality evaluator is missing its pinned semantic scorer"
         )
-    # Quality-first shot QC composes specialist scorers around the SigLIP2 primary.
-    # Seam QC still needs the primary feature encoder directly; unwrapping it here
-    # avoids loading a second SigLIP2 copy and does not attribute Qwen metrics to the
-    # transition observer.
-    scorer = getattr(scorer, "primary", scorer)
-    feature_adapter = _PinnedSigLIP2BoundaryFeatureAdapter(scorer)
+    feature_adapter = _PinnedSigLIP2BoundaryFeatureAdapter(
+        _primary_semantic_scorer(scorer)
+    )
     transition_observer = SigLIP2ArtifactTransitionObserver(feature_adapter)
     if transition_observer.production_measurement_evidence is not True:
         raise GPUProductionBenchmarkCLIError(
@@ -148,8 +218,6 @@ def _production_transition_evaluator(
 
 
 def _is_sha256_hexdigest(value: Any) -> bool:
-    """Return whether ``value`` is a canonical SHA-256 hexadecimal digest."""
-
     if not isinstance(value, str) or len(value) != 64 or value != value.lower():
         return False
     try:
@@ -162,8 +230,6 @@ def _is_sha256_hexdigest(value: Any) -> bool:
 def _expected_character_reference_bindings(
     request: NativeShotRequest,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Return the renderer-canonical character-to-reference ownership contract."""
-
     bindings: list[tuple[str, tuple[str, ...]]] = []
     for index, character in enumerate(getattr(request, "characters", ())):
         if not isinstance(character, dict):
@@ -185,8 +251,6 @@ def _validate_character_reference_binding(
     *,
     shot_index: int,
 ) -> None:
-    """Bind receipt identity ownership to the exact CINEOS character contract."""
-
     expected_bindings = _expected_character_reference_bindings(request)
     reported = conditioning.get("consumed_character_reference_ids")
     if not expected_bindings:
@@ -235,23 +299,6 @@ def _validate_conditioning_binding(
     shot_index: int,
     expected_reference_hashes: Sequence[str] | None = None,
 ) -> None:
-    """Bind production conditioning evidence to the exact approved reference board.
-
-    ProductionDiffusersVideoResult exposes ``conditioning_provenance``. When that
-    production field is present, quality-first acceptance fails closed unless it
-    proves that every approved reference was actually consumed in request order and
-    carries renderer-computed content fingerprints for both the consumed references
-    and the exact image supplied to the external foundation. When immutable manifest
-    digests are supplied by the production entrypoint, the renderer-computed hashes
-    must also match those approved bytes exactly; a correct reference ID alone is not
-    sufficient evidence of identity conditioning. Character-local identity ownership
-    is independently rebound here so a receipt cannot retain the global reference set
-    while swapping which character consumed which approved identity source.
-
-    Generic/legacy result objects that predate this production evidence field retain
-    their historical compatibility outside the real production renderer boundary.
-    """
-
     if not hasattr(result, "conditioning_provenance"):
         return
 
@@ -263,21 +310,16 @@ def _validate_conditioning_binding(
                 f"shot {shot_index} reports conditioning for a request with no approved references"
             )
         return
-
     if not isinstance(conditioning, dict):
         raise GPUProductionBenchmarkCLIError(
             f"shot {shot_index} is missing production conditioning provenance"
         )
 
     consumed = conditioning.get("consumed_reference_ids")
-    if (
-        not isinstance(consumed, (list, tuple))
-        or tuple(consumed) != expected_references
-    ):
+    if not isinstance(consumed, (list, tuple)) or tuple(consumed) != expected_references:
         raise GPUProductionBenchmarkCLIError(
             f"shot {shot_index} conditioning references do not match the approved reference board"
         )
-
     _validate_character_reference_binding(conditioning, request, shot_index=shot_index)
 
     consumed_hashes = conditioning.get("consumed_reference_sha256")
@@ -352,32 +394,12 @@ def _validate_per_shot_selection_binding(
     *,
     reference_manifest: str | Path | None = None,
 ) -> None:
-    """Bind every production shot receipt to the exact selected request and runtime.
-
-    Quality-first production acceptance must not depend on aggregate receipt fields
-    alone. Every shot must independently prove the selected profile/origin, exact
-    pinned foundation provenance, requested scene/shot identity and request hash,
-    plus the full CUDA execution policy chosen from the live quality-first preflight.
-
-    When production conditioning provenance is present, this validator also reopens
-    the immutable approved-reference manifest and binds both its exact digest and each
-    consumed reference digest to the per-shot runtime evidence. This prevents a
-    substituted image from being accepted merely because it retained an approved ID.
-
-    This is intentionally stricter than generic/legacy connected-receipt handling:
-    the quality-first production entrypoint only accepts real per-shot evidence and
-    fails closed if it is absent, truncated, reordered, replayed, or rendered with a
-    different memory/offload policy than the selected production plan.
-    """
-
     shot_receipts = getattr(receipt, "shot_receipts", None)
     if shot_receipts is None:
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark is missing per-shot production evidence"
         )
-    if not isinstance(shot_receipts, Sequence) or isinstance(
-        shot_receipts, (str, bytes)
-    ):
+    if not isinstance(shot_receipts, Sequence) or isinstance(shot_receipts, (str, bytes)):
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark shot receipts are malformed"
         )
@@ -407,7 +429,6 @@ def _validate_per_shot_selection_binding(
             raise GPUProductionBenchmarkCLIError(
                 f"shot {index} origin does not match quality-first selection"
             )
-
         result = getattr(shot_receipt, "result", None)
         if result is None or getattr(result, "foundation", None) != expected_provenance:
             raise GPUProductionBenchmarkCLIError(
@@ -427,10 +448,7 @@ def _validate_per_shot_selection_binding(
             )
 
         expected_hashes: tuple[str, ...] | None = None
-        if (
-            hasattr(result, "conditioning_provenance")
-            and request.approved_reference_ids
-        ):
+        if hasattr(result, "conditioning_provenance") and request.approved_reference_ids:
             if reference_manifest is None:
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} has production conditioning evidence without an approved reference manifest"
@@ -444,7 +462,6 @@ def _validate_per_shot_selection_binding(
                 )
             except ProductionReferenceError as exc:
                 raise GPUProductionBenchmarkCLIError(str(exc)) from exc
-
         _validate_conditioning_binding(
             result,
             request,
@@ -468,8 +485,7 @@ def _validate_per_shot_selection_binding(
         for field, expected_value in expected_policy_fields.items():
             if getattr(execution_plan, field, None) != expected_value:
                 raise GPUProductionBenchmarkCLIError(
-                    f"shot {index} GPU execution field {field!r} does not match "
-                    "quality-first selection"
+                    f"shot {index} GPU execution field {field!r} does not match quality-first selection"
                 )
 
         runtime = getattr(shot_receipt, "runtime_provenance", None)
@@ -491,10 +507,7 @@ def _validate_per_shot_selection_binding(
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} runtime is missing approved reference asset provenance"
                 )
-            if (
-                reference_assets.get("manifest_sha256")
-                != reference_loader.manifest_sha256
-            ):
+            if reference_assets.get("manifest_sha256") != reference_loader.manifest_sha256:
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} runtime reference manifest does not match approved manifest"
                 )
@@ -508,13 +521,11 @@ def run_quality_first_production_benchmark(
     reference_manifest: str | Path | None = None,
     continuity_identity_refresh: bool = False,
     devices=None,
+    latentsync_repository_root: str | Path | None = None,
+    latentsync_checkpoint_path: str | Path | None = None,
+    latentsync_checkpoint_sha256: str | None = None,
 ) -> GPUConnectedBenchmarkReceipt:
-    """Run the strongest approved pinned foundation that the live runner can fit.
-
-    ``devices`` is injectable only to make selection regression-testable without CUDA;
-    production callers omit it so the live CUDA environment is inspected immediately
-    before model execution.
-    """
+    """Run the strongest approved pinned foundation the live runner can fit."""
 
     if not isinstance(continuity_identity_refresh, bool):
         raise TypeError("continuity_identity_refresh must be a bool")
@@ -535,7 +546,11 @@ def run_quality_first_production_benchmark(
         raise GPUProductionBenchmarkCLIError(str(exc)) from exc
 
     quality_evaluator = _production_semantic_quality_evaluator(
-        requests, reference_manifest
+        requests,
+        reference_manifest,
+        latentsync_repository_root=latentsync_repository_root,
+        latentsync_checkpoint_path=latentsync_checkpoint_path,
+        latentsync_checkpoint_sha256=latentsync_checkpoint_sha256,
     )
     transition_evaluator = (
         _production_transition_evaluator(quality_evaluator)
@@ -616,9 +631,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="Hash-pinned approved reference JSON manifest",
     )
-    parser.add_argument(
-        "--output-dir", required=True, help="Benchmark artifact directory"
-    )
+    parser.add_argument("--output-dir", required=True, help="Benchmark artifact directory")
     parser.add_argument(
         "--benchmark-id",
         default="cineos-connected-production",
@@ -632,6 +645,18 @@ def _parser() -> argparse.ArgumentParser:
             "conditioning strategy."
         ),
     )
+    parser.add_argument(
+        "--latentsync-repository",
+        help="Pinned external LatentSync checkout used for measured dialogue lip-sync QC",
+    )
+    parser.add_argument(
+        "--latentsync-checkpoint",
+        help="Approved SyncNet checkpoint used for measured dialogue lip-sync QC",
+    )
+    parser.add_argument(
+        "--latentsync-checkpoint-sha256",
+        help="Approved lowercase SHA-256 of the SyncNet checkpoint bytes",
+    )
     return parser
 
 
@@ -644,6 +669,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_dir=args.output_dir,
         reference_manifest=args.reference_manifest,
         continuity_identity_refresh=args.continuity_identity_refresh,
+        latentsync_repository_root=args.latentsync_repository,
+        latentsync_checkpoint_path=args.latentsync_checkpoint,
+        latentsync_checkpoint_sha256=args.latentsync_checkpoint_sha256,
     )
     print(json.dumps(receipt.to_dict(), indent=2, sort_keys=True))
     return 0
