@@ -22,6 +22,17 @@ def _qwen_snapshot(tmp_path: Path) -> Path:
     return snapshot
 
 
+def _mock_clean_pinned_repository(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "cineos.atlas.production_semantic_qc_dependency_gate._git_head",
+        lambda path: LATENTSYNC_PINNED_REVISION,
+    )
+    monkeypatch.setattr(
+        "cineos.atlas.production_semantic_qc_dependency_gate._git_worktree_clean",
+        lambda path: True,
+    )
+
+
 def test_semantic_qc_dependency_gate_accepts_exact_pinned_dependencies(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -31,11 +42,7 @@ def test_semantic_qc_dependency_gate_accepts_exact_pinned_dependencies(
     checkpoint = tmp_path / "syncnet.model"
     checkpoint.write_bytes(b"checkpoint")
     digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
-
-    monkeypatch.setattr(
-        "cineos.atlas.production_semantic_qc_dependency_gate._git_head",
-        lambda path: LATENTSYNC_PINNED_REVISION,
-    )
+    _mock_clean_pinned_repository(monkeypatch)
 
     report = evaluate_semantic_qc_dependencies(
         qwen_snapshot=snapshot,
@@ -46,14 +53,15 @@ def test_semantic_qc_dependency_gate_accepts_exact_pinned_dependencies(
 
     assert report.ready is True
     assert report.blockers == ()
+    assert report.latentsync_repository_clean is True
     payload = report.to_dict()
     assert payload["schema"] == PRODUCTION_SEMANTIC_QC_DEPENDENCY_SCHEMA
     assert payload["external_components"]["qwen25vl_visual_judge"]["origin"] == (
         "external_pretrained"
     )
-    assert payload["external_components"]["latentsync_syncnet"]["origin"] == (
-        "external_pretrained"
-    )
+    latentsync = payload["external_components"]["latentsync_syncnet"]
+    assert latentsync["origin"] == "external_pretrained"
+    assert latentsync["repository_clean"] is True
 
 
 def test_semantic_qc_dependency_gate_fails_closed_on_revision_and_checkpoint_drift(
@@ -70,6 +78,10 @@ def test_semantic_qc_dependency_gate_fails_closed_on_revision_and_checkpoint_dri
         "cineos.atlas.production_semantic_qc_dependency_gate._git_head",
         lambda path: "0" * 40,
     )
+    monkeypatch.setattr(
+        "cineos.atlas.production_semantic_qc_dependency_gate._git_worktree_clean",
+        lambda path: True,
+    )
 
     report = evaluate_semantic_qc_dependencies(
         qwen_snapshot=snapshot,
@@ -85,6 +97,39 @@ def test_semantic_qc_dependency_gate_fails_closed_on_revision_and_checkpoint_dri
     assert len(report.blockers) == 2
 
 
+def test_semantic_qc_dependency_gate_rejects_dirty_pinned_latentsync_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = _qwen_snapshot(tmp_path)
+    repository = tmp_path / "LatentSync"
+    repository.mkdir()
+    checkpoint = tmp_path / "syncnet.model"
+    checkpoint.write_bytes(b"checkpoint")
+    digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+
+    monkeypatch.setattr(
+        "cineos.atlas.production_semantic_qc_dependency_gate._git_head",
+        lambda path: LATENTSYNC_PINNED_REVISION,
+    )
+    monkeypatch.setattr(
+        "cineos.atlas.production_semantic_qc_dependency_gate._git_worktree_clean",
+        lambda path: False,
+    )
+
+    report = evaluate_semantic_qc_dependencies(
+        qwen_snapshot=snapshot,
+        latentsync_repository=repository,
+        latentsync_checkpoint=checkpoint,
+        latentsync_checkpoint_sha256=digest,
+    )
+
+    assert report.ready is False
+    assert report.latentsync_repository_clean is False
+    assert report.latentsync_repository_ready is False
+    assert report.latentsync_checkpoint_ready is True
+    assert any("worktree drift" in blocker for blocker in report.blockers)
+
+
 def test_semantic_qc_dependency_gate_rejects_unpinned_qwen_snapshot_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -98,11 +143,7 @@ def test_semantic_qc_dependency_gate_rejects_unpinned_qwen_snapshot_name(
     checkpoint = tmp_path / "syncnet.model"
     checkpoint.write_bytes(b"checkpoint")
     digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
-
-    monkeypatch.setattr(
-        "cineos.atlas.production_semantic_qc_dependency_gate._git_head",
-        lambda path: LATENTSYNC_PINNED_REVISION,
-    )
+    _mock_clean_pinned_repository(monkeypatch)
 
     report = evaluate_semantic_qc_dependencies(
         qwen_snapshot=snapshot,

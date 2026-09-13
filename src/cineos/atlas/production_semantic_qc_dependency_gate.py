@@ -1,12 +1,10 @@
 """Fail-fast dependency gate for production difficult-case semantic QC.
 
 The connected-film production path uses external pretrained foundations for specialist
-quality measurement.  CINEOS must prove those dependencies are locally available and
-pinned before expensive video inference begins; otherwise a benchmark could render for
-hours and only then discover that anatomy/interaction/physics or dialogue lip-sync
-cannot be measured honestly.
+quality measurement. CINEOS must prove those dependencies are locally available,
+revision-pinned, and byte/runtime-stable before expensive video inference begins.
 
-This module does not turn borrowed models into CINEOS-native capability.  It only
+This module does not turn borrowed models into CINEOS-native capability. It only
 verifies the exact external Qwen2.5-VL visual-judge snapshot and LatentSync SyncNet
 runtime selected by the production semantic-QC contract.
 """
@@ -27,7 +25,7 @@ from .latentsync_syncnet_scorer import LATENTSYNC_PINNED_REVISION
 from .qwen25vl_semantic_judge import QWEN25VL_MODEL_ID, QWEN25VL_MODEL_REVISION
 
 PRODUCTION_SEMANTIC_QC_DEPENDENCY_SCHEMA = (
-    "cineos-production-semantic-qc-dependency-readiness/0.1"
+    "cineos-production-semantic-qc-dependency-readiness/0.2"
 )
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
@@ -44,12 +42,14 @@ class SemanticQCDependencyReport:
     latentsync_repository: str
     latentsync_checkpoint: str
     latentsync_checkpoint_sha256: str | None
+    latentsync_repository_clean: bool = False
 
     @property
     def ready(self) -> bool:
         return (
             self.qwen_ready
             and self.latentsync_repository_ready
+            and self.latentsync_repository_clean
             and self.latentsync_checkpoint_ready
             and not self.blockers
         )
@@ -71,6 +71,7 @@ class SemanticQCDependencyReport:
                     "origin": "external_pretrained",
                     "repository_revision": LATENTSYNC_PINNED_REVISION,
                     "repository": self.latentsync_repository,
+                    "repository_clean": self.latentsync_repository_clean,
                     "checkpoint": self.latentsync_checkpoint,
                     "checkpoint_sha256": self.latentsync_checkpoint_sha256,
                     "repository_ready": self.latentsync_repository_ready,
@@ -102,6 +103,29 @@ def _git_head(repository_root: Path) -> str | None:
         return None
     observed = completed.stdout.strip()
     return observed if re.fullmatch(r"[0-9a-f]{40}", observed) else None
+
+
+def _git_worktree_clean(repository_root: Path) -> bool:
+    """Return True only for an exact checkout with no tracked or untracked drift."""
+
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repository_root),
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return not completed.stdout.strip()
 
 
 def _qwen_snapshot_ready(snapshot: Path) -> bool:
@@ -154,11 +178,18 @@ def evaluate_semantic_qc_dependencies(
             "pinned Qwen2.5-VL specialist-QC snapshot is unavailable or incomplete"
         )
 
-    observed_revision = _git_head(repository_path) if repository_path.is_dir() else None
-    repository_ready = observed_revision == LATENTSYNC_PINNED_REVISION
-    if not repository_ready:
+    repository_exists = repository_path.is_dir()
+    observed_revision = _git_head(repository_path) if repository_exists else None
+    revision_ready = observed_revision == LATENTSYNC_PINNED_REVISION
+    repository_clean = _git_worktree_clean(repository_path) if repository_exists else False
+    repository_ready = revision_ready and repository_clean
+    if not revision_ready:
         blockers.append(
             "LatentSync repository is unavailable or not at the pinned production revision"
+        )
+    elif not repository_clean:
+        blockers.append(
+            "LatentSync repository contains tracked or untracked worktree drift"
         )
 
     observed_checkpoint_hash: str | None = None
@@ -176,6 +207,7 @@ def evaluate_semantic_qc_dependencies(
     return SemanticQCDependencyReport(
         qwen_ready=qwen_ready,
         latentsync_repository_ready=repository_ready,
+        latentsync_repository_clean=repository_clean,
         latentsync_checkpoint_ready=checkpoint_ready,
         blockers=tuple(blockers),
         qwen_snapshot=str(qwen_path),
