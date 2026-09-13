@@ -1,13 +1,13 @@
 """Pinned external-pretrained multimodal judge for difficult-case video QC.
 
 This module provides a real model-execution path for visual semantic measurements
-that cannot be derived honestly from the core SigLIP2 identity/motion scorer.  It
+that cannot be derived honestly from the core SigLIP2 identity/motion scorer. It
 uses the Apache-2.0 Qwen2.5-VL-7B-Instruct foundation at an immutable revision and
 judges a bounded sequence of frames decoded from the rendered artifact.
 
-The scorer is deliberately labelled as external pretrained capability.  CINEOS owns
+The scorer is deliberately labelled as external pretrained capability. CINEOS owns
 the sampling, rubric, schema validation, provenance and reject/rerender integration;
-it does not claim Qwen weights as a CINEOS-native model.  Dialogue lip-sync is
+it does not claim Qwen weights as a CINEOS-native model. Dialogue lip-sync is
 excluded because sampled visual frames alone cannot prove audio/visual synchrony.
 """
 
@@ -20,9 +20,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .artifact_video_observer import RGBVideoSample
+from .artifact_video_observer import RGBVideoSample, VideoSampler
 
-QWEN25VL_SEMANTIC_JUDGE_SCHEMA = "cineos-qwen25vl-semantic-judge/0.1"
+QWEN25VL_SEMANTIC_JUDGE_SCHEMA = "cineos-qwen25vl-semantic-judge/0.2"
 QWEN25VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 QWEN25VL_MODEL_REVISION = "b901af65fa3b2801b73d1c5b1ff59b89d81a708f"
 QWEN25VL_MODEL_LICENSE = "Apache-2.0"
@@ -148,6 +148,7 @@ class Qwen25VLSemanticJudge:
         device_map: str = "auto",
         dtype: str = "bfloat16",
         max_new_tokens: int = 320,
+        artifact_sampler: VideoSampler | None = None,
         model: Any | None = None,
         processor: Any | None = None,
     ) -> None:
@@ -161,6 +162,8 @@ class Qwen25VLSemanticJudge:
             raise ValueError("dtype must be bfloat16, float16, or float32")
         if max_new_tokens < 64:
             raise ValueError("max_new_tokens must be at least 64")
+        if artifact_sampler is not None and not callable(artifact_sampler):
+            raise TypeError("artifact_sampler must be callable")
         if (model is None) is not (processor is None):
             raise ValueError(
                 "model and processor must either both be supplied or both omitted"
@@ -170,6 +173,7 @@ class Qwen25VLSemanticJudge:
         self.device_map = device_map
         self.dtype = dtype
         self.max_new_tokens = int(max_new_tokens)
+        self.artifact_sampler = artifact_sampler
         self._model = model
         self._processor = processor
 
@@ -206,6 +210,13 @@ class Qwen25VLSemanticJudge:
         return model, processor
 
     def runtime_provenance(self) -> dict[str, Any]:
+        sampling: dict[str, Any] = {"mode": "upstream_observer_sample"}
+        if self.artifact_sampler is not None:
+            sampling = {"mode": "independent_artifact_decode"}
+            for name in ("width", "height", "sample_fps", "max_frames"):
+                value = getattr(self.artifact_sampler, name, None)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    sampling[name] = value
         return {
             "schema": QWEN25VL_SEMANTIC_JUDGE_SCHEMA,
             "origin": "external_pretrained",
@@ -216,6 +227,7 @@ class Qwen25VLSemanticJudge:
             "measurement_method": "multimodal_model_judgment_of_ordered_decoded_frames",
             "prompt_schema": _PROMPT_SCHEMA_VERSION,
             "measured_metrics": list(QWEN25VL_METRICS),
+            "sampling": sampling,
             "device_map": self.device_map,
             "dtype": self.dtype,
             "limitations": [
@@ -246,7 +258,13 @@ class Qwen25VLSemanticJudge:
         shot: Any,
         attempt_index: int,
     ) -> dict[str, float]:
-        del artifact, attempt_index
+        del attempt_index
+        if self.artifact_sampler is not None:
+            sample = self.artifact_sampler(artifact)
+            if not isinstance(sample, RGBVideoSample):
+                raise Qwen25VLSemanticJudgeError(
+                    "specialist artifact sampler must return RGBVideoSample evidence"
+                )
         model, processor = self._load()
         images = self._pil_frames(sample)
         content = [{"type": "image"} for _ in images]
