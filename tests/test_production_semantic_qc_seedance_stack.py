@@ -57,7 +57,11 @@ def test_seedance_stack_has_disjoint_visual_and_av_metric_ownership(
             }
         )
     ]
-    visual = Qwen25VLSemanticJudge(model=object(), processor=object())
+    # This test exercises the production provenance graph rather than inference, so
+    # use the default pinned Qwen runtime declaration. Injected model/processor
+    # objects are intentionally research/test-only and must not attest production
+    # measurement evidence.
+    visual = Qwen25VLSemanticJudge()
     ensemble = build_seedance_challenge_semantic_scorer(
         _CoreScorer(),
         shots,
@@ -75,6 +79,9 @@ def test_seedance_stack_has_disjoint_visual_and_av_metric_ownership(
     components = {item["name"]: item for item in provenance["components"]}
     assert components["qwen25vl_visual_difficult_cases"]["scorer"]["origin"] == (
         "external_pretrained"
+    )
+    assert components["qwen25vl_visual_difficult_cases"]["scorer"]["runtime_source"] == (
+        "pinned_huggingface_snapshot"
     )
     assert components["latentsync_syncnet_av"]["scorer"]["origin"] == (
         "external_pretrained"
