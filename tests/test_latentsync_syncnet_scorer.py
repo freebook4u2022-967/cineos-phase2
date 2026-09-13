@@ -164,9 +164,7 @@ def test_multi_face_binding_rejects_out_of_range_track(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     scorer, repo, artifact = _scorer(tmp_path)
-    shot = _Shot(
-        [{"speaker_id": "lead", "speaker_face_track_index": 2}]
-    )
+    shot = _Shot([{"speaker_id": "lead", "speaker_face_track_index": 2}])
 
     def fake_run(command, **kwargs):
         if command[:3] == ["git", "-C", str(repo)]:
