@@ -247,7 +247,9 @@ class LatentSyncSyncNetScorer:
             ],
         }
 
-    def _run_syncnet(self, artifact_path: Path, *, work_root: Path) -> subprocess.CompletedProcess:
+    def _run_syncnet(
+        self, artifact_path: Path, *, work_root: Path
+    ) -> subprocess.CompletedProcess:
         env = os.environ.copy()
         existing_pythonpath = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = str(self.repository_root) + (
