@@ -316,7 +316,10 @@ def _validate_conditioning_binding(
         )
 
     consumed = conditioning.get("consumed_reference_ids")
-    if not isinstance(consumed, (list, tuple)) or tuple(consumed) != expected_references:
+    if (
+        not isinstance(consumed, (list, tuple))
+        or tuple(consumed) != expected_references
+    ):
         raise GPUProductionBenchmarkCLIError(
             f"shot {shot_index} conditioning references do not match the approved reference board"
         )
@@ -399,7 +402,9 @@ def _validate_per_shot_selection_binding(
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark is missing per-shot production evidence"
         )
-    if not isinstance(shot_receipts, Sequence) or isinstance(shot_receipts, (str, bytes)):
+    if not isinstance(shot_receipts, Sequence) or isinstance(
+        shot_receipts, (str, bytes)
+    ):
         raise GPUProductionBenchmarkCLIError(
             "connected benchmark shot receipts are malformed"
         )
@@ -448,7 +453,10 @@ def _validate_per_shot_selection_binding(
             )
 
         expected_hashes: tuple[str, ...] | None = None
-        if hasattr(result, "conditioning_provenance") and request.approved_reference_ids:
+        if (
+            hasattr(result, "conditioning_provenance")
+            and request.approved_reference_ids
+        ):
             if reference_manifest is None:
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} has production conditioning evidence without an approved reference manifest"
@@ -507,7 +515,10 @@ def _validate_per_shot_selection_binding(
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} runtime is missing approved reference asset provenance"
                 )
-            if reference_assets.get("manifest_sha256") != reference_loader.manifest_sha256:
+            if (
+                reference_assets.get("manifest_sha256")
+                != reference_loader.manifest_sha256
+            ):
                 raise GPUProductionBenchmarkCLIError(
                     f"shot {index} runtime reference manifest does not match approved manifest"
                 )
@@ -631,7 +642,9 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="Hash-pinned approved reference JSON manifest",
     )
-    parser.add_argument("--output-dir", required=True, help="Benchmark artifact directory")
+    parser.add_argument(
+        "--output-dir", required=True, help="Benchmark artifact directory"
+    )
     parser.add_argument(
         "--benchmark-id",
         default="cineos-connected-production",
