@@ -189,6 +189,7 @@ def test_component_declares_only_dialogue_lip_sync(tmp_path: Path) -> None:
     assert provenance["checkpoint_license"] == "OpenRAIL++"
     assert provenance["score_semantics"] == "binary_pass_fail_not_probability"
     assert provenance["face_track_policy"] == "exactly_one_detected_track_required"
-    assert "multi-face dialogue requires future speaker-bound face-track evaluation" in provenance[
-        "limitations"
-    ]
+    assert (
+        "multi-face dialogue requires future speaker-bound face-track evaluation"
+        in provenance["limitations"]
+    )
