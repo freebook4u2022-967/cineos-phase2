@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from cineos.atlas.latentsync_syncnet_scorer import LatentSyncSyncNetScorer
 from cineos.atlas.production_semantic_qc import (
+    VISUAL_DIFFICULT_CASE_CHALLENGES,
     build_seedance_challenge_semantic_scorer,
 )
 from cineos.atlas.qwen25vl_semantic_judge import (
@@ -77,13 +78,30 @@ def test_seedance_stack_has_disjoint_visual_and_av_metric_ownership(
 
     provenance = ensemble.runtime_provenance()
     components = {item["name"]: item for item in provenance["components"]}
-    assert components["qwen25vl_visual_difficult_cases"]["scorer"]["origin"] == (
-        "external_pretrained"
+    visual_component = components["qwen25vl_visual_difficult_cases"]
+    assert set(visual_component["required_challenges"]) == set(
+        VISUAL_DIFFICULT_CASE_CHALLENGES
     )
+    assert "dialogue" not in visual_component["required_challenges"]
+    assert "dialogue_lip_sync" not in visual_component["required_challenges"]
+    assert visual_component["scorer"]["origin"] == "external_pretrained"
     assert (
-        components["qwen25vl_visual_difficult_cases"]["scorer"]["runtime_source"]
+        visual_component["scorer"]["runtime_source"]
         == "pinned_huggingface_snapshot"
     )
     assert components["latentsync_syncnet_av"]["scorer"]["origin"] == (
         "external_pretrained"
     )
+
+
+def test_visual_difficult_case_activation_matches_qwen_owned_metrics() -> None:
+    expected = {
+        "multi_character_interaction",
+        "hands_anatomy",
+        "walking_running",
+        "object_interaction",
+        "fast_camera_movement",
+        "lighting_changes",
+        "physics",
+    }
+    assert set(VISUAL_DIFFICULT_CASE_CHALLENGES) == expected

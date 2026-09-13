@@ -29,9 +29,14 @@ from .semantic_video_ensemble import (
 )
 from .sequence_quality import CHALLENGE_METRIC_REQUIREMENTS
 
-PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.2"
+PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.3"
 CORE_SEMANTIC_METRICS = ("identity_similarity", "motion_quality")
 _CHALLENGE_METADATA_KEYS = ("competitive_challenges", "benchmark_challenges")
+VISUAL_DIFFICULT_CASE_CHALLENGES = tuple(
+    challenge
+    for challenge, metric in CHALLENGE_METRIC_REQUIREMENTS.items()
+    if metric in QWEN25VL_METRICS
+)
 
 
 class ProductionSemanticQCError(RuntimeError):
@@ -146,10 +151,13 @@ def build_seedance_challenge_semantic_scorer(
 ) -> ProductionSemanticScorerEnsemble:
     """Compose the audited difficult-case production scorer stack.
 
-    Qwen2.5-VL owns only the seven visual difficult-case metrics it actually judges.
-    LatentSync SyncNet independently owns dialogue lip-sync from real audio/video
-    evidence. Keeping the two components disjoint prevents a visual-only model from
-    satisfying the AV challenge and preserves transparent external-model provenance.
+    Qwen2.5-VL owns only the seven visual difficult-case metrics it actually judges
+    and is activated only when a shot declares at least one matching visual challenge.
+    This preserves the same fail-closed coverage while avoiding a large multimodal
+    inference on ordinary or dialogue-only shots. LatentSync SyncNet independently
+    owns dialogue lip-sync from real audio/video evidence. Keeping the components
+    disjoint prevents a visual-only model from satisfying the AV challenge and
+    preserves transparent external-model provenance.
     """
 
     if not isinstance(visual_judge, Qwen25VLSemanticJudge):
@@ -160,6 +168,7 @@ def build_seedance_challenge_semantic_scorer(
         name="qwen25vl_visual_difficult_cases",
         scorer=visual_judge,
         measured_metrics=QWEN25VL_METRICS,
+        required_challenges=VISUAL_DIFFICULT_CASE_CHALLENGES,
     )
     return build_production_semantic_scorer(
         core_scorer,
@@ -172,6 +181,7 @@ __all__ = [
     "CORE_SEMANTIC_METRICS",
     "PRODUCTION_SEMANTIC_QC_SCHEMA",
     "ProductionSemanticQCError",
+    "VISUAL_DIFFICULT_CASE_CHALLENGES",
     "build_production_semantic_scorer",
     "build_seedance_challenge_semantic_scorer",
     "required_semantic_metrics",
