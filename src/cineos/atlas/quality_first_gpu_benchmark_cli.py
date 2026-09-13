@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_transition_observer import SigLIP2ArtifactTransitionObserver
+from .artifact_video_observer import ArtifactVideoMetricObserver
+from .composite_semantic_scorer import CompositeSemanticVideoScorer
 from .gpu_benchmark_cli import (
     GPUProductionBenchmarkCLIError,
     _production_quality_evaluator,
@@ -39,6 +41,7 @@ from .production_foundation_selection import (
     select_strongest_production_foundation,
 )
 from .production_references import ProductionReferenceError, ProductionReferenceLoader
+from .qwen25vl_semantic_judge import Qwen25VLSemanticJudge
 from .sequence_quality import ArtifactMeasuredSequenceQualityEvaluator
 from .transition_quality import ArtifactMeasuredTransitionQualityEvaluator
 
@@ -69,6 +72,49 @@ class _PinnedSigLIP2BoundaryFeatureAdapter:
         return self.scorer._encode_images(self.scorer._pil_frames(sample))
 
 
+def _production_semantic_quality_evaluator(
+    requests: Sequence[NativeShotRequest],
+    reference_manifest: str | Path | None,
+) -> ArtifactMeasuredSequenceQualityEvaluator:
+    """Compose core identity/motion QC with the pinned difficult-case visual judge.
+
+    The generic production CLI intentionally keeps its historical SigLIP2-only
+    behavior.  The quality-first release path adds Qwen2.5-VL as an external,
+    provenance-preserving specialist so anatomy, interaction, locomotion, camera,
+    lighting and physics measurements participate in the same reject/rerender gate.
+    Dialogue lip-sync remains owned by the independent audio/visual specialist path.
+    """
+
+    base = _production_quality_evaluator(requests, reference_manifest)
+    observer = getattr(base, "metric_extractor", None)
+    primary = getattr(observer, "semantic_scorer", None)
+    if primary is None:
+        raise GPUProductionBenchmarkCLIError(
+            "production quality evaluator is missing its pinned primary semantic scorer"
+        )
+    try:
+        composite = CompositeSemanticVideoScorer(
+            primary,
+            specialists=(Qwen25VLSemanticJudge(),),
+        )
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise GPUProductionBenchmarkCLIError(
+            f"cannot initialize quality-first specialist semantic QC: {exc}"
+        ) from exc
+    sampler = getattr(observer, "sampler", None)
+    observer_id = getattr(observer, "observer_id", "cineos-artifact-video-observer/0.1")
+    composed_observer = ArtifactVideoMetricObserver(
+        composite,
+        sampler=sampler,
+        observer_id=observer_id,
+    )
+    if composed_observer.production_measurement_evidence is not True:
+        raise GPUProductionBenchmarkCLIError(
+            "quality-first specialist semantic QC did not attest measured evidence"
+        )
+    return ArtifactMeasuredSequenceQualityEvaluator(composed_observer)
+
+
 def _production_transition_evaluator(
     quality_evaluator: Any,
 ) -> ArtifactMeasuredTransitionQualityEvaluator:
@@ -80,6 +126,11 @@ def _production_transition_evaluator(
         raise GPUProductionBenchmarkCLIError(
             "production quality evaluator is missing its pinned semantic scorer"
         )
+    # Quality-first shot QC composes specialist scorers around the SigLIP2 primary.
+    # Seam QC still needs the primary feature encoder directly; unwrapping it here
+    # avoids loading a second SigLIP2 copy and does not attribute Qwen metrics to the
+    # transition observer.
+    scorer = getattr(scorer, "primary", scorer)
     feature_adapter = _PinnedSigLIP2BoundaryFeatureAdapter(scorer)
     transition_observer = SigLIP2ArtifactTransitionObserver(feature_adapter)
     if transition_observer.production_measurement_evidence is not True:
@@ -476,7 +527,9 @@ def run_quality_first_production_benchmark(
     except ProductionBenchmarkAttestationError as exc:
         raise GPUProductionBenchmarkCLIError(str(exc)) from exc
 
-    quality_evaluator = _production_quality_evaluator(requests, reference_manifest)
+    quality_evaluator = _production_semantic_quality_evaluator(
+        requests, reference_manifest
+    )
     transition_evaluator = (
         _production_transition_evaluator(quality_evaluator)
         if isinstance(quality_evaluator, ArtifactMeasuredSequenceQualityEvaluator)
