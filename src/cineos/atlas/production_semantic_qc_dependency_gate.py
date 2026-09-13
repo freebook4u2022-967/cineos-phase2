@@ -18,9 +18,10 @@ import hashlib
 import json
 import re
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from .latentsync_syncnet_scorer import LATENTSYNC_PINNED_REVISION
 from .qwen25vl_semantic_judge import QWEN25VL_MODEL_ID, QWEN25VL_MODEL_REVISION
