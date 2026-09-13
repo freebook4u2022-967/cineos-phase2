@@ -181,7 +181,9 @@ def evaluate_semantic_qc_dependencies(
     repository_exists = repository_path.is_dir()
     observed_revision = _git_head(repository_path) if repository_exists else None
     revision_ready = observed_revision == LATENTSYNC_PINNED_REVISION
-    repository_clean = _git_worktree_clean(repository_path) if repository_exists else False
+    repository_clean = (
+        _git_worktree_clean(repository_path) if repository_exists else False
+    )
     repository_ready = revision_ready and repository_clean
     if not revision_ready:
         blockers.append(
