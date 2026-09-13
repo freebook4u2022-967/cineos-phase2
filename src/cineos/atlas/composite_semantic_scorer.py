@@ -15,7 +15,7 @@ from typing import Any
 
 from .artifact_video_observer import RGBVideoSample
 
-COMPOSITE_SEMANTIC_SCORER_SCHEMA = "cineos-composite-semantic-scorer/0.2"
+COMPOSITE_SEMANTIC_SCORER_SCHEMA = "cineos-composite-semantic-scorer/0.3"
 _PRIMARY_METRICS = frozenset({"identity_similarity", "motion_quality"})
 _OBSERVER_METRICS = frozenset({"artifact_integrity", "temporal_consistency"})
 
@@ -120,7 +120,8 @@ class CompositeSemanticVideoScorer:
     publish runtime provenance. Specialist scorers must additionally declare exact
     metric ownership in ``measured_metrics``. They may add difficult-case metrics,
     but cannot replace identity/motion or observer-owned transport metrics. Duplicate
-    ownership fails closed so benchmark evidence always has one unambiguous source.
+    or undeclared ownership fails closed so benchmark evidence always has one
+    unambiguous source.
     """
 
     semantic_measurement_evidence = True
@@ -213,11 +214,11 @@ class CompositeSemanticVideoScorer:
                 "primary semantic scorer missing required metric(s): "
                 + ", ".join(missing)
             )
-        illegal_primary = sorted(_OBSERVER_METRICS.intersection(primary))
-        if illegal_primary:
+        undeclared_primary = sorted(set(primary) - _PRIMARY_METRICS)
+        if undeclared_primary:
             raise CompositeSemanticScorerError(
-                "semantic scorer cannot claim observer-owned metric(s): "
-                + ", ".join(illegal_primary)
+                "primary semantic scorer emitted metric(s) outside its attested ownership: "
+                + ", ".join(undeclared_primary)
             )
 
         merged = dict(primary)
