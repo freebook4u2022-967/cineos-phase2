@@ -1,8 +1,8 @@
 """Auditable composition of production semantic video QC scorers.
 
 CINEOS needs specialist evidence for difficult cases such as anatomy, object
-interaction, locomotion, physics, and dialogue lip-sync.  A single generic visual
-encoder must not be relabelled as proof of those capabilities.  This module therefore
+interaction, locomotion, physics, and dialogue lip-sync. A single generic visual
+encoder must not be relabelled as proof of those capabilities. This module therefore
 composes independently measured semantic scorers while preserving explicit metric
 ownership and runtime provenance for every component.
 
@@ -20,20 +20,53 @@ from typing import Any
 
 from .artifact_video_observer import RGBVideoSample
 
-SEMANTIC_SCORER_ENSEMBLE_SCHEMA = "cineos-semantic-video-scorer-ensemble/0.1"
+SEMANTIC_SCORER_ENSEMBLE_SCHEMA = "cineos-semantic-video-scorer-ensemble/0.2"
+_CHALLENGE_METADATA_KEYS = ("competitive_challenges", "benchmark_challenges")
 
 
 class SemanticScorerEnsembleError(RuntimeError):
     """Raised when specialist semantic evidence is ambiguous or unauditable."""
 
 
+def _shot_challenges(shot: Any) -> frozenset[str]:
+    """Return normalized challenge declarations used for specialist activation."""
+
+    metadata = getattr(shot, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return frozenset()
+    challenges: set[str] = set()
+    for key in _CHALLENGE_METADATA_KEYS:
+        raw = metadata.get(key)
+        if raw is None:
+            continue
+        if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
+            raise SemanticScorerEnsembleError(
+                f"shot semantic challenge metadata {key!r} must be a sequence"
+            )
+        for value in raw:
+            if not isinstance(value, str) or not value.strip():
+                raise SemanticScorerEnsembleError(
+                    f"shot semantic challenge metadata {key!r} contains an invalid tag"
+                )
+            challenges.add(value.strip())
+    return frozenset(challenges)
+
+
 @dataclass(frozen=True, slots=True)
 class SemanticScorerComponent:
-    """Bind one scorer to the exact metrics it is permitted to produce."""
+    """Bind one scorer to the exact metrics it is permitted to produce.
+
+    ``required_challenges`` scopes expensive or semantically inapplicable specialists
+    to shots that actually declare one of those benchmark challenges. An empty tuple
+    preserves the historical always-on behavior. This is especially important for
+    audiovisual lip-sync: running SyncNet on a non-dialogue shot would turn absence of
+    a speaking face into a false quality failure rather than useful evidence.
+    """
 
     name: str
     scorer: Any
     measured_metrics: tuple[str, ...]
+    required_challenges: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
@@ -55,17 +88,36 @@ class SemanticScorerComponent:
             raise ValueError(
                 "semantic scorer component cannot declare duplicate metrics"
             )
+        if not isinstance(self.required_challenges, tuple):
+            raise ValueError("semantic scorer component required_challenges must be a tuple")
+        normalized_challenges: list[str] = []
+        for challenge in self.required_challenges:
+            if not isinstance(challenge, str) or not challenge.strip():
+                raise ValueError(
+                    "semantic scorer required challenge names must be non-empty strings"
+                )
+            normalized_challenges.append(challenge.strip())
+        if len(set(normalized_challenges)) != len(normalized_challenges):
+            raise ValueError(
+                "semantic scorer component cannot declare duplicate required challenges"
+            )
         object.__setattr__(self, "name", self.name.strip())
         object.__setattr__(self, "measured_metrics", tuple(normalized))
+        object.__setattr__(
+            self, "required_challenges", tuple(normalized_challenges)
+        )
 
 
 class ProductionSemanticScorerEnsemble:
     """Compose disjoint specialist measurements without erasing provenance.
 
-    Every component owns an explicit metric set.  At inference time it must return
-    exactly that set, preventing an identity model from opportunistically emitting an
-    anatomy or lip-sync score that was never declared.  Production attestation is true
-    only when every child scorer explicitly attests measured semantic evidence.
+    Every component owns an explicit metric set. At inference time an active
+    component must return exactly that set, preventing an identity model from
+    opportunistically emitting anatomy or lip-sync evidence that was never declared.
+    Challenge-scoped components are skipped entirely when their declared benchmark
+    condition is absent; no synthetic or neutral score is fabricated. Production
+    attestation is true only when every child scorer explicitly attests measured
+    semantic evidence.
     """
 
     def __init__(self, components: Sequence[SemanticScorerComponent]) -> None:
@@ -143,6 +195,7 @@ class ProductionSemanticScorerEnsemble:
                 {
                     "name": component.name,
                     "measured_metrics": list(component.measured_metrics),
+                    "required_challenges": list(component.required_challenges),
                     "scorer": self._component_provenance(component),
                 }
             )
@@ -194,6 +247,14 @@ class ProductionSemanticScorerEnsemble:
             normalized[metric] = numeric
         return normalized
 
+    @staticmethod
+    def _component_applies(
+        component: SemanticScorerComponent, challenges: frozenset[str]
+    ) -> bool:
+        if not component.required_challenges:
+            return True
+        return bool(challenges.intersection(component.required_challenges))
+
     def __call__(
         self,
         sample: RGBVideoSample,
@@ -203,7 +264,10 @@ class ProductionSemanticScorerEnsemble:
         attempt_index: int,
     ) -> dict[str, float]:
         metrics: dict[str, float] = {}
+        challenges = _shot_challenges(shot)
         for component in self.components:
+            if not self._component_applies(component, challenges):
+                continue
             raw = component.scorer(
                 sample,
                 artifact=artifact,
@@ -211,8 +275,6 @@ class ProductionSemanticScorerEnsemble:
                 attempt_index=attempt_index,
             )
             measured = self._validated_component_metrics(component, raw)
-            # Constructor validation guarantees disjoint ownership; keep the runtime
-            # assertion as a corruption guard if state is ever deserialized/mutated.
             collisions = set(metrics).intersection(measured)
             if collisions:
                 raise SemanticScorerEnsembleError(

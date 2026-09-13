@@ -4,7 +4,7 @@ CINEOS does not claim the SyncNet weights or LatentSync code as native capabilit
 This adapter runs an explicitly pinned external checkout against the rendered artifact,
 verifies the configured checkpoint bytes, parses real audiovisual confidence/offset
 measurements, and exposes a conservative pass/fail score to the production semantic
-ensemble.  It exists specifically so visual-only judges are never mislabeled as
+ensemble. It exists specifically so visual-only judges are never mislabeled as
 mouth-to-dialogue synchronization evidence.
 """
 
@@ -22,12 +22,13 @@ from typing import Any
 from .artifact_video_observer import RGBVideoSample
 from .semantic_video_ensemble import SemanticScorerComponent
 
-LATENTSYNC_SYNCNET_SCHEMA = "cineos-latentsync-syncnet-av-qc/0.1"
+LATENTSYNC_SYNCNET_SCHEMA = "cineos-latentsync-syncnet-av-qc/0.2"
 LATENTSYNC_REPOSITORY = "bytedance/LatentSync"
 LATENTSYNC_PINNED_REVISION = "a229c3948406bc2cf6eaf4873e662e70c6a04746"
 LATENTSYNC_CODE_LICENSE = "Apache-2.0"
 LATENTSYNC_CHECKPOINT_LICENSE = "OpenRAIL++"
 DIALOGUE_LIP_SYNC_METRIC = "dialogue_lip_sync"
+DIALOGUE_CHALLENGES = ("dialogue", "dialogue_lip_sync")
 
 _CONFIDENCE_RE = re.compile(r"SyncNet confidence:\s*([-+]?\d+(?:\.\d+)?)")
 _OFFSET_RE = re.compile(r"AV offset:\s*([-+]?\d+)")
@@ -52,9 +53,9 @@ class LatentSyncSyncNetScorer:
     """Measure AV synchrony with a hash-bound, revision-pinned LatentSync SyncNet.
 
     Upstream SyncNet confidence is not a calibrated probability, so CINEOS does not
-    pretend that it is one.  The production quality metric is deliberately binary:
+    pretend that it is one. The production quality metric is deliberately binary:
     1.0 only when both the measured confidence floor and absolute AV-offset bound pass,
-    otherwise 0.0.  The raw measurements and thresholds remain in runtime provenance.
+    otherwise 0.0. The raw measurements and thresholds remain in runtime provenance.
     """
 
     semantic_measurement_evidence = True
@@ -223,7 +224,7 @@ class LatentSyncSyncNetScorer:
 def latentsync_syncnet_component(
     scorer: LatentSyncSyncNetScorer,
 ) -> SemanticScorerComponent:
-    """Expose the AV scorer with exact metric ownership to the semantic ensemble."""
+    """Expose AV scoring only on shots that explicitly declare dialogue."""
 
     if not isinstance(scorer, LatentSyncSyncNetScorer):
         raise TypeError("scorer must be LatentSyncSyncNetScorer")
@@ -231,10 +232,12 @@ def latentsync_syncnet_component(
         name="latentsync_syncnet_av",
         scorer=scorer,
         measured_metrics=(DIALOGUE_LIP_SYNC_METRIC,),
+        required_challenges=DIALOGUE_CHALLENGES,
     )
 
 
 __all__ = [
+    "DIALOGUE_CHALLENGES",
     "DIALOGUE_LIP_SYNC_METRIC",
     "LATENTSYNC_CHECKPOINT_LICENSE",
     "LATENTSYNC_CODE_LICENSE",
