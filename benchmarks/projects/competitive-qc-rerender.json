@@ -1,0 +1,1 @@
+{"fixture_version":"1.0","case_id":"competitive-qc-rerender","deterministic":true,"benchmark_challenges":["automatic_qc","rerender"],"forced_rejection_required":true,"real_inference_required":true}

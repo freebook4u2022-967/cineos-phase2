@@ -14,6 +14,13 @@ from .exceptions import (
 )
 from .export import AudioExporter
 from .lipsync import LipSyncMetadata
+from .lipsync_qc import (
+    ExternalLipSyncAnalyzer,
+    LipSyncQCError,
+    LipSyncQualityEvidence,
+    LipSyncThresholds,
+    validate_lipsync_quality_evidence,
+)
 from .mixer import Mixer, MixInput
 from .music import MusicCue, MusicSourceType
 from .project import AudioProject, MixSettings
@@ -47,9 +54,13 @@ __all__ = [
     "CueType",
     "DialogueCue",
     "EffectsPlanner",
+    "ExternalLipSyncAnalyzer",
     "FakeDeterministicProvider",
     "FakeProvider",
     "LipSyncMetadata",
+    "LipSyncQCError",
+    "LipSyncQualityEvidence",
+    "LipSyncThresholds",
     "LocalProvider",
     "MixInput",
     "MixSettings",
@@ -69,4 +80,5 @@ __all__ = [
     "VoiceProfile",
     "load",
     "save",
+    "validate_lipsync_quality_evidence",
 ]

@@ -2,6 +2,13 @@
 
 from .assembly import assemble
 from .build import BuildStatus, FilmBuild
+from .checkpoint import (
+    CHECKPOINT_SCHEMA_VERSION,
+    CheckpointError,
+    load_checkpoint,
+    load_checkpoint_runtime_state,
+    save_checkpoint,
+)
 from .orchestrator import FilmOrchestrator
 from .report import build_report
 from .serializer import load, save
@@ -9,11 +16,16 @@ from .shot_state import ShotState
 
 __all__ = [
     "BuildStatus",
+    "CHECKPOINT_SCHEMA_VERSION",
+    "CheckpointError",
     "FilmBuild",
     "FilmOrchestrator",
     "ShotState",
     "assemble",
     "build_report",
     "load",
+    "load_checkpoint",
+    "load_checkpoint_runtime_state",
     "save",
+    "save_checkpoint",
 ]

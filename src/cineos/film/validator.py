@@ -18,10 +18,19 @@ def file_hash(path: str | Path) -> str:
 
 
 def validate_reusable_output(path: str | Path, expected_hash: str | None) -> bool:
-    """Only permit resume reuse when the recorded hash still matches."""
+    """Only permit resume reuse when the recorded hash still matches.
+
+    Missing, empty, unreadable, or otherwise invalid artifacts are normal recovery
+    inputs during resume, not fatal validator errors. Return ``False`` so the
+    orchestrator can safely regenerate them while ``file_hash`` remains strict for
+    newly accepted renderer outputs.
+    """
     if not expected_hash:
         return False
-    return file_hash(path) == expected_hash
+    try:
+        return file_hash(path) == expected_hash
+    except (OSError, ValidationError):
+        return False
 
 
 class ShotValidator:

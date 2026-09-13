@@ -1,0 +1,442 @@
+name: GPU connected production benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      requests_path:
+        description: Path to a committed 5-10 shot native request JSON manifest
+        required: true
+      reference_manifest_path:
+        description: Path to committed hash-pinned approved reference JSON manifest
+        required: true
+      benchmark_id:
+        description: Stable benchmark evidence identifier
+        required: true
+        default: cineos-connected-production
+      continuity_identity_refresh:
+        description: Run experimental predecessor-frame plus fresh-reference candidate
+        required: true
+        type: boolean
+        default: false
+      latentsync_repository_path:
+        description: Absolute path to pinned external LatentSync checkout on the GPU runner
+        required: true
+      latentsync_checkpoint_path:
+        description: Absolute path to approved LatentSync SyncNet checkpoint on the GPU runner
+        required: true
+      latentsync_checkpoint_sha256:
+        description: Approved lowercase SHA-256 for the SyncNet checkpoint bytes
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  connected-production:
+    runs-on: [self-hosted, linux, x64, gpu]
+    timeout-minutes: 360
+    steps:
+      - name: Check out requested revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CINEOS video runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[video]"
+
+      - name: Verify benchmark inputs exist
+        run: |
+          test -f "${{ inputs.requests_path }}"
+          test -f "${{ inputs.reference_manifest_path }}"
+          test -f "benchmarks/projects/competitive-connected-film.json"
+
+      - name: Fail closed on unavailable production dependencies before model acquisition
+        env:
+          REQUESTS_PATH: ${{ inputs.requests_path }}
+          REFERENCE_MANIFEST_PATH: ${{ inputs.reference_manifest_path }}
+          OUTPUT_DIR: ${{ runner.temp }}/cineos-connected-production
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          from cineos.atlas.gpu_benchmark_cli import load_native_requests
+          from cineos.atlas.production_dependency_gate import (
+              IdentityAssetRequirement,
+              collect_cuda_capacity,
+              evaluate_production_dependencies,
+          )
+          from cineos.atlas.production_references import REFERENCE_MANIFEST_SCHEMA
+
+          requests = load_native_requests(os.environ["REQUESTS_PATH"])
+          manifest_path = Path(os.environ["REFERENCE_MANIFEST_PATH"])
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if not isinstance(manifest, dict) or manifest.get("schema") != REFERENCE_MANIFEST_SCHEMA:
+              raise SystemExit("production dependency gate received unsupported reference manifest")
+          raw_references = manifest.get("references")
+          if not isinstance(raw_references, list):
+              raise SystemExit("production dependency gate requires a references array")
+
+          requested_reference_ids = tuple(
+              dict.fromkeys(
+                  reference_id
+                  for request in requests
+                  for reference_id in request.approved_reference_ids
+              )
+          )
+          manifest_entries = {}
+          for index, entry in enumerate(raw_references):
+              if not isinstance(entry, dict):
+                  raise SystemExit(f"reference manifest entry {index} must be an object")
+              reference_id = entry.get("reference_id")
+              raw_path = entry.get("path")
+              digest = entry.get("sha256")
+              if not isinstance(reference_id, str) or not reference_id.strip():
+                  raise SystemExit(f"reference manifest entry {index} has invalid reference_id")
+              normalized_id = reference_id.strip()
+              if normalized_id in manifest_entries:
+                  raise SystemExit(f"duplicate approved reference_id: {normalized_id!r}")
+              if not isinstance(raw_path, str) or not raw_path.strip():
+                  raise SystemExit(f"approved reference {normalized_id!r} has invalid path")
+              if not isinstance(digest, str):
+                  raise SystemExit(f"approved reference {normalized_id!r} has invalid sha256")
+              path = Path(raw_path)
+              if not path.is_absolute():
+                  path = manifest_path.parent / path
+              manifest_entries[normalized_id] = (path, digest)
+
+          missing_ids = sorted(set(requested_reference_ids) - set(manifest_entries))
+          if missing_ids:
+              raise SystemExit(
+                  "production dependency gate manifest is missing requested ids: "
+                  + ", ".join(missing_ids)
+              )
+          identity_assets = tuple(
+              IdentityAssetRequirement(*manifest_entries[reference_id])
+              for reference_id in requested_reference_ids
+          )
+          report = evaluate_production_dependencies(
+              cuda_devices=collect_cuda_capacity(),
+              identity_assets=identity_assets,
+              ffmpeg_available=shutil.which("ffmpeg") is not None,
+              ffprobe_available=shutil.which("ffprobe") is not None,
+              quality_profile_required=False,
+          )
+          output_dir = Path(os.environ["OUTPUT_DIR"])
+          output_dir.mkdir(parents=True, exist_ok=True)
+          report_path = output_dir / "production-dependency-readiness.json"
+          report_path.write_text(
+              json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(report_path.read_text(encoding="utf-8"), end="")
+          if not report.ready:
+              raise SystemExit(
+                  "production dependency gate blocked model acquisition: "
+                  + ", ".join(report.blocking_dependencies)
+              )
+          PY
+          test -s "${{ runner.temp }}/cineos-connected-production/production-dependency-readiness.json"
+
+      - name: Preflight connected production inputs before model acquisition
+        run: |
+          output_dir="${{ runner.temp }}/cineos-connected-production"
+          mkdir -p "$output_dir"
+          python -m cineos.atlas.production_input_preflight \
+            --requests "${{ inputs.requests_path }}" \
+            --reference-manifest "${{ inputs.reference_manifest_path }}" \
+            | tee "$output_dir/production-input-preflight.json"
+          test -s "$output_dir/production-input-preflight.json"
+
+      - name: Bind canonical connected-film benchmark to executable requests
+        run: |
+          output_dir="${{ runner.temp }}/cineos-connected-production"
+          python -m cineos.atlas.connected_benchmark_fixture_preflight \
+            --requests "${{ inputs.requests_path }}" \
+            --benchmark-fixture "benchmarks/projects/competitive-connected-film.json" \
+            | tee "$output_dir/connected-benchmark-fixture-preflight.json"
+          test -s "$output_dir/connected-benchmark-fixture-preflight.json"
+
+      - name: Select strongest safe production foundation on live CUDA runner
+        env:
+          REQUESTS_PATH: ${{ inputs.requests_path }}
+          OUTPUT_DIR: ${{ runner.temp }}/cineos-connected-production
+        run: |
+          nvidia-smi
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from cineos.atlas.gpu_benchmark_cli import load_native_requests
+          from cineos.atlas.gpu_preflight import inspect_cuda_environment
+          from cineos.atlas.production_foundation_selection import (
+              select_strongest_production_foundation,
+          )
+
+          requests = load_native_requests(os.environ["REQUESTS_PATH"])
+          devices = inspect_cuda_environment()
+          selection = select_strongest_production_foundation(devices, requests)
+          plan = selection.plan
+          output_dir = Path(os.environ["OUTPUT_DIR"])
+          output_dir.mkdir(parents=True, exist_ok=True)
+          selection_path = output_dir / "foundation-selection-preacquisition.json"
+          selection_path.write_text(
+              json.dumps(selection.to_dict(), indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(f"profile_id={selection.profile.profile_id}")
+          print(f"foundation_model_id={selection.profile.provenance.model_id}")
+          print(f"foundation_revision={selection.profile.provenance.revision}")
+          print(f"fallback_used={selection.fallback_used}")
+          print(f"selected_device={plan.device}")
+          print(f"memory_strategy={plan.memory_strategy}")
+          print(f"dtype={plan.dtype}")
+          print(f"observed_total_vram_gb={plan.observed_total_vram_gb:.2f}")
+          if plan.observed_free_vram_gb is not None:
+              print(f"observed_free_vram_gb={plan.observed_free_vram_gb:.2f}")
+          print(f"estimated_model_vram_gb={plan.estimated_model_vram_gb:.2f}")
+          print(f"fit_margin_gb={plan.fit_margin_gb:.2f}")
+          print(f"selection_evidence={selection_path}")
+          for reason in selection.rejected_profiles:
+              print(f"rejected_profile={reason}")
+          PY
+          test -s "${{ runner.temp }}/cineos-connected-production/foundation-selection-preacquisition.json"
+
+      - name: Prefetch and verify selected immutable foundation and QC snapshots
+        env:
+          HF_HOME: ${{ runner.temp }}/cineos-hf-cache
+          SELECTION_PATH: ${{ runner.temp }}/cineos-connected-production/foundation-selection-preacquisition.json
+          OUTPUT_DIR: ${{ runner.temp }}/cineos-connected-production
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from huggingface_hub import snapshot_download
+
+          from cineos.atlas.foundation_snapshot_integrity import (
+              write_foundation_snapshot_manifest,
+          )
+          from cineos.atlas.qwen25vl_semantic_judge import (
+              QWEN25VL_MODEL_ID,
+              QWEN25VL_MODEL_REVISION,
+          )
+          from cineos.atlas.siglip2_video_scorer import (
+              SIGLIP2_QC_MODEL_ID,
+              SIGLIP2_QC_REVISION,
+          )
+
+          selection = json.loads(Path(os.environ["SELECTION_PATH"]).read_text(encoding="utf-8"))
+          model_id = selection.get("model_id")
+          revision = selection.get("revision")
+          profile_id = selection.get("profile_id")
+          origin = selection.get("origin")
+          if not isinstance(profile_id, str) or not profile_id:
+              raise SystemExit("pre-acquisition foundation selection is missing profile_id")
+          if origin != "external_pretrained_foundation":
+              raise SystemExit("pre-acquisition foundation selection has invalid origin")
+          if not isinstance(model_id, str) or not model_id:
+              raise SystemExit("pre-acquisition foundation selection is missing model_id")
+          if not isinstance(revision, str) or not revision:
+              raise SystemExit("production foundation profile is not revision-pinned")
+
+          snapshot_path = Path(
+              snapshot_download(
+                  repo_id=model_id,
+                  revision=revision,
+              )
+          ).resolve()
+          resolved_revision = snapshot_path.name
+          if resolved_revision != revision:
+              raise SystemExit(
+                  "foundation snapshot resolved to unexpected revision: "
+                  f"expected={revision} resolved={resolved_revision}"
+              )
+
+          output_dir = Path(os.environ["OUTPUT_DIR"])
+          integrity_path = output_dir / "foundation-snapshot-integrity.json"
+          integrity = write_foundation_snapshot_manifest(
+              snapshot_path,
+              integrity_path,
+              profile_id=profile_id,
+              model_id=model_id,
+              revision=revision,
+          )
+
+          qc_snapshot_path = Path(
+              snapshot_download(
+                  repo_id=SIGLIP2_QC_MODEL_ID,
+                  revision=SIGLIP2_QC_REVISION,
+              )
+          ).resolve()
+          resolved_qc_revision = qc_snapshot_path.name
+          if resolved_qc_revision != SIGLIP2_QC_REVISION:
+              raise SystemExit(
+                  "QC snapshot resolved to unexpected revision: "
+                  f"expected={SIGLIP2_QC_REVISION} resolved={resolved_qc_revision}"
+              )
+
+          qwen_snapshot_path = Path(
+              snapshot_download(
+                  repo_id=QWEN25VL_MODEL_ID,
+                  revision=QWEN25VL_MODEL_REVISION,
+              )
+          ).resolve()
+          resolved_qwen_revision = qwen_snapshot_path.name
+          if resolved_qwen_revision != QWEN25VL_MODEL_REVISION:
+              raise SystemExit(
+                  "Qwen2.5-VL specialist-QC snapshot resolved to unexpected revision: "
+                  f"expected={QWEN25VL_MODEL_REVISION} resolved={resolved_qwen_revision}"
+              )
+
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"CINEOS_FOUNDATION_SNAPSHOT={snapshot_path}\n")
+              env_file.write(f"CINEOS_FOUNDATION_INTEGRITY_MANIFEST={integrity_path}\n")
+              env_file.write(f"CINEOS_QWEN25VL_SNAPSHOT={qwen_snapshot_path}\n")
+
+          print(f"foundation_profile_id={profile_id}")
+          print(f"foundation_model_id={model_id}")
+          print(f"foundation_revision={revision}")
+          print(f"foundation_snapshot={snapshot_path}")
+          print(f"foundation_file_count={integrity.file_count}")
+          print(f"foundation_total_bytes={integrity.total_bytes}")
+          print(f"foundation_tree_sha256={integrity.tree_sha256}")
+          print(f"foundation_integrity_manifest={integrity_path}")
+          print(f"qc_model_id={SIGLIP2_QC_MODEL_ID}")
+          print(f"qc_revision={SIGLIP2_QC_REVISION}")
+          print(f"qc_snapshot={qc_snapshot_path}")
+          print(f"specialist_qc_model_id={QWEN25VL_MODEL_ID}")
+          print(f"specialist_qc_revision={QWEN25VL_MODEL_REVISION}")
+          print(f"specialist_qc_snapshot={qwen_snapshot_path}")
+          PY
+          test -s "${{ runner.temp }}/cineos-connected-production/foundation-snapshot-integrity.json"
+
+      - name: Fail closed on specialist semantic QC dependencies before inference
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/cineos-connected-production
+          LATENTSYNC_REPOSITORY_PATH: ${{ inputs.latentsync_repository_path }}
+          LATENTSYNC_CHECKPOINT_PATH: ${{ inputs.latentsync_checkpoint_path }}
+          LATENTSYNC_CHECKPOINT_SHA256: ${{ inputs.latentsync_checkpoint_sha256 }}
+        run: |
+          python -m cineos.atlas.production_semantic_qc_dependency_gate \
+            --qwen-snapshot "$CINEOS_QWEN25VL_SNAPSHOT" \
+            --latentsync-repository "$LATENTSYNC_REPOSITORY_PATH" \
+            --latentsync-checkpoint "$LATENTSYNC_CHECKPOINT_PATH" \
+            --latentsync-checkpoint-sha256 "$LATENTSYNC_CHECKPOINT_SHA256" \
+            | tee "$OUTPUT_DIR/production-semantic-qc-dependency-readiness.json"
+          test -s "$OUTPUT_DIR/production-semantic-qc-dependency-readiness.json"
+
+      - name: Verify acquired foundation bytes immediately before inference
+        run: |
+          python - <<'PY'
+          import os
+          from cineos.atlas.foundation_snapshot_integrity import verify_foundation_snapshot_manifest
+
+          evidence = verify_foundation_snapshot_manifest(
+              os.environ["CINEOS_FOUNDATION_SNAPSHOT"],
+              os.environ["CINEOS_FOUNDATION_INTEGRITY_MANIFEST"],
+          )
+          print(f"verified_foundation_tree_sha256={evidence.tree_sha256}")
+          PY
+
+      - name: Revalidate exact request bundle immediately before inference
+        run: |
+          python -m cineos.atlas.production_request_bundle_attestation \
+            --requests "${{ inputs.requests_path }}" \
+            --preflight "${{ runner.temp }}/cineos-connected-production/connected-benchmark-fixture-preflight.json" \
+            | tee "${{ runner.temp }}/cineos-connected-production/request-bundle-inference-gate.json"
+          test -s "${{ runner.temp }}/cineos-connected-production/request-bundle-inference-gate.json"
+
+      - name: Run quality-first connected GPU benchmark with production visual QC
+        env:
+          HF_HOME: ${{ runner.temp }}/cineos-hf-cache
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+          CONTINUITY_IDENTITY_REFRESH: ${{ inputs.continuity_identity_refresh }}
+        run: |
+          refresh_args=()
+          if [[ "$CONTINUITY_IDENTITY_REFRESH" == "true" ]]; then
+            refresh_args+=(--continuity-identity-refresh)
+          fi
+          python -m cineos.atlas.quality_first_gpu_benchmark_cli \
+            --requests "${{ inputs.requests_path }}" \
+            --reference-manifest "${{ inputs.reference_manifest_path }}" \
+            --output-dir "${{ runner.temp }}/cineos-connected-production" \
+            --benchmark-id "${{ inputs.benchmark_id }}" \
+            "${refresh_args[@]}"
+
+      - name: Bind accepted renders to exact preflight request bundle
+        run: |
+          python -m cineos.atlas.production_request_bundle_attestation \
+            --requests "${{ inputs.requests_path }}" \
+            --preflight "${{ runner.temp }}/cineos-connected-production/connected-benchmark-fixture-preflight.json" \
+            --quality-attestation "${{ runner.temp }}/cineos-connected-production/quality-first-production-attestation.json" \
+            --output-dir "${{ runner.temp }}/cineos-connected-production"
+          test -s "${{ runner.temp }}/cineos-connected-production/production-request-bundle-attestation.json"
+
+      - name: Verify foundation bytes remained unchanged through inference
+        run: |
+          python - <<'PY'
+          import os
+          from cineos.atlas.foundation_snapshot_integrity import verify_foundation_snapshot_manifest
+
+          evidence = verify_foundation_snapshot_manifest(
+              os.environ["CINEOS_FOUNDATION_SNAPSHOT"],
+              os.environ["CINEOS_FOUNDATION_INTEGRITY_MANIFEST"],
+          )
+          print(f"post_inference_foundation_tree_sha256={evidence.tree_sha256}")
+          PY
+
+      - name: Verify execution did not drift from acquired foundation
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/cineos-connected-production
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["OUTPUT_DIR"])
+          acquired = json.loads(
+              (root / "foundation-selection-preacquisition.json").read_text(encoding="utf-8")
+          )
+          executed = json.loads(
+              (root / "foundation-selection.json").read_text(encoding="utf-8")
+          )
+          binding_fields = (
+              "profile_id",
+              "origin",
+              "model_id",
+              "revision",
+              "license_id",
+              "source_url",
+              "foundation_name",
+          )
+          drift = {
+              field: (acquired.get(field), executed.get(field))
+              for field in binding_fields
+              if acquired.get(field) != executed.get(field)
+          }
+          if drift:
+              raise SystemExit(f"foundation selection drifted after acquisition: {drift}")
+          print("foundation acquisition/execution binding verified")
+          PY
+
+      - name: Upload production GPU evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cineos-connected-production-${{ github.run_id }}
+          path: ${{ runner.temp }}/cineos-connected-production
+          if-no-files-found: error
+          retention-days: 30

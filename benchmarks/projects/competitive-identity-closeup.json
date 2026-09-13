@@ -1,0 +1,1 @@
+{"fixture_version":"1.0","case_id":"competitive-identity-closeup","deterministic":true,"benchmark_challenges":["identity_lock","reference_image"],"real_inference_required":true}

@@ -20,13 +20,20 @@ class DiffusersBackend:
         attention_slicing: bool,
         vae_slicing: bool,
         cpu_offload: bool,
+        allow_remote_model: bool = False,
+        model_revision: str | None = None,
+        trust_remote_code: bool = False,
     ) -> None:
         import torch
         from diffusers import DiffusionPipeline
 
         dtype = getattr(torch, precision)
         self.pipeline = DiffusionPipeline.from_pretrained(
-            model_path, torch_dtype=dtype, local_files_only=True
+            model_path,
+            torch_dtype=dtype,
+            local_files_only=not allow_remote_model,
+            revision=model_revision,
+            trust_remote_code=trust_remote_code,
         )
         self.torch = torch
         if attention_slicing and hasattr(self.pipeline, "enable_attention_slicing"):

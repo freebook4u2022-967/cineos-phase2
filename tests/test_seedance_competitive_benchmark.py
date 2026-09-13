@@ -1,0 +1,181 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from cineos.benchmarks.exceptions import BenchmarkError
+from cineos.benchmarks.metrics import METRIC_NAMES
+from cineos.benchmarks.runner import BenchmarkRunner
+from cineos.benchmarks.seedance_competitive import seedance_competitive_suite
+
+
+def test_seedance_competitive_suite_covers_required_difficult_cases():
+    suite = seedance_competitive_suite()
+
+    assert suite.target_platform == "gpu"
+    assert suite.metadata["real_inference"] is True
+    assert suite.metadata["minimum_connected_shots"] == 5
+    assert suite.metadata["maximum_connected_shots"] == 10
+    assert len(suite.cases) == 10
+    assert all(case.mandatory and case.slow for case in suite.cases)
+    assert all(case.hardware_requirements["gpu"] is True for case in suite.cases)
+    assert all(
+        case.hardware_requirements["real_inference"] is True for case in suite.cases
+    )
+
+    case_ids = {case.case_id for case in suite.cases}
+    assert case_ids == {
+        "competitive-identity-closeup",
+        "competitive-two-character-dialogue",
+        "competitive-hands-object",
+        "competitive-walk-run",
+        "competitive-fast-camera",
+        "competitive-lighting-transition",
+        "competitive-physics-weather",
+        "competitive-scene-boundary",
+        "competitive-qc-rerender",
+        "competitive-connected-film",
+    }
+
+
+def test_default_competitive_fixtures_exist_and_bind_to_declared_cases():
+    suite = seedance_competitive_suite()
+
+    for case in suite.cases:
+        fixture_path = Path(case.project_fixture)
+        assert fixture_path.is_file(), f"missing benchmark fixture: {fixture_path}"
+        payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+        assert payload["case_id"] == case.case_id
+        assert payload["deterministic"] is True
+        assert payload["real_inference_required"] is True
+        assert tuple(payload["benchmark_challenges"]) == case.renderer_requirements
+
+    dialogue = json.loads(
+        Path("benchmarks/projects/competitive-two-character-dialogue.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert dialogue["minimum_character_count"] >= 2
+
+    connected = json.loads(
+        Path("benchmarks/projects/competitive-connected-film.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert (
+        connected["minimum_connected_shots"]
+        == suite.metadata["minimum_connected_shots"]
+    )
+    assert (
+        connected["maximum_connected_shots"]
+        == suite.metadata["maximum_connected_shots"]
+    )
+
+
+def test_connected_film_gate_requires_complete_film_signals():
+    suite = seedance_competitive_suite()
+    connected = next(
+        case for case in suite.cases if case.case_id.endswith("connected-film")
+    )
+
+    assert connected.renderer_requirements == (
+        "identity_lock",
+        "scene_memory",
+        "automatic_qc",
+        "audio",
+        "film_assembly",
+    )
+    assert connected.expected_outputs == (
+        "report.json",
+        "render_receipt.json",
+        "output.mp4",
+    )
+    assert connected.validation_thresholds["execution_success"] == 1.0
+    assert connected.validation_thresholds["render_completion_rate"] == 1.0
+    assert connected.validation_thresholds["final_assembly_success"] == 1.0
+    assert connected.validation_thresholds["identity_score"] >= 0.88
+    assert connected.validation_thresholds["temporal_stability"] >= 0.84
+
+
+def test_qc_case_requires_reject_rerender_recovery_path():
+    suite = seedance_competitive_suite()
+    qc = next(case for case in suite.cases if case.case_id.endswith("qc-rerender"))
+
+    assert qc.renderer_requirements == ("automatic_qc", "rerender")
+    assert qc.validation_thresholds == {
+        "validation_pass_rate": 1.0,
+        "render_completion_rate": 1.0,
+    }
+
+
+def test_difficult_cases_require_direct_measured_quality_signals():
+    suite = seedance_competitive_suite()
+    by_id = {case.case_id: case for case in suite.cases}
+
+    assert suite.suite_version == "1.1.0"
+    assert (
+        by_id["competitive-hands-object"].validation_thresholds[
+            "anatomy_integrity_score"
+        ]
+        >= 0.86
+    )
+    assert (
+        by_id["competitive-hands-object"].validation_thresholds[
+            "contact_consistency_score"
+        ]
+        >= 0.84
+    )
+    assert (
+        by_id["competitive-walk-run"].validation_thresholds[
+            "locomotion_coherence_score"
+        ]
+        >= 0.84
+    )
+    assert (
+        by_id["competitive-walk-run"].validation_thresholds["anatomy_integrity_score"]
+        >= 0.86
+    )
+    assert (
+        by_id["competitive-fast-camera"].validation_thresholds[
+            "camera_motion_coherence_score"
+        ]
+        >= 0.82
+    )
+    assert (
+        by_id["competitive-physics-weather"].validation_thresholds[
+            "physics_consistency_score"
+        ]
+        >= 0.82
+    )
+
+    threshold_names = {
+        name for case in suite.cases for name in case.validation_thresholds
+    }
+    assert threshold_names <= set(METRIC_NAMES)
+
+
+def test_competitive_suite_hash_is_stable_and_foundation_provenance_is_explicit():
+    first = seedance_competitive_suite()
+    second = seedance_competitive_suite()
+
+    assert first.content_hash == second.content_hash
+    assert (
+        first.metadata["foundation_origin_required"] == "external_pretrained_foundation"
+    )
+    assert "conditioning" in first.metadata["cineos_owned_layers"]
+    assert "automatic_qc" in first.metadata["cineos_owned_layers"]
+
+
+def test_generic_runner_cannot_fake_real_inference_competitive_pass(tmp_path):
+    suite = seedance_competitive_suite()
+
+    with pytest.raises(BenchmarkError, match="real-inference benchmark suites"):
+        BenchmarkRunner().run(
+            suite,
+            tmp_path,
+            include_slow=True,
+            hardware_profile="gpu",
+            dry_run=True,
+        )
+
+    assert not (tmp_path / "report.json").exists()
