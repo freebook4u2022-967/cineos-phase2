@@ -6,6 +6,12 @@ verifies the configured checkpoint bytes, parses real audiovisual confidence/off
 measurements, and exposes a conservative pass/fail score to the production semantic
 ensemble. It exists specifically so visual-only judges are never mislabeled as
 mouth-to-dialogue synchronization evidence.
+
+The pinned upstream evaluator averages SyncNet measurements across every detected face
+track. That aggregate is not speaker-specific evidence when multiple faces are present.
+Production evidence therefore fails closed unless upstream produced exactly one face
+track for the evaluated artifact. This keeps multi-face dialogue from being credited
+until CINEOS has speaker-bound face-track evaluation rather than an ambiguous average.
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ from typing import Any
 from .artifact_video_observer import RGBVideoSample
 from .semantic_video_ensemble import SemanticScorerComponent
 
-LATENTSYNC_SYNCNET_SCHEMA = "cineos-latentsync-syncnet-av-qc/0.2"
+LATENTSYNC_SYNCNET_SCHEMA = "cineos-latentsync-syncnet-av-qc/0.3"
 LATENTSYNC_REPOSITORY = "bytedance/LatentSync"
 LATENTSYNC_PINNED_REVISION = "a229c3948406bc2cf6eaf4873e662e70c6a04746"
 LATENTSYNC_CODE_LICENSE = "Apache-2.0"
@@ -49,13 +55,31 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _detected_face_track_count(temp_root: Path) -> int:
+    """Count the exact face-track artifacts emitted by the pinned upstream detector."""
+
+    crop_dir = temp_root / "detect_results" / "crop"
+    if not crop_dir.is_dir():
+        return 0
+    return sum(
+        1
+        for path in crop_dir.iterdir()
+        if path.is_file() and path.suffix.lower() == ".mp4"
+    )
+
+
 class LatentSyncSyncNetScorer:
     """Measure AV synchrony with a hash-bound, revision-pinned LatentSync SyncNet.
 
     Upstream SyncNet confidence is not a calibrated probability, so CINEOS does not
     pretend that it is one. The production quality metric is deliberately binary:
-    1.0 only when both the measured confidence floor and absolute AV-offset bound pass,
+    1.0 only when the measured confidence floor and absolute AV-offset bound pass,
     otherwise 0.0. The raw measurements and thresholds remain in runtime provenance.
+
+    The pinned upstream CLI evaluates every detected face crop and then averages the
+    confidence and offset across those tracks. CINEOS accepts that aggregate only when
+    there is exactly one detected track. With zero tracks there is no mouth evidence;
+    with multiple tracks the average is not attributable to the declared speaker.
     """
 
     semantic_measurement_evidence = True
@@ -145,10 +169,12 @@ class LatentSyncSyncNetScorer:
             "minimum_confidence": self.minimum_confidence,
             "maximum_abs_offset_frames": self.maximum_abs_offset_frames,
             "score_semantics": "binary_pass_fail_not_probability",
+            "face_track_policy": "exactly_one_detected_track_required",
             "limitations": [
                 "not a CINEOS-native model",
                 "requires audible dialogue and a detectable speaking face",
                 "upstream SyncNet confidence is thresholded rather than treated as probability",
+                "multi-face dialogue requires future speaker-bound face-track evaluation",
             ],
         }
 
@@ -168,6 +194,7 @@ class LatentSyncSyncNetScorer:
                 f"rendered audiovisual artifact is unavailable: {artifact_path}"
             )
 
+        detected_face_tracks = 0
         with tempfile.TemporaryDirectory(prefix="cineos-latentsync-qc-") as temp:
             temp_root = Path(temp)
             env = os.environ.copy()
@@ -200,6 +227,7 @@ class LatentSyncSyncNetScorer:
                 raise LatentSyncSyncNetError(
                     "LatentSync SyncNet audiovisual evaluation failed"
                 ) from exc
+            detected_face_tracks = _detected_face_track_count(temp_root)
 
         output = f"{completed.stdout}\n{completed.stderr}"
         confidence_match = _CONFIDENCE_RE.search(output)
@@ -208,11 +236,18 @@ class LatentSyncSyncNetScorer:
             raise LatentSyncSyncNetError(
                 "LatentSync SyncNet output did not contain confidence and AV offset"
             )
+        if detected_face_tracks != 1:
+            raise LatentSyncSyncNetError(
+                "production dialogue lip-sync requires exactly one detected face track; "
+                f"pinned LatentSync produced {detected_face_tracks}, so its aggregate "
+                "SyncNet result is not speaker-specific evidence"
+            )
         confidence = float(confidence_match.group(1))
         offset_frames = int(offset_match.group(1))
         self.last_measurement = {
             "syncnet_confidence": confidence,
             "av_offset_frames": offset_frames,
+            "detected_face_tracks": detected_face_tracks,
         }
         passed = (
             confidence >= self.minimum_confidence

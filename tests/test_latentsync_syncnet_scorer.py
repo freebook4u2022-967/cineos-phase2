@@ -38,6 +38,13 @@ def _scorer(tmp_path: Path) -> tuple[LatentSyncSyncNetScorer, Path, Path]:
     return scorer, repo, artifact
 
 
+def _write_face_tracks(kwargs: dict, count: int) -> None:
+    crop_dir = Path(kwargs["cwd"]) / "detect_results" / "crop"
+    crop_dir.mkdir(parents=True, exist_ok=True)
+    for index in range(count):
+        (crop_dir / f"{index:05d}.mp4").write_bytes(b"face-track")
+
+
 def test_measured_av_sync_passes_only_when_confidence_and_offset_pass(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -50,6 +57,7 @@ def test_measured_av_sync_passes_only_when_confidence_and_offset_pass(
             return _Completed(stdout=LATENTSYNC_PINNED_REVISION + "\n")
         assert kwargs["cwd"] != repo
         assert str(repo) in kwargs["env"]["PYTHONPATH"]
+        _write_face_tracks(kwargs, 1)
         return _Completed(stdout="SyncNet confidence: 4.25\nAV offset: -1\n")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -59,6 +67,7 @@ def test_measured_av_sync_passes_only_when_confidence_and_offset_pass(
     assert scorer.last_measurement == {
         "syncnet_confidence": 4.25,
         "av_offset_frames": -1,
+        "detected_face_tracks": 1,
     }
     assert len(calls) == 2
 
@@ -71,12 +80,45 @@ def test_measured_av_sync_rejects_large_offset(
     def fake_run(command, **kwargs):
         if command[:3] == ["git", "-C", str(repo)]:
             return _Completed(stdout=LATENTSYNC_PINNED_REVISION + "\n")
+        _write_face_tracks(kwargs, 1)
         return _Completed(stdout="SyncNet confidence: 5.10\nAV offset: 4\n")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     assert scorer(None, artifact=artifact, shot=object(), attempt_index=0) == {
         "dialogue_lip_sync": 0.0
     }
+
+
+def test_multiple_face_tracks_are_not_accepted_as_speaker_specific_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    scorer, repo, artifact = _scorer(tmp_path)
+
+    def fake_run(command, **kwargs):
+        if command[:3] == ["git", "-C", str(repo)]:
+            return _Completed(stdout=LATENTSYNC_PINNED_REVISION + "\n")
+        _write_face_tracks(kwargs, 2)
+        return _Completed(stdout="SyncNet confidence: 5.75\nAV offset: 0\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(LatentSyncSyncNetError, match="exactly one detected face track"):
+        scorer(None, artifact=artifact, shot=object(), attempt_index=0)
+    assert scorer.last_measurement is None
+
+
+def test_missing_face_track_artifact_fails_closed_even_with_strong_aggregate_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    scorer, repo, artifact = _scorer(tmp_path)
+
+    def fake_run(command, **kwargs):
+        if command[:3] == ["git", "-C", str(repo)]:
+            return _Completed(stdout=LATENTSYNC_PINNED_REVISION + "\n")
+        return _Completed(stdout="SyncNet confidence: 6.20\nAV offset: 0\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(LatentSyncSyncNetError, match="produced 0"):
+        scorer(None, artifact=artifact, shot=object(), attempt_index=0)
 
 
 def test_runtime_verification_fails_closed_on_wrong_revision(
@@ -146,3 +188,7 @@ def test_component_declares_only_dialogue_lip_sync(tmp_path: Path) -> None:
     assert provenance["code_license"] == "Apache-2.0"
     assert provenance["checkpoint_license"] == "OpenRAIL++"
     assert provenance["score_semantics"] == "binary_pass_fail_not_probability"
+    assert provenance["face_track_policy"] == "exactly_one_detected_track_required"
+    assert "multi-face dialogue requires future speaker-bound face-track evaluation" in provenance[
+        "limitations"
+    ]
