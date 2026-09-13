@@ -55,6 +55,7 @@ def test_verified_latentsync_dependencies_are_bound_into_real_quality_benchmark(
         "Run quality-first connected GPU benchmark with production semantic QC"
     )
     assert dependency_gate < benchmark
+    assert "production-semantic-qc-dependency-readiness.json" in workflow
 
     benchmark_block = workflow[benchmark:]
     assert (
