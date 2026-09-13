@@ -97,7 +97,7 @@ def test_gpu_workflow_runs_quality_first_cli_after_qc_snapshot_is_pinned():
         "- name: Prefetch and verify selected immutable foundation and QC snapshots"
     )
     run_step = (
-        "- name: Run quality-first connected GPU benchmark with production visual QC"
+        "- name: Run quality-first connected GPU benchmark with production semantic QC"
     )
     assert workflow.index(prefetch_step) < workflow.index(run_step)
     assert "python -m cineos.atlas.quality_first_gpu_benchmark_cli" in workflow

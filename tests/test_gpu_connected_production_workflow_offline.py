@@ -8,7 +8,7 @@ WORKFLOW = Path(".github/workflows/gpu-connected-production.yml")
 def test_production_gpu_benchmark_runs_hugging_face_boundaries_offline():
     text = WORKFLOW.read_text(encoding="utf-8")
     benchmark_step = text.split(
-        "- name: Run quality-first connected GPU benchmark with production visual QC",
+        "- name: Run quality-first connected GPU benchmark with production semantic QC",
         maxsplit=1,
     )[1].split("- name: Upload production GPU evidence", maxsplit=1)[0]
 
@@ -23,7 +23,7 @@ def test_prefetch_remains_online_before_offline_execution_boundary():
         "- name: Prefetch and verify selected immutable foundation and QC snapshots",
         maxsplit=1,
     )[1].split(
-        "- name: Run quality-first connected GPU benchmark with production visual QC",
+        "- name: Run quality-first connected GPU benchmark with production semantic QC",
         maxsplit=1,
     )[
         0
