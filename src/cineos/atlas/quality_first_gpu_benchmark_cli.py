@@ -75,17 +75,24 @@ class _PinnedSigLIP2BoundaryFeatureAdapter:
 def _production_semantic_quality_evaluator(
     requests: Sequence[NativeShotRequest],
     reference_manifest: str | Path | None,
-) -> ArtifactMeasuredSequenceQualityEvaluator:
+) -> Any:
     """Compose core identity/motion QC with the pinned difficult-case visual judge.
 
     The generic production CLI intentionally keeps its historical SigLIP2-only
-    behavior.  The quality-first release path adds Qwen2.5-VL as an external,
+    behavior. The quality-first release path adds Qwen2.5-VL as an external,
     provenance-preserving specialist so anatomy, interaction, locomotion, camera,
     lighting and physics measurements participate in the same reject/rerender gate.
     Dialogue lip-sync remains owned by the independent audio/visual specialist path.
+
+    A nonstandard evaluator returned by an injected private factory is passed through
+    unchanged. This preserves the historical test/integration injection seam; the
+    real production factory returns ArtifactMeasuredSequenceQualityEvaluator and is
+    therefore always upgraded to the specialist-composed observer.
     """
 
     base = _production_quality_evaluator(requests, reference_manifest)
+    if not isinstance(base, ArtifactMeasuredSequenceQualityEvaluator):
+        return base
     observer = getattr(base, "metric_extractor", None)
     primary = getattr(observer, "semantic_scorer", None)
     if primary is None:
