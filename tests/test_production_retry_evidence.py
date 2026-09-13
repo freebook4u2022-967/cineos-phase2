@@ -152,9 +152,9 @@ def test_rejects_stale_measurement_from_previous_retry_candidate():
     gate, receipts = _valid_gate()
     gate = _attest_production_measurements(deepcopy(gate))
     rejected_attempt = gate["shots"][1]["attempts"][0]
-    rejected_attempt["measurement"]["artifact_sha256"] = gate["shots"][1][
-        "attempts"
-    ][1]["output_sha256"]
+    rejected_attempt["measurement"]["artifact_sha256"] = gate["shots"][1]["attempts"][
+        1
+    ]["output_sha256"]
 
     with pytest.raises(
         ProductionRetryEvidenceError,
