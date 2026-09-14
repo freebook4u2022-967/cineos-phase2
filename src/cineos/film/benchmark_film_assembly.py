@@ -43,6 +43,85 @@ def _required_sha256(value: Any, *, field: str) -> str:
     return normalized
 
 
+def _validate_benchmark_aggregate_integrity(
+    benchmark: GPUConnectedBenchmarkReceipt,
+    receipts: Sequence[Any],
+) -> None:
+    """Bind aggregate benchmark provenance to the exact per-shot receipts.
+
+    Production film assembly must not accept a receipt object whose aggregate chain,
+    byte count, profile, or external-origin declaration has drifted from the shots it
+    contains. The connected benchmark writes these values at execution time; this
+    independent recomputation closes the later assembly trust boundary.
+    """
+
+    profile_id = getattr(benchmark, "profile_id", None)
+    origin = getattr(benchmark, "origin", None)
+    if not isinstance(profile_id, str) or not profile_id.strip():
+        raise AssemblyError("connected benchmark is missing profile_id")
+    if not isinstance(origin, str) or not origin.strip():
+        raise AssemblyError("connected benchmark is missing origin")
+    profile_id = profile_id.strip()
+    origin = origin.strip()
+
+    digest = hashlib.sha256()
+    total_output_bytes = 0
+    for index, receipt in enumerate(receipts):
+        if getattr(receipt, "profile_id", None) != profile_id:
+            raise AssemblyError(
+                f"connected benchmark shot {index} profile does not match aggregate profile"
+            )
+        if getattr(receipt, "origin", None) != origin:
+            raise AssemblyError(
+                f"connected benchmark shot {index} origin does not match aggregate origin"
+            )
+
+        result = getattr(receipt, "result", None)
+        request_hash = _required_sha256(
+            getattr(result, "request_hash", None),
+            field=f"shot {index} request SHA-256",
+        )
+        output_hash = _required_sha256(
+            getattr(receipt, "output_sha256", None),
+            field=f"shot {index} output SHA-256",
+        )
+        digest.update(request_hash.encode("ascii"))
+        digest.update(b"\0")
+        digest.update(output_hash.encode("ascii"))
+        digest.update(b"\n")
+
+        output_bytes = getattr(receipt, "output_bytes", None)
+        if (
+            isinstance(output_bytes, bool)
+            or not isinstance(output_bytes, int)
+            or output_bytes <= 0
+        ):
+            raise AssemblyError(
+                f"connected benchmark shot {index} has invalid output byte count"
+            )
+        total_output_bytes += output_bytes
+
+    expected_chain = digest.hexdigest()
+    declared_chain = _required_sha256(
+        getattr(benchmark, "chain_sha256", None),
+        field="aggregate chain SHA-256",
+    )
+    if declared_chain != expected_chain:
+        raise AssemblyError(
+            "connected benchmark aggregate chain does not match contained shot receipts"
+        )
+
+    declared_total = getattr(benchmark, "total_output_bytes", None)
+    if (
+        isinstance(declared_total, bool)
+        or not isinstance(declared_total, int)
+        or declared_total != total_output_bytes
+    ):
+        raise AssemblyError(
+            "connected benchmark aggregate output byte count does not match contained shots"
+        )
+
+
 def build_production_shot_evidence(
     benchmark: GPUConnectedBenchmarkReceipt,
 ) -> tuple[dict[str, Any], ...]:
@@ -74,6 +153,7 @@ def build_production_shot_evidence(
         raise AssemblyError(
             "connected benchmark quality report count does not match shots"
         )
+    _validate_benchmark_aggregate_integrity(benchmark, receipts)
 
     records: list[dict[str, Any]] = []
     seen_shot_ids: set[str] = set()
