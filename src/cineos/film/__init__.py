@@ -1,6 +1,10 @@
 """Complete short-film planning, rendering, validation, and export API."""
 
 from .assembly import assemble
+from .benchmark_film_assembly import (
+    assemble_benchmark_production_film,
+    build_production_shot_evidence,
+)
 from .build import BuildStatus, FilmBuild
 from .checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
@@ -22,6 +26,8 @@ __all__ = [
     "FilmOrchestrator",
     "ShotState",
     "assemble",
+    "assemble_benchmark_production_film",
+    "build_production_shot_evidence",
     "build_report",
     "load",
     "load_checkpoint",
