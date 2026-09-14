@@ -32,7 +32,9 @@ def _mix_evidence(
     }
 
 
-def test_dialogue_mix_release_lineage_requires_production_mix_evidence(tmp_path) -> None:
+def test_dialogue_mix_release_lineage_requires_production_mix_evidence(
+    tmp_path,
+) -> None:
     audio_path = tmp_path / "final.wav"
 
     with pytest.raises(AssemblyError, match="requires production audio mix evidence"):
@@ -55,7 +57,9 @@ def test_dialogue_mix_release_lineage_binds_exact_final_mix_hash(
         lambda _evidence: _sha(2),
     )
 
-    with pytest.raises(AssemblyError, match="does not match the final released audio hash"):
+    with pytest.raises(
+        AssemblyError, match="does not match the final released audio hash"
+    ):
         assembly._validate_dialogue_mix_lineage(
             dialogue_ids=("shot-2", "shot-4"),
             audio_path=audio_path,

@@ -339,9 +339,7 @@ def _validate_dialogue_mix_lineage(
     except (ProductionAudioMixEvidenceError, OSError, ValueError, TypeError) as exc:
         raise AssemblyError(f"invalid production audio mix evidence: {exc}") from exc
 
-    expected_final_sha = _required_sha256(
-        audio_sha256, field="final audio SHA-256"
-    )
+    expected_final_sha = _required_sha256(audio_sha256, field="final audio SHA-256")
     if mix_output_sha != expected_final_sha:
         raise AssemblyError(
             "production audio mix output does not match the final released audio hash"
