@@ -105,3 +105,22 @@ def test_dialogue_mix_release_lineage_accepts_exact_dialogue_scope(
         audio_sha256=_sha(1),
         audio_mix_evidence=evidence,
     )
+
+
+def test_dialogue_mix_lineage_rejects_other_release_path(tmp_path, monkeypatch) -> None:
+    mix_path = tmp_path / "mix.wav"
+    release_path = tmp_path / "release.wav"
+    evidence = _mix_evidence(mix_path)
+    monkeypatch.setattr(
+        assembly,
+        "validate_production_audio_mix_evidence",
+        lambda _evidence: _sha(1),
+    )
+
+    with pytest.raises(AssemblyError, match="output path does not match"):
+        assembly._validate_dialogue_mix_lineage(
+            dialogue_ids=("shot-2", "shot-4"),
+            audio_path=release_path,
+            audio_sha256=_sha(1),
+            audio_mix_evidence=evidence,
+        )
