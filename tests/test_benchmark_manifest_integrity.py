@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from types import SimpleNamespace
 
@@ -34,9 +35,9 @@ def _receipt(tmp_path):
     }
     receipt = SimpleNamespace(
         manifest_path=str(manifest),
-        to_dict=lambda: dict(snapshot),
+        to_dict=lambda: copy.deepcopy(snapshot),
     )
-    payload = dict(snapshot)
+    payload = copy.deepcopy(snapshot)
     payload["foundation_profile"] = {
         "profile_id": "wan22-a14b",
         "origin": "external-open-pretrained:wan2.2",
@@ -55,7 +56,7 @@ def test_manifest_integrity_rejects_mutated_receipt_field(tmp_path) -> None:
     receipt, _manifest, _payload = _receipt(tmp_path)
     original = receipt.to_dict()
     original["chain_sha256"] = "b" * 64
-    receipt.to_dict = lambda: dict(original)
+    receipt.to_dict = lambda: copy.deepcopy(original)
 
     with pytest.raises(
         AssemblyError, match="does not match receipt field 'chain_sha256'"
@@ -94,7 +95,12 @@ def test_manifest_integrity_requires_real_manifest_file(tmp_path) -> None:
 
 
 def test_manifest_integrity_rejects_unserializable_receipt(tmp_path) -> None:
-    receipt = SimpleNamespace(manifest_path=str(tmp_path / "missing.json"))
+    manifest = tmp_path / "benchmark.json"
+    manifest.write_text(
+        json.dumps({"schema": "cineos-gpu-connected-benchmark/0.3"}),
+        encoding="utf-8",
+    )
+    receipt = SimpleNamespace(manifest_path=str(manifest))
 
-    with pytest.raises(AssemblyError, match="persisted manifest does not exist"):
+    with pytest.raises(AssemblyError, match="cannot be bound to persisted manifest"):
         validate_persisted_benchmark_manifest(receipt)
