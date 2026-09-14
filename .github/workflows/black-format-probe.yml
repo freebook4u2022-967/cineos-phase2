@@ -1,0 +1,21 @@
+name: Black Format Probe
+
+on:
+  push:
+    branches:
+      - codex/short-drama-agent-sprint-1
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install black==25.12.0
+      - name: Show Black diff
+        run: black --diff src/cineos/film/benchmark_film_assembly.py tests/test_film_benchmark_film_assembly.py
