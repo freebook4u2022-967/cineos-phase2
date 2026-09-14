@@ -162,6 +162,35 @@ def test_multi_character_dialogue_requires_explicit_timing_before_render() -> No
         validate_dialogue_speaker_bindings([shot])
 
 
+def test_multi_character_dialogue_rejects_unconditioned_speaker_identity() -> None:
+    shot = _shot(
+        [{"speaker_id": "mallory", "speaker_face_track_index": 0}],
+        characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}],
+    )
+
+    with pytest.raises(ProductionSemanticQCError, match="conditioned character_uuid"):
+        validate_dialogue_speaker_bindings([shot])
+
+
+def test_multi_character_dialogue_rejects_duplicate_conditioned_identity() -> None:
+    shot = _shot(
+        [{"speaker_id": "alice", "speaker_face_track_index": 0}],
+        characters=[{"character_uuid": "alice"}, {"character_uuid": "alice"}],
+    )
+
+    with pytest.raises(ProductionSemanticQCError, match="distinct conditioned character_uuid"):
+        validate_dialogue_speaker_bindings([shot])
+
+
+def test_multi_character_dialogue_accepts_speaker_bound_to_conditioned_identity() -> None:
+    shot = _shot(
+        [{"speaker_id": " alice ", "speaker_face_track_index": 0}],
+        characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}],
+    )
+
+    validate_dialogue_speaker_bindings([shot])
+
+
 def test_multi_character_single_speaker_requires_face_track_binding() -> None:
     shot = _shot(
         [{"speaker_id": "alice"}],
