@@ -175,6 +175,7 @@ def validate_production_quality_retry_gate(
     recovered_shots: list[str] = []
     total_attempts = 0
     total_rejections = 0
+    expected_accepted_transitions: list[dict[str, Any]] = []
 
     for shot_position, (shot, receipt) in enumerate(zip(shots, receipts, strict=True)):
         if not isinstance(shot, Mapping):
@@ -375,6 +376,16 @@ def validate_production_quality_retry_gate(
                 raise ProductionRetryEvidenceError(
                     f"{shot_id} accepted transition is not bound to final retry attempt"
                 )
+            final_transition = transition_by_index.get(attempt_count - 1)
+            if final_transition is None:
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} final transition attempt evidence is missing"
+                )
+            if dict(accepted_transition) != dict(final_transition):
+                raise ProductionRetryEvidenceError(
+                    f"{shot_id} accepted transition does not match final transition attempt evidence"
+                )
+            expected_accepted_transitions.append(dict(accepted_transition))
 
         total_attempts += attempt_count
         rejected = attempt_count - 1
@@ -397,6 +408,17 @@ def validate_production_quality_retry_gate(
             raise ProductionRetryEvidenceError(
                 "accepted transition list does not cover every connected boundary"
             )
+        for boundary_index, (aggregate, expected) in enumerate(
+            zip(accepted_transitions, expected_accepted_transitions, strict=True), start=1
+        ):
+            if not isinstance(aggregate, Mapping):
+                raise ProductionRetryEvidenceError(
+                    f"accepted transition {boundary_index} must be a mapping"
+                )
+            if dict(aggregate) != expected:
+                raise ProductionRetryEvidenceError(
+                    f"accepted transition {boundary_index} does not match its connected shot evidence"
+                )
 
     return {
         "schema": "cineos-production-retry-lineage-validation/0.1",
