@@ -108,7 +108,7 @@ def test_dialogue_mix_release_lineage_rejects_reordered_dialogue_scope(
         )
 
 
-def test_dialogue_mix_release_lineage_accepts_exact_dialogue_scope(
+def test_dialogue_mix_release_lineage_accepts_exact_dialogue_order(
     tmp_path, monkeypatch
 ) -> None:
     audio_path = tmp_path / "final.wav"
