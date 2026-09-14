@@ -378,11 +378,9 @@ def _validate_dialogue_mix_lineage(
         dialogue_records.append((shot_id.strip(), source_sha))
 
     actual_dialogue = tuple(shot_id for shot_id, _ in dialogue_records)
-    if len(actual_dialogue) != len(expected_dialogue) or set(actual_dialogue) != set(
-        expected_dialogue
-    ):
+    if actual_dialogue != expected_dialogue:
         raise AssemblyError(
-            "production audio mix dialogue-shot lineage does not match benchmark dialogue scope"
+            "production audio mix dialogue-shot lineage does not match benchmark dialogue order"
         )
 
 
