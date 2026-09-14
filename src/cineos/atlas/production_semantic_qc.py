@@ -131,7 +131,9 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
         if not (_declared_challenges(shot) & _DIALOGUE_CHALLENGES):
             continue
         characters = getattr(shot, "characters", None)
-        multiple_conditioned_characters = isinstance(characters, list) and len(characters) > 1
+        multiple_conditioned_characters = (
+            isinstance(characters, list) and len(characters) > 1
+        )
         performance = getattr(shot, "performance", None)
         if not isinstance(performance, dict):
             if multiple_conditioned_characters:

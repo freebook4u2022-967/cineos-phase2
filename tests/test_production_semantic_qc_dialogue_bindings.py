@@ -154,7 +154,9 @@ def test_dialogue_timing_rejects_missing_speaker_before_speaker_counting() -> No
 
 
 def test_multi_character_dialogue_requires_explicit_timing_before_render() -> None:
-    shot = _shot(None, characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}])
+    shot = _shot(
+        None, characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}]
+    )
 
     with pytest.raises(ProductionSemanticQCError, match="multi-character dialogue"):
         validate_dialogue_speaker_bindings([shot])
