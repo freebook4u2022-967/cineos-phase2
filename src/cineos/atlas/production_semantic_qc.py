@@ -31,7 +31,7 @@ from .semantic_video_ensemble import (
 )
 from .sequence_quality import CHALLENGE_METRIC_REQUIREMENTS
 
-PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.6"
+PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.7"
 CORE_SEMANTIC_METRICS = ("identity_similarity", "motion_quality")
 _CHALLENGE_METADATA_KEYS = ("competitive_challenges", "benchmark_challenges")
 _DIALOGUE_CHALLENGES = frozenset(("dialogue", "dialogue_lip_sync"))
@@ -95,6 +95,39 @@ def _validated_dialogue_speakers(
     return frozenset(speakers)
 
 
+def _validated_conditioned_character_ids(
+    characters: list[Any], *, shot_index: int
+) -> frozenset[str]:
+    """Return unambiguous conditioned UUIDs for a multi-character dialogue shot.
+
+    SyncNet track ownership is only meaningful for CINEOS identity continuity when a
+    cue speaker is one of the identities actually conditioned into the render. Without
+    this binding, a typo or unrelated speaker label can be attached to a valid face
+    track and produce apparently valid lip-sync evidence for the wrong cast member.
+    """
+
+    character_ids: set[str] = set()
+    for character_index, character in enumerate(characters):
+        prefix = f"shot[{shot_index}] characters[{character_index}]"
+        if not isinstance(character, dict):
+            raise ProductionSemanticQCError(
+                f"{prefix} must be a mapping for multi-character dialogue"
+            )
+        character_uuid = character.get("character_uuid")
+        if not isinstance(character_uuid, str) or not character_uuid.strip():
+            raise ProductionSemanticQCError(
+                f"{prefix}.character_uuid must be non-empty for multi-character dialogue"
+            )
+        normalized = character_uuid.strip()
+        if normalized in character_ids:
+            raise ProductionSemanticQCError(
+                "multi-character dialogue requires distinct conditioned character_uuid "
+                f"values; duplicate {normalized!r}"
+            )
+        character_ids.add(normalized)
+    return frozenset(character_ids)
+
+
 def _validated_face_track_index(cue: dict[str, Any], *, prefix: str) -> int:
     track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
     if (
@@ -123,7 +156,9 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
     track/time metadata. A dialogue shot with multiple conditioned characters is
     different: LatentSync can detect more than one face, so the intended speaker must
     be bound to one stable face track before expensive rendering starts even when only
-    one cast member speaks. This mirrors the runtime's fail-closed multi-face policy and
+    one cast member speaks. For those shots the speaker ID must also match one of the
+    conditioned character UUIDs, so valid SyncNet evidence cannot be attributed to the
+    wrong CINEOS identity. This mirrors the runtime's fail-closed multi-face policy and
     prevents predictable ambiguity from being discovered only after GPU generation.
     """
 
@@ -133,6 +168,11 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
         characters = getattr(shot, "characters", None)
         multiple_conditioned_characters = (
             isinstance(characters, list) and len(characters) > 1
+        )
+        conditioned_character_ids = (
+            _validated_conditioned_character_ids(characters, shot_index=shot_index)
+            if multiple_conditioned_characters
+            else frozenset()
         )
         performance = getattr(shot, "performance", None)
         if not isinstance(performance, dict):
@@ -152,6 +192,14 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
             continue
 
         valid_speakers = _validated_dialogue_speakers(timing, shot_index=shot_index)
+        if multiple_conditioned_characters:
+            unconditioned_speakers = sorted(valid_speakers - conditioned_character_ids)
+            if unconditioned_speakers:
+                raise ProductionSemanticQCError(
+                    "multi-character dialogue speaker_id must match a conditioned "
+                    "character_uuid; unconditioned speaker(s): "
+                    + ", ".join(repr(value) for value in unconditioned_speakers)
+                )
         if len(valid_speakers) < 2:
             if multiple_conditioned_characters:
                 track_indices = {
