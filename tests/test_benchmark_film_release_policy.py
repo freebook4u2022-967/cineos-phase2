@@ -158,7 +158,9 @@ def test_release_rejects_accept_label_when_challenge_metric_fails_policy() -> No
     report["required_challenge_metrics"] = {"anatomy_quality": "hands_anatomy"}
     report["score"] = _score(report["metrics"])
 
-    with pytest.raises(AssemblyError, match="anatomy_quality.*below its recorded policy floor"):
+    with pytest.raises(
+        AssemblyError, match="anatomy_quality.*below its recorded policy floor"
+    ):
         build_production_shot_evidence(benchmark)
 
 
