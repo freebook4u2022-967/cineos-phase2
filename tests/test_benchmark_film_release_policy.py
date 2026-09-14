@@ -178,3 +178,11 @@ def test_release_rejects_accepted_report_with_rejection_evidence() -> None:
 
     with pytest.raises(AssemblyError, match="retains rejection evidence"):
         build_production_shot_evidence(benchmark)
+
+
+def test_release_rejects_unversioned_or_substituted_policy() -> None:
+    benchmark = _benchmark()
+    benchmark.quality_reports[0]["policy"]["schema"] = "cineos-sequence-quality-policy/0.2"
+
+    with pytest.raises(AssemblyError, match="unsupported QC policy schema"):
+        build_production_shot_evidence(benchmark)
