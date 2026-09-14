@@ -106,7 +106,11 @@ def _speaker_track_binding(shot: Any) -> tuple[str, int]:
             )
         speakers.add(speaker_id.strip())
         track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
-        if isinstance(track_index, bool) or not isinstance(track_index, int) or track_index < 0:
+        if (
+            isinstance(track_index, bool)
+            or not isinstance(track_index, int)
+            or track_index < 0
+        ):
             raise LatentSyncSyncNetError(
                 f"performance.dialogue_timing[{index}].{SPEAKER_FACE_TRACK_INDEX_KEY} "
                 "must be a non-negative integer for multi-face QC"
@@ -139,7 +143,11 @@ def _cue_window_bindings(shot: Any) -> tuple[_DialogueCueBinding, ...]:
                 f"performance.dialogue_timing[{index}] requires speaker_id for multi-face QC"
             )
         track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
-        if isinstance(track_index, bool) or not isinstance(track_index, int) or track_index < 0:
+        if (
+            isinstance(track_index, bool)
+            or not isinstance(track_index, int)
+            or track_index < 0
+        ):
             raise LatentSyncSyncNetError(
                 f"performance.dialogue_timing[{index}].{SPEAKER_FACE_TRACK_INDEX_KEY} "
                 "must be a non-negative integer for multi-face QC"
@@ -459,7 +467,12 @@ class LatentSyncSyncNetScorer:
             offsets.append(offset)
             speakers.append(binding.speaker_id)
         worst_offset = max(offsets, key=lambda value: abs(value))
-        return min(confidences), worst_offset, len(bindings), ",".join(sorted(set(speakers)))
+        return (
+            min(confidences),
+            worst_offset,
+            len(bindings),
+            ",".join(sorted(set(speakers))),
+        )
 
     def __call__(
         self,
