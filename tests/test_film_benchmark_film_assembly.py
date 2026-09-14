@@ -132,7 +132,9 @@ def _benchmark(
                 ),
                 "accepted": True,
                 "decision": "accept",
-                "score": _score(metrics) if not omit_core_metric or index != 3 else 0.90,
+                "score": (
+                    _score(metrics) if not omit_core_metric or index != 3 else 0.90
+                ),
                 "metrics": metrics,
                 "failed_metrics": [],
                 "directives": [],
