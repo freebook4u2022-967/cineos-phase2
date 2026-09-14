@@ -236,7 +236,9 @@ def _validate_release_quality_report(
         normalized_metric = metric.strip()
         required_challenge_metrics[normalized_metric] = challenge.strip()
         metrics[normalized_metric] = _required_quality_metric(
-            metrics_raw.get(normalized_metric), shot_id=shot_id, metric=normalized_metric
+            metrics_raw.get(normalized_metric),
+            shot_id=shot_id,
+            metric=normalized_metric,
         )
 
     _validate_release_policy_semantics(
