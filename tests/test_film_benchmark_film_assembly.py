@@ -28,7 +28,9 @@ def _benchmark(*, tamper_report_output: bool = False, tamper_measurement: bool =
             )
         )
         report_output = _sha(99) if tamper_report_output and index == 3 else output_sha
-        measurement_output = _sha(98) if tamper_measurement and index == 3 else output_sha
+        measurement_output = (
+            _sha(98) if tamper_measurement and index == 3 else output_sha
+        )
         reports.append(
             {
                 "accepted": True,
@@ -74,7 +76,9 @@ def test_build_production_shot_evidence_rejects_substituted_quality_report() -> 
 
 
 def test_build_production_shot_evidence_rejects_substituted_measurement() -> None:
-    with pytest.raises(AssemblyError, match="QC measurement is bound to another render"):
+    with pytest.raises(
+        AssemblyError, match="QC measurement is bound to another render"
+    ):
         build_production_shot_evidence(_benchmark(tamper_measurement=True))
 
 

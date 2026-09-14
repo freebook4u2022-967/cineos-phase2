@@ -58,7 +58,10 @@ def build_production_shot_evidence(
         raise AssemblyError(
             "production film assembly requires production-gpu-quality-gated benchmark evidence"
         )
-    if not benchmark.production_gpu_evidence or not benchmark.production_quality_evidence:
+    if (
+        not benchmark.production_gpu_evidence
+        or not benchmark.production_quality_evidence
+    ):
         raise AssemblyError(
             "production film assembly requires real GPU execution and measured QC evidence"
         )
@@ -68,7 +71,9 @@ def build_production_shot_evidence(
     if not 5 <= len(receipts) <= 10:
         raise AssemblyError("connected benchmark must contain 5 to 10 accepted shots")
     if len(reports) != len(receipts):
-        raise AssemblyError("connected benchmark quality report count does not match shots")
+        raise AssemblyError(
+            "connected benchmark quality report count does not match shots"
+        )
 
     records: list[dict[str, Any]] = []
     seen_shot_ids: set[str] = set()
@@ -86,18 +91,24 @@ def build_production_shot_evidence(
             raise AssemblyError(f"connected benchmark reuses shot_id {shot_id!r}")
         seen_shot_ids.add(shot_id)
         if not isinstance(output_path, str) or not output_path.strip():
-            raise AssemblyError(f"connected benchmark shot {shot_id} is missing output_path")
+            raise AssemblyError(
+                f"connected benchmark shot {shot_id} is missing output_path"
+            )
 
         output_sha = _required_sha256(
             getattr(receipt, "output_sha256", None),
             field=f"shot {shot_id} output SHA-256",
         )
         if output_sha in seen_outputs:
-            raise AssemblyError("connected benchmark reuses a rendered payload across shots")
+            raise AssemblyError(
+                "connected benchmark reuses a rendered payload across shots"
+            )
         seen_outputs.add(output_sha)
 
         if not isinstance(report, Mapping) or report.get("accepted") is not True:
-            raise AssemblyError(f"connected benchmark shot {shot_id} lacks accepted QC evidence")
+            raise AssemblyError(
+                f"connected benchmark shot {shot_id} lacks accepted QC evidence"
+            )
         if report.get("production_measurement_evidence") is not True:
             raise AssemblyError(
                 f"connected benchmark shot {shot_id} lacks measured production QC evidence"
