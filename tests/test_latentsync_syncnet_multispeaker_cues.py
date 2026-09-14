@@ -142,9 +142,9 @@ def test_one_bad_speaker_cue_rejects_the_whole_dialogue_shot(
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    assert scorer(None, artifact=artifact, shot=_two_speaker_shot(), attempt_index=0) == {
-        "dialogue_lip_sync": 0.0
-    }
+    assert scorer(
+        None, artifact=artifact, shot=_two_speaker_shot(), attempt_index=0
+    ) == {"dialogue_lip_sync": 0.0}
     assert scorer.last_measurement is not None
     assert scorer.last_measurement["syncnet_confidence"] == 2.2
 
