@@ -31,7 +31,7 @@ from .semantic_video_ensemble import (
 )
 from .sequence_quality import CHALLENGE_METRIC_REQUIREMENTS
 
-PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.5"
+PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.6"
 CORE_SEMANTIC_METRICS = ("identity_similarity", "motion_quality")
 _CHALLENGE_METADATA_KEYS = ("competitive_challenges", "benchmark_challenges")
 _DIALOGUE_CHALLENGES = frozenset(("dialogue", "dialogue_lip_sync"))
@@ -95,8 +95,21 @@ def _validated_dialogue_speakers(
     return frozenset(speakers)
 
 
+def _validated_face_track_index(cue: dict[str, Any], *, prefix: str) -> int:
+    track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
+    if (
+        isinstance(track_index, bool)
+        or not isinstance(track_index, int)
+        or track_index < 0
+    ):
+        raise ProductionSemanticQCError(
+            f"{prefix}.{SPEAKER_FACE_TRACK_INDEX_KEY} must be a non-negative integer"
+        )
+    return track_index
+
+
 def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
-    """Fail closed on ambiguous multi-speaker SyncNet cue ownership.
+    """Fail closed on ambiguous multi-face or multi-speaker SyncNet ownership.
 
     The current production LatentSync adapter evaluates alternating speakers by
     extracting each declared cue window from one detected face track while retaining
@@ -106,24 +119,53 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
     evidence; accepting the mixed soundtrack would risk scoring the wrong voice against
     a face and overstating dialogue quality.
 
-    Single-speaker dialogue remains compatible without explicit track/time metadata,
-    but if ``dialogue_timing`` is supplied, every cue must at least have unambiguous
-    speaker ownership. This prevents malformed multi-cue metadata from bypassing the
-    preflight and failing only after expensive GPU generation.
+    Single-character, single-speaker dialogue remains compatible without explicit
+    track/time metadata. A dialogue shot with multiple conditioned characters is
+    different: LatentSync can detect more than one face, so the intended speaker must
+    be bound to one stable face track before expensive rendering starts even when only
+    one cast member speaks. This mirrors the runtime's fail-closed multi-face policy and
+    prevents predictable ambiguity from being discovered only after GPU generation.
     """
 
     for shot_index, shot in enumerate(shots):
         if not (_declared_challenges(shot) & _DIALOGUE_CHALLENGES):
             continue
+        characters = getattr(shot, "characters", None)
+        multiple_conditioned_characters = isinstance(characters, list) and len(characters) > 1
         performance = getattr(shot, "performance", None)
         if not isinstance(performance, dict):
+            if multiple_conditioned_characters:
+                raise ProductionSemanticQCError(
+                    "multi-character dialogue requires performance.dialogue_timing with "
+                    "explicit speaker-to-face ownership"
+                )
             continue
         timing = performance.get("dialogue_timing")
         if not isinstance(timing, list) or not timing:
+            if multiple_conditioned_characters:
+                raise ProductionSemanticQCError(
+                    "multi-character dialogue requires non-empty performance.dialogue_timing "
+                    "with explicit speaker-to-face ownership"
+                )
             continue
 
         valid_speakers = _validated_dialogue_speakers(timing, shot_index=shot_index)
         if len(valid_speakers) < 2:
+            if multiple_conditioned_characters:
+                track_indices = {
+                    _validated_face_track_index(
+                        cue,
+                        prefix=f"shot[{shot_index}] dialogue_timing[{cue_index}]",
+                    )
+                    for cue_index, cue in enumerate(timing)
+                }
+                if len(track_indices) != 1:
+                    speaker_id = next(iter(valid_speakers))
+                    raise ProductionSemanticQCError(
+                        "multi-character single-speaker dialogue requires stable "
+                        "speaker-to-face ownership; "
+                        f"{speaker_id!r} maps to multiple face tracks"
+                    )
             continue
 
         speaker_to_track: dict[str, int] = {}
@@ -133,15 +175,7 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
             prefix = f"shot[{shot_index}] dialogue_timing[{cue_index}]"
             # _validated_dialogue_speakers established both mapping type and speaker_id.
             speaker_id = cue["speaker_id"].strip()
-            track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
-            if (
-                isinstance(track_index, bool)
-                or not isinstance(track_index, int)
-                or track_index < 0
-            ):
-                raise ProductionSemanticQCError(
-                    f"{prefix}.{SPEAKER_FACE_TRACK_INDEX_KEY} must be a non-negative integer"
-                )
+            track_index = _validated_face_track_index(cue, prefix=prefix)
 
             previous_track = speaker_to_track.setdefault(speaker_id, track_index)
             if previous_track != track_index:
