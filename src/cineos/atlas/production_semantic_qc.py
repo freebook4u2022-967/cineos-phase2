@@ -14,10 +14,12 @@ as CINEOS-native models.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from typing import Any
 
 from .latentsync_syncnet_scorer import (
+    SPEAKER_FACE_TRACK_INDEX_KEY,
     LatentSyncSyncNetScorer,
     latentsync_syncnet_component,
 )
@@ -29,9 +31,10 @@ from .semantic_video_ensemble import (
 )
 from .sequence_quality import CHALLENGE_METRIC_REQUIREMENTS
 
-PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.3"
+PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.4"
 CORE_SEMANTIC_METRICS = ("identity_similarity", "motion_quality")
 _CHALLENGE_METADATA_KEYS = ("competitive_challenges", "benchmark_challenges")
+_DIALOGUE_CHALLENGES = frozenset(("dialogue", "dialogue_lip_sync"))
 VISUAL_DIFFICULT_CASE_CHALLENGES = tuple(
     challenge
     for challenge, metric in CHALLENGE_METRIC_REQUIREMENTS.items()
@@ -41,6 +44,136 @@ VISUAL_DIFFICULT_CASE_CHALLENGES = tuple(
 
 class ProductionSemanticQCError(RuntimeError):
     """Raised when competitive semantic QC cannot be proven before production."""
+
+
+def _declared_challenges(shot: Any) -> frozenset[str]:
+    metadata = getattr(shot, "metadata", None)
+    if not isinstance(metadata, dict):
+        return frozenset()
+    declared: set[str] = set()
+    for key in _CHALLENGE_METADATA_KEYS:
+        raw = metadata.get(key)
+        if raw is None or isinstance(raw, (str, bytes)):
+            continue
+        try:
+            values = tuple(raw)
+        except TypeError:
+            continue
+        declared.update(
+            value.strip()
+            for value in values
+            if isinstance(value, str) and value.strip()
+        )
+    return frozenset(declared)
+
+
+def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
+    """Fail closed on ambiguous multi-speaker SyncNet cue ownership.
+
+    The current production LatentSync adapter evaluates alternating speakers by
+    extracting each declared cue window from one detected face track while retaining
+    the shot's mixed audio. That is auditable only when every speaker maps stably and
+    uniquely to one face track and cue windows do not overlap. Overlapping speakers
+    require isolated per-speaker audio stems before they can produce defensible SyncNet
+    evidence; accepting the mixed soundtrack would risk scoring the wrong voice against
+    a face and overstating dialogue quality.
+
+    Single-speaker dialogue is intentionally unchanged because the runtime can still
+    accept a single detected face without explicit track metadata.
+    """
+
+    for shot_index, shot in enumerate(shots):
+        if not (_declared_challenges(shot) & _DIALOGUE_CHALLENGES):
+            continue
+        performance = getattr(shot, "performance", None)
+        if not isinstance(performance, dict):
+            continue
+        timing = performance.get("dialogue_timing")
+        if not isinstance(timing, list) or not timing:
+            continue
+
+        valid_speakers = {
+            cue.get("speaker_id").strip()
+            for cue in timing
+            if isinstance(cue, dict)
+            and isinstance(cue.get("speaker_id"), str)
+            and cue.get("speaker_id").strip()
+        }
+        if len(valid_speakers) < 2:
+            continue
+
+        speaker_to_track: dict[str, int] = {}
+        track_to_speaker: dict[int, str] = {}
+        windows: list[tuple[float, float, str]] = []
+        for cue_index, cue in enumerate(timing):
+            prefix = f"shot[{shot_index}] dialogue_timing[{cue_index}]"
+            if not isinstance(cue, dict):
+                raise ProductionSemanticQCError(
+                    f"{prefix} must be a mapping for multi-speaker lip-sync QC"
+                )
+            speaker_id = cue.get("speaker_id")
+            if not isinstance(speaker_id, str) or not speaker_id.strip():
+                raise ProductionSemanticQCError(
+                    f"{prefix}.speaker_id must be non-empty for multi-speaker lip-sync QC"
+                )
+            speaker_id = speaker_id.strip()
+            track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
+            if (
+                isinstance(track_index, bool)
+                or not isinstance(track_index, int)
+                or track_index < 0
+            ):
+                raise ProductionSemanticQCError(
+                    f"{prefix}.{SPEAKER_FACE_TRACK_INDEX_KEY} must be a non-negative integer"
+                )
+
+            previous_track = speaker_to_track.setdefault(speaker_id, track_index)
+            if previous_track != track_index:
+                raise ProductionSemanticQCError(
+                    f"multi-speaker lip-sync requires stable speaker-to-face ownership; "
+                    f"{speaker_id!r} maps to both track {previous_track} and {track_index}"
+                )
+            previous_speaker = track_to_speaker.setdefault(track_index, speaker_id)
+            if previous_speaker != speaker_id:
+                raise ProductionSemanticQCError(
+                    "multi-speaker lip-sync requires distinct speakers to bind distinct "
+                    f"face tracks; track {track_index} is assigned to both "
+                    f"{previous_speaker!r} and {speaker_id!r}"
+                )
+
+            start = cue.get("start_seconds")
+            end = cue.get("end_seconds")
+            if (
+                isinstance(start, bool)
+                or isinstance(end, bool)
+                or not isinstance(start, (int, float))
+                or not isinstance(end, (int, float))
+            ):
+                raise ProductionSemanticQCError(
+                    f"{prefix} requires numeric start_seconds/end_seconds"
+                )
+            start_f = float(start)
+            end_f = float(end)
+            if (
+                not math.isfinite(start_f)
+                or not math.isfinite(end_f)
+                or start_f < 0.0
+                or end_f <= start_f
+            ):
+                raise ProductionSemanticQCError(
+                    f"{prefix} requires a finite positive dialogue cue window"
+                )
+            windows.append((start_f, end_f, speaker_id))
+
+        windows.sort(key=lambda item: (item[0], item[1], item[2]))
+        for previous, current in zip(windows, windows[1:]):
+            if current[0] < previous[1]:
+                raise ProductionSemanticQCError(
+                    "multi-speaker lip-sync cue windows must not overlap until isolated "
+                    "per-speaker audio stems are available; "
+                    f"{previous[2]!r} [{previous[0]:.3f}, {previous[1]:.3f}) overlaps "
+                    f"{current[2]!r} [{current[0]:.3f}, {current[1]:.3f})"
+                )
 
 
 def required_semantic_metrics(shots: Sequence[Any]) -> frozenset[str]:
@@ -94,6 +227,7 @@ def validate_production_semantic_capabilities(
             "semantic measurement evidence"
         )
 
+    validate_dialogue_speaker_bindings(shots)
     required = required_semantic_metrics(shots)
     available = frozenset(scorer.metric_owners)
     missing = sorted(required - available)
@@ -185,5 +319,6 @@ __all__ = [
     "build_production_semantic_scorer",
     "build_seedance_challenge_semantic_scorer",
     "required_semantic_metrics",
+    "validate_dialogue_speaker_bindings",
     "validate_production_semantic_capabilities",
 ]
