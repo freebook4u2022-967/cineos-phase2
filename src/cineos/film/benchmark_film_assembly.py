@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from cineos.atlas.gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
+from cineos.audio.production_mix_evidence import (
+    ProductionAudioMixEvidenceError,
+    validate_production_audio_mix_evidence,
+)
 
 from .exceptions import AssemblyError
 from .production_assembly import assemble_production_film
@@ -317,11 +321,79 @@ def build_production_shot_evidence(
     return tuple(records)
 
 
+def _validate_dialogue_mix_lineage(
+    *,
+    dialogue_ids: Sequence[str],
+    audio_path: str | Path,
+    audio_sha256: str,
+    audio_mix_evidence: Mapping[str, Any] | None,
+) -> None:
+    """Bind released audio to the exact production mix and dialogue-shot sources."""
+
+    if not isinstance(audio_mix_evidence, Mapping):
+        raise AssemblyError(
+            "dialogue-bearing production benchmark requires production audio mix evidence"
+        )
+    try:
+        mix_output_sha = validate_production_audio_mix_evidence(audio_mix_evidence)
+    except (ProductionAudioMixEvidenceError, OSError, ValueError, TypeError) as exc:
+        raise AssemblyError(f"invalid production audio mix evidence: {exc}") from exc
+
+    expected_final_sha = _required_sha256(
+        audio_sha256, field="final audio SHA-256"
+    )
+    if mix_output_sha != expected_final_sha:
+        raise AssemblyError(
+            "production audio mix output does not match the final released audio hash"
+        )
+
+    declared_output_path = audio_mix_evidence.get("output_path")
+    if not isinstance(declared_output_path, str) or not declared_output_path.strip():
+        raise AssemblyError("production audio mix evidence is missing output_path")
+    try:
+        declared_output = Path(declared_output_path).resolve()
+        released_output = Path(audio_path).resolve()
+    except OSError as exc:
+        raise AssemblyError("cannot resolve production audio release path") from exc
+    if declared_output != released_output:
+        raise AssemblyError(
+            "production audio mix output path does not match the released audio artifact"
+        )
+
+    inputs = audio_mix_evidence.get("inputs")
+    if not isinstance(inputs, list):
+        raise AssemblyError("production audio mix evidence is missing ordered inputs")
+
+    expected_dialogue = tuple(dialogue_ids)
+    dialogue_records: list[tuple[str, str]] = []
+    for index, item in enumerate(inputs):
+        if not isinstance(item, Mapping) or item.get("kind") != "dialogue":
+            continue
+        shot_id = item.get("shot_id")
+        if not isinstance(shot_id, str) or not shot_id.strip():
+            raise AssemblyError(
+                f"production audio mix dialogue input {index} is missing shot_id"
+            )
+        source_sha = _required_sha256(
+            item.get("sha256"), field=f"dialogue mix input {index} SHA-256"
+        )
+        dialogue_records.append((shot_id.strip(), source_sha))
+
+    actual_dialogue = tuple(shot_id for shot_id, _ in dialogue_records)
+    if len(actual_dialogue) != len(expected_dialogue) or set(actual_dialogue) != set(
+        expected_dialogue
+    ):
+        raise AssemblyError(
+            "production audio mix dialogue-shot lineage does not match benchmark dialogue scope"
+        )
+
+
 def _validate_dialogue_release_evidence(
     benchmark: GPUConnectedBenchmarkReceipt,
     *,
     audio_path: str | Path | None,
     audio_sha256: str | None,
+    audio_mix_evidence: Mapping[str, Any] | None,
 ) -> None:
     """Fail closed when declared dialogue would be released without lip-sync/audio evidence."""
 
@@ -391,6 +463,13 @@ def _validate_dialogue_release_evidence(
                 f"dialogue shot {shot_id} lip-sync score is below its accepted policy floor"
             )
 
+    _validate_dialogue_mix_lineage(
+        dialogue_ids=dialogue_ids,
+        audio_path=audio_path,
+        audio_sha256=audio_sha256,
+        audio_mix_evidence=audio_mix_evidence,
+    )
+
 
 def assemble_benchmark_production_film(
     benchmark: GPUConnectedBenchmarkReceipt,
@@ -399,6 +478,7 @@ def assemble_benchmark_production_film(
     durations: Sequence[float] | None = None,
     audio_path: str | Path | None = None,
     audio_sha256: str | None = None,
+    audio_mix_evidence: Mapping[str, Any] | None = None,
     manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Assemble an exact quality-first benchmark into a validated production film."""
@@ -408,6 +488,7 @@ def assemble_benchmark_production_film(
         benchmark,
         audio_path=audio_path,
         audio_sha256=audio_sha256,
+        audio_mix_evidence=audio_mix_evidence,
     )
     return assemble_production_film(
         shot_evidence,
