@@ -196,7 +196,9 @@ def test_build_production_shot_evidence_requires_core_measured_metrics() -> None
 def test_dialogue_release_requires_final_audio_before_ffmpeg() -> None:
     benchmark = _benchmark(dialogue_shot_ids=("shot-2",))
 
-    with pytest.raises(AssemblyError, match="requires a hash-bound final audio artifact"):
+    with pytest.raises(
+        AssemblyError, match="requires a hash-bound final audio artifact"
+    ):
         assemble_benchmark_production_film(benchmark, "/tmp/final.mp4")
 
 

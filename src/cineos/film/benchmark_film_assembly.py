@@ -120,9 +120,7 @@ def _validate_release_quality_report(
             raise AssemblyError(
                 f"connected benchmark shot {shot_id} has malformed difficult-case QC evidence"
             )
-        _required_quality_metric(
-            metrics.get(metric), shot_id=shot_id, metric=metric
-        )
+        _required_quality_metric(metrics.get(metric), shot_id=shot_id, metric=metric)
 
     measurement = report.get("measurement")
     if not isinstance(measurement, Mapping):
@@ -298,9 +296,7 @@ def build_production_shot_evidence(
             raise AssemblyError(
                 f"connected benchmark shot {shot_id} lacks accepted QC evidence"
             )
-        _validate_release_quality_report(
-            report, shot_id=shot_id, output_sha=output_sha
-        )
+        _validate_release_quality_report(report, shot_id=shot_id, output_sha=output_sha)
 
         evidence_sha = _canonical_sha256(report)
         if evidence_sha in seen_evidence:
@@ -343,7 +339,9 @@ def _validate_dialogue_release_evidence(
             raise AssemblyError("connected benchmark has malformed dialogue shot scope")
         shot_id = value.strip()
         if shot_id in dialogue_ids:
-            raise AssemblyError("connected benchmark dialogue shot scope contains duplicates")
+            raise AssemblyError(
+                "connected benchmark dialogue shot scope contains duplicates"
+            )
         dialogue_ids.append(shot_id)
     if not dialogue_ids:
         return
