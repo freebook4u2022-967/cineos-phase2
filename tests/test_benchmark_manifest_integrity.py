@@ -57,16 +57,22 @@ def test_manifest_integrity_rejects_mutated_receipt_field(tmp_path) -> None:
     original["chain_sha256"] = "b" * 64
     receipt.to_dict = lambda: dict(original)
 
-    with pytest.raises(AssemblyError, match="does not match receipt field 'chain_sha256'"):
+    with pytest.raises(
+        AssemblyError, match="does not match receipt field 'chain_sha256'"
+    ):
         validate_persisted_benchmark_manifest(receipt)
 
 
-def test_manifest_integrity_rejects_mutated_persisted_quality_evidence(tmp_path) -> None:
+def test_manifest_integrity_rejects_mutated_persisted_quality_evidence(
+    tmp_path,
+) -> None:
     receipt, manifest, payload = _receipt(tmp_path)
     payload["quality_reports"][0]["shot_id"] = "substituted-shot"
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(AssemblyError, match="does not match receipt field 'quality_reports'"):
+    with pytest.raises(
+        AssemblyError, match="does not match receipt field 'quality_reports'"
+    ):
         validate_persisted_benchmark_manifest(receipt)
 
 

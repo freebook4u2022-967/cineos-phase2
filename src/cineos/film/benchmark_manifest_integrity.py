@@ -26,7 +26,9 @@ def _receipt_snapshot(benchmark: Any) -> Mapping[str, Any]:
         )
     snapshot = serializer()
     if not isinstance(snapshot, Mapping):
-        raise AssemblyError("production benchmark receipt serializer returned invalid evidence")
+        raise AssemblyError(
+            "production benchmark receipt serializer returned invalid evidence"
+        )
     return snapshot
 
 
@@ -42,22 +44,32 @@ def validate_persisted_benchmark_manifest(benchmark: Any) -> dict[str, Any]:
 
     manifest_path = getattr(benchmark, "manifest_path", None)
     if not isinstance(manifest_path, str) or not manifest_path.strip():
-        raise AssemblyError("production benchmark receipt is missing persisted manifest path")
+        raise AssemblyError(
+            "production benchmark receipt is missing persisted manifest path"
+        )
 
     path = Path(manifest_path).expanduser()
     try:
         if not path.is_file():
-            raise AssemblyError("production benchmark persisted manifest does not exist")
+            raise AssemblyError(
+                "production benchmark persisted manifest does not exist"
+            )
         payload = json.loads(path.read_text(encoding="utf-8"))
     except AssemblyError:
         raise
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise AssemblyError("cannot read production benchmark persisted manifest") from exc
+        raise AssemblyError(
+            "cannot read production benchmark persisted manifest"
+        ) from exc
 
     if not isinstance(payload, dict):
-        raise AssemblyError("production benchmark persisted manifest must be a JSON object")
+        raise AssemblyError(
+            "production benchmark persisted manifest must be a JSON object"
+        )
     if payload.get("schema") != _SUPPORTED_BENCHMARK_SCHEMA:
-        raise AssemblyError("production benchmark persisted manifest has unsupported schema")
+        raise AssemblyError(
+            "production benchmark persisted manifest has unsupported schema"
+        )
 
     snapshot = dict(_receipt_snapshot(benchmark))
     if snapshot.get("schema") != _SUPPORTED_BENCHMARK_SCHEMA:
