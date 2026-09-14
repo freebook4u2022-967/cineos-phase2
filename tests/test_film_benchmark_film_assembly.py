@@ -26,6 +26,48 @@ def _chain(receipts: list[SimpleNamespace]) -> str:
     return digest.hexdigest()
 
 
+def _score(metrics: dict[str, float]) -> float:
+    core = (
+        0.32 * metrics["identity_similarity"]
+        + 0.30 * metrics["temporal_consistency"]
+        + 0.20 * metrics["artifact_integrity"]
+        + 0.18 * metrics["motion_quality"]
+    )
+    optional_names = (
+        "multi_character_interaction_quality",
+        "anatomy_quality",
+        "locomotion_quality",
+        "object_interaction_quality",
+        "camera_motion_quality",
+        "lighting_transition_quality",
+        "physics_plausibility",
+        "dialogue_lip_sync",
+    )
+    optional = [metrics[name] for name in optional_names if name in metrics]
+    if not optional:
+        return core
+    return 0.85 * core + 0.15 * (sum(optional) / len(optional))
+
+
+def _policy() -> dict[str, float | str]:
+    return {
+        "schema": "cineos-sequence-quality-policy/0.3",
+        "identity_floor": 0.78,
+        "temporal_floor": 0.76,
+        "artifact_floor": 0.90,
+        "motion_floor": 0.72,
+        "overall_floor": 0.80,
+        "multi_character_interaction_floor": 0.76,
+        "anatomy_floor": 0.78,
+        "locomotion_floor": 0.74,
+        "object_interaction_floor": 0.76,
+        "camera_motion_floor": 0.72,
+        "lighting_transition_floor": 0.74,
+        "physics_plausibility_floor": 0.74,
+        "dialogue_lip_sync_floor": 0.74,
+    }
+
+
 def _benchmark(
     *,
     tamper_report_output: bool = False,
@@ -90,12 +132,15 @@ def _benchmark(
                 ),
                 "accepted": True,
                 "decision": "accept",
+                "score": _score(metrics) if not omit_core_metric or index != 3 else 0.90,
+                "metrics": metrics,
+                "failed_metrics": [],
+                "directives": [],
+                "required_challenge_metrics": required_challenge_metrics,
+                "policy": _policy(),
                 "production_measurement_evidence": True,
                 "shot_id": shot_id,
                 "output_sha256": report_output,
-                "metrics": metrics,
-                "required_challenge_metrics": required_challenge_metrics,
-                "policy": {"dialogue_lip_sync_floor": 0.74},
                 "measurement": {
                     "schema": "cineos-sequence-quality-measurement/0.1",
                     "observer_id": "test-observer",
@@ -208,7 +253,7 @@ def test_dialogue_release_rejects_lip_sync_below_policy_floor_before_ffmpeg() ->
         dialogue_lip_sync=0.60,
     )
 
-    with pytest.raises(AssemblyError, match="lip-sync score is below"):
+    with pytest.raises(AssemblyError, match="below its recorded policy floor"):
         assemble_benchmark_production_film(
             benchmark,
             "/tmp/final.mp4",
