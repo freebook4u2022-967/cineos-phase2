@@ -409,7 +409,8 @@ def validate_production_quality_retry_gate(
                 "accepted transition list does not cover every connected boundary"
             )
         for boundary_index, (aggregate, expected) in enumerate(
-            zip(accepted_transitions, expected_accepted_transitions, strict=True), start=1
+            zip(accepted_transitions, expected_accepted_transitions, strict=True),
+            start=1,
         ):
             if not isinstance(aggregate, Mapping):
                 raise ProductionRetryEvidenceError(
