@@ -86,6 +86,27 @@ def test_manifest_integrity_rejects_substituted_foundation_profile(tmp_path) -> 
         validate_persisted_benchmark_manifest(receipt)
 
 
+def test_manifest_integrity_rejects_unbound_top_level_evidence(tmp_path) -> None:
+    receipt, manifest, payload = _receipt(tmp_path)
+    payload["seedance_parity_claim"] = {
+        "passed": True,
+        "source": "unbound-external-claim",
+    }
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(AssemblyError, match="contains unbound fields"):
+        validate_persisted_benchmark_manifest(receipt)
+
+
+def test_manifest_integrity_rejects_unbound_quality_override(tmp_path) -> None:
+    receipt, manifest, payload = _receipt(tmp_path)
+    payload["quality_override"] = {"production_quality_evidence": True}
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(AssemblyError, match="'quality_override'"):
+        validate_persisted_benchmark_manifest(receipt)
+
+
 def test_manifest_integrity_requires_real_manifest_file(tmp_path) -> None:
     receipt, manifest, _payload = _receipt(tmp_path)
     manifest.unlink()

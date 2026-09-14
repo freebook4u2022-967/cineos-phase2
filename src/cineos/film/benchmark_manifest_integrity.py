@@ -16,6 +16,7 @@ from typing import Any
 from .exceptions import AssemblyError
 
 _SUPPORTED_BENCHMARK_SCHEMA = "cineos-gpu-connected-benchmark/0.3"
+_PERSISTED_RUNNER_FIELDS = frozenset({"foundation_profile"})
 
 
 def _receipt_snapshot(benchmark: Any) -> Mapping[str, Any]:
@@ -36,10 +37,12 @@ def validate_persisted_benchmark_manifest(benchmark: Any) -> dict[str, Any]:
     """Return the persisted manifest after proving it matches ``benchmark`` exactly.
 
     ``run_connected_gpu_benchmark`` persists ``receipt.to_dict()`` plus the selected
-    external foundation profile.  Release-time validation compares every receipt-owned
-    field to the persisted JSON rather than trusting a mutable in-memory object.  The
-    foundation-profile block is intentionally allowed as an additional persisted field
-    because it is written by the benchmark runner, not by ``receipt.to_dict()``.
+    external foundation profile. Release-time validation compares every receipt-owned
+    field to the persisted JSON rather than trusting a mutable in-memory object. The
+    foundation-profile block is the only additional persisted field allowed because it
+    is written by the benchmark runner, not by ``receipt.to_dict()``. Rejecting unknown
+    top-level evidence prevents a later producer from smuggling unbound quality or
+    provenance claims into a manifest that otherwise matches the trusted receipt.
     """
 
     manifest_path = getattr(benchmark, "manifest_path", None)
@@ -74,6 +77,14 @@ def validate_persisted_benchmark_manifest(benchmark: Any) -> dict[str, Any]:
     snapshot = dict(_receipt_snapshot(benchmark))
     if snapshot.get("schema") != _SUPPORTED_BENCHMARK_SCHEMA:
         raise AssemblyError("production benchmark receipt has unsupported schema")
+
+    expected_fields = set(snapshot) | _PERSISTED_RUNNER_FIELDS
+    unexpected_fields = sorted(set(payload) - expected_fields)
+    if unexpected_fields:
+        raise AssemblyError(
+            "production benchmark persisted manifest contains unbound fields: "
+            + ", ".join(repr(field) for field in unexpected_fields)
+        )
 
     for key, expected in snapshot.items():
         if key not in payload:
