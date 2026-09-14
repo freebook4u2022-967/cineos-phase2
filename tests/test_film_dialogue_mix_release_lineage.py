@@ -88,6 +88,26 @@ def test_dialogue_mix_release_lineage_rejects_substituted_dialogue_scope(
         )
 
 
+def test_dialogue_mix_release_lineage_rejects_reordered_dialogue_scope(
+    tmp_path, monkeypatch
+) -> None:
+    audio_path = tmp_path / "final.wav"
+    evidence = _mix_evidence(audio_path, dialogue_shots=("shot-4", "shot-2"))
+    monkeypatch.setattr(
+        assembly,
+        "validate_production_audio_mix_evidence",
+        lambda _evidence: _sha(1),
+    )
+
+    with pytest.raises(AssemblyError, match="does not match benchmark dialogue order"):
+        assembly._validate_dialogue_mix_lineage(
+            dialogue_ids=("shot-2", "shot-4"),
+            audio_path=audio_path,
+            audio_sha256=_sha(1),
+            audio_mix_evidence=evidence,
+        )
+
+
 def test_dialogue_mix_release_lineage_accepts_exact_dialogue_scope(
     tmp_path, monkeypatch
 ) -> None:
