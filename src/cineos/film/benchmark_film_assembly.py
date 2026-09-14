@@ -22,6 +22,14 @@ from cineos.atlas.gpu_connected_benchmark import GPUConnectedBenchmarkReceipt
 from .exceptions import AssemblyError
 from .production_assembly import assemble_production_film
 
+_SUPPORTED_QUALITY_REPORT_SCHEMA = "cineos-sequence-quality-report/0.3"
+_REQUIRED_RELEASE_METRICS = (
+    "identity_similarity",
+    "temporal_consistency",
+    "artifact_integrity",
+    "motion_quality",
+)
+
 
 def _canonical_sha256(value: Mapping[str, Any]) -> str:
     payload = json.dumps(
@@ -41,6 +49,107 @@ def _required_sha256(value: Any, *, field: str) -> str:
     except ValueError as exc:
         raise AssemblyError(f"connected benchmark has invalid {field}") from exc
     return normalized
+
+
+def _required_quality_metric(value: Any, *, shot_id: str, metric: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} QC report is missing measured {metric}"
+        )
+    numeric = float(value)
+    if not 0.0 <= numeric <= 1.0:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} QC metric {metric} is outside [0, 1]"
+        )
+    return numeric
+
+
+def _validate_release_quality_report(
+    report: Mapping[str, Any], *, shot_id: str, output_sha: str
+) -> None:
+    """Require a complete, artifact-bound accepted report at the release boundary.
+
+    ``production_quality_evidence`` deliberately remains a lightweight benchmark-tier
+    property for backwards-compatible orchestration. Final-film assembly is stricter:
+    it independently verifies the versioned report contract, the accept decision, core
+    measured metrics, every declared difficult-case metric, and the measurement/artifact
+    binding. This prevents a minimal or hand-manufactured mapping from being promoted to
+    release evidence merely by carrying ``accepted=True``.
+    """
+
+    if report.get("schema") != _SUPPORTED_QUALITY_REPORT_SCHEMA:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} has unsupported QC report schema"
+        )
+    if report.get("accepted") is not True or report.get("decision") != "accept":
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks an accepted QC decision"
+        )
+    if report.get("production_measurement_evidence") is not True:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks measured production QC evidence"
+        )
+    if report.get("shot_id") != shot_id:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} QC report is bound to another shot"
+        )
+    if report.get("output_sha256") != output_sha:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} QC report is bound to another render"
+        )
+
+    metrics = report.get("metrics")
+    if not isinstance(metrics, Mapping):
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks measured QC metrics"
+        )
+    for metric in _REQUIRED_RELEASE_METRICS:
+        _required_quality_metric(metrics.get(metric), shot_id=shot_id, metric=metric)
+
+    required_challenge_metrics = report.get("required_challenge_metrics")
+    if not isinstance(required_challenge_metrics, Mapping):
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks difficult-case QC requirements"
+        )
+    for metric, challenge in required_challenge_metrics.items():
+        if not isinstance(metric, str) or not metric.strip():
+            raise AssemblyError(
+                f"connected benchmark shot {shot_id} has malformed difficult-case QC evidence"
+            )
+        if not isinstance(challenge, str) or not challenge.strip():
+            raise AssemblyError(
+                f"connected benchmark shot {shot_id} has malformed difficult-case QC evidence"
+            )
+        _required_quality_metric(
+            metrics.get(metric), shot_id=shot_id, metric=metric
+        )
+
+    measurement = report.get("measurement")
+    if not isinstance(measurement, Mapping):
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks artifact-bound QC measurement"
+        )
+    if measurement.get("schema") != "cineos-sequence-quality-measurement/0.1":
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} has unsupported QC measurement schema"
+        )
+    observer_id = measurement.get("observer_id")
+    if not isinstance(observer_id, str) or not observer_id.strip():
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks QC measurement observer identity"
+        )
+    if measurement.get("observer_attested") is not True:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks attested QC observer evidence"
+        )
+    if measurement.get("measurement_attested") is not True:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks attested QC measurement evidence"
+        )
+    if measurement.get("artifact_sha256") != output_sha:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} QC measurement is bound to another render"
+        )
 
 
 def _validate_benchmark_aggregate_integrity(
@@ -185,31 +294,13 @@ def build_production_shot_evidence(
             )
         seen_outputs.add(output_sha)
 
-        if not isinstance(report, Mapping) or report.get("accepted") is not True:
+        if not isinstance(report, Mapping):
             raise AssemblyError(
                 f"connected benchmark shot {shot_id} lacks accepted QC evidence"
             )
-        if report.get("production_measurement_evidence") is not True:
-            raise AssemblyError(
-                f"connected benchmark shot {shot_id} lacks measured production QC evidence"
-            )
-        if report.get("shot_id") != shot_id:
-            raise AssemblyError(
-                f"connected benchmark shot {shot_id} QC report is bound to another shot"
-            )
-        if report.get("output_sha256") != output_sha:
-            raise AssemblyError(
-                f"connected benchmark shot {shot_id} QC report is bound to another render"
-            )
-        measurement = report.get("measurement")
-        if not isinstance(measurement, Mapping):
-            raise AssemblyError(
-                f"connected benchmark shot {shot_id} lacks artifact-bound QC measurement"
-            )
-        if measurement.get("artifact_sha256") != output_sha:
-            raise AssemblyError(
-                f"connected benchmark shot {shot_id} QC measurement is bound to another render"
-            )
+        _validate_release_quality_report(
+            report, shot_id=shot_id, output_sha=output_sha
+        )
 
         evidence_sha = _canonical_sha256(report)
         if evidence_sha in seen_evidence:
@@ -230,6 +321,79 @@ def build_production_shot_evidence(
     return tuple(records)
 
 
+def _validate_dialogue_release_evidence(
+    benchmark: GPUConnectedBenchmarkReceipt,
+    *,
+    audio_path: str | Path | None,
+    audio_sha256: str | None,
+) -> None:
+    """Fail closed when declared dialogue would be released without lip-sync/audio evidence."""
+
+    raw_scope = getattr(benchmark, "dialogue_shot_ids", None)
+    if raw_scope is None:
+        # Older receipt objects predate explicit dialogue scope. Keep them usable for
+        # non-dialogue release paths without inventing dialogue evidence.
+        return
+    if not isinstance(raw_scope, Sequence) or isinstance(raw_scope, (str, bytes)):
+        raise AssemblyError("connected benchmark has malformed dialogue shot scope")
+
+    dialogue_ids: list[str] = []
+    for value in raw_scope:
+        if not isinstance(value, str) or not value.strip():
+            raise AssemblyError("connected benchmark has malformed dialogue shot scope")
+        shot_id = value.strip()
+        if shot_id in dialogue_ids:
+            raise AssemblyError("connected benchmark dialogue shot scope contains duplicates")
+        dialogue_ids.append(shot_id)
+    if not dialogue_ids:
+        return
+
+    if audio_path is None or audio_sha256 is None:
+        raise AssemblyError(
+            "dialogue-bearing production benchmark requires a hash-bound final audio artifact"
+        )
+
+    reports_by_shot = {
+        str(report.get("shot_id") or "").strip(): report
+        for report in benchmark.quality_reports
+        if isinstance(report, Mapping)
+    }
+    receipt_ids = {
+        str(getattr(getattr(receipt, "result", None), "shot_id", "") or "").strip()
+        for receipt in benchmark.shot_receipts
+    }
+    for shot_id in dialogue_ids:
+        if shot_id not in receipt_ids or shot_id not in reports_by_shot:
+            raise AssemblyError(
+                f"dialogue shot {shot_id} is not present in the accepted benchmark"
+            )
+        report = reports_by_shot[shot_id]
+        metrics = report.get("metrics")
+        if not isinstance(metrics, Mapping):
+            raise AssemblyError(
+                f"dialogue shot {shot_id} lacks measured lip-sync evidence"
+            )
+        score = _required_quality_metric(
+            metrics.get("dialogue_lip_sync"),
+            shot_id=shot_id,
+            metric="dialogue_lip_sync",
+        )
+        policy = report.get("policy")
+        if not isinstance(policy, Mapping):
+            raise AssemblyError(
+                f"dialogue shot {shot_id} lacks lip-sync acceptance policy evidence"
+            )
+        floor = _required_quality_metric(
+            policy.get("dialogue_lip_sync_floor"),
+            shot_id=shot_id,
+            metric="dialogue_lip_sync_floor",
+        )
+        if score < floor:
+            raise AssemblyError(
+                f"dialogue shot {shot_id} lip-sync score is below its accepted policy floor"
+            )
+
+
 def assemble_benchmark_production_film(
     benchmark: GPUConnectedBenchmarkReceipt,
     output: str | Path,
@@ -241,8 +405,14 @@ def assemble_benchmark_production_film(
 ) -> dict[str, Any]:
     """Assemble an exact quality-first benchmark into a validated production film."""
 
+    shot_evidence = build_production_shot_evidence(benchmark)
+    _validate_dialogue_release_evidence(
+        benchmark,
+        audio_path=audio_path,
+        audio_sha256=audio_sha256,
+    )
     return assemble_production_film(
-        build_production_shot_evidence(benchmark),
+        shot_evidence,
         output,
         durations=durations,
         audio_path=audio_path,
