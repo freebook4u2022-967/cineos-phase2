@@ -114,6 +114,44 @@ def test_multi_speaker_bindings_reject_overlapping_mixed_audio_windows() -> None
         validate_dialogue_speaker_bindings([shot])
 
 
+def test_dialogue_timing_rejects_malformed_cue_before_speaker_counting() -> None:
+    shot = _shot(
+        [
+            {
+                "speaker_id": "alice",
+                "speaker_face_track_index": 0,
+                "start_seconds": 0.0,
+                "end_seconds": 1.0,
+            },
+            "not-a-cue",
+        ]
+    )
+
+    with pytest.raises(ProductionSemanticQCError, match="must be a mapping"):
+        validate_dialogue_speaker_bindings([shot])
+
+
+def test_dialogue_timing_rejects_missing_speaker_before_speaker_counting() -> None:
+    shot = _shot(
+        [
+            {
+                "speaker_id": "alice",
+                "speaker_face_track_index": 0,
+                "start_seconds": 0.0,
+                "end_seconds": 1.0,
+            },
+            {
+                "speaker_face_track_index": 1,
+                "start_seconds": 1.0,
+                "end_seconds": 2.0,
+            },
+        ]
+    )
+
+    with pytest.raises(ProductionSemanticQCError, match="speaker_id must be non-empty"):
+        validate_dialogue_speaker_bindings([shot])
+
+
 def test_single_speaker_dialogue_keeps_runtime_compatibility() -> None:
     shot = _shot(
         [
@@ -124,5 +162,11 @@ def test_single_speaker_dialogue_keeps_runtime_compatibility() -> None:
             }
         ]
     )
+
+    validate_dialogue_speaker_bindings([shot])
+
+
+def test_single_speaker_dialogue_does_not_require_track_or_window_metadata() -> None:
+    shot = _shot([{"speaker_id": "alice"}])
 
     validate_dialogue_speaker_bindings([shot])
