@@ -27,12 +27,30 @@ from .exceptions import AssemblyError
 from .production_assembly import assemble_production_film
 
 _SUPPORTED_QUALITY_REPORT_SCHEMA = "cineos-sequence-quality-report/0.3"
+_SUPPORTED_QUALITY_POLICY_SCHEMA = "cineos-sequence-quality-policy/0.3"
 _REQUIRED_RELEASE_METRICS = (
     "identity_similarity",
     "temporal_consistency",
     "artifact_integrity",
     "motion_quality",
 )
+_CORE_POLICY_FLOORS = {
+    "identity_similarity": "identity_floor",
+    "temporal_consistency": "temporal_floor",
+    "artifact_integrity": "artifact_floor",
+    "motion_quality": "motion_floor",
+}
+_CHALLENGE_POLICY_FLOORS = {
+    "multi_character_interaction_quality": "multi_character_interaction_floor",
+    "anatomy_quality": "anatomy_floor",
+    "locomotion_quality": "locomotion_floor",
+    "object_interaction_quality": "object_interaction_floor",
+    "camera_motion_quality": "camera_motion_floor",
+    "lighting_transition_quality": "lighting_transition_floor",
+    "physics_plausibility": "physics_plausibility_floor",
+    "dialogue_lip_sync": "dialogue_lip_sync_floor",
+}
+_OPTIONAL_SCORE_METRICS = tuple(_CHALLENGE_POLICY_FLOORS)
 
 
 def _canonical_sha256(value: Mapping[str, Any]) -> str:
@@ -68,6 +86,87 @@ def _required_quality_metric(value: Any, *, shot_id: str, metric: str) -> float:
     return numeric
 
 
+def _recompute_quality_score(metrics: Mapping[str, float]) -> float:
+    core = (
+        0.32 * metrics["identity_similarity"]
+        + 0.30 * metrics["temporal_consistency"]
+        + 0.20 * metrics["artifact_integrity"]
+        + 0.18 * metrics["motion_quality"]
+    )
+    optional = [metrics[name] for name in _OPTIONAL_SCORE_METRICS if name in metrics]
+    if not optional:
+        return core
+    return 0.85 * core + 0.15 * (sum(optional) / len(optional))
+
+
+def _validate_release_policy_semantics(
+    report: Mapping[str, Any],
+    *,
+    shot_id: str,
+    metrics: Mapping[str, float],
+    required_challenge_metrics: Mapping[str, str],
+) -> None:
+    """Recompute quality acceptance instead of trusting a mutable accept label."""
+
+    policy = report.get("policy")
+    if not isinstance(policy, Mapping):
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} lacks QC acceptance policy evidence"
+        )
+    if policy.get("schema") != _SUPPORTED_QUALITY_POLICY_SCHEMA:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} has unsupported QC policy schema"
+        )
+
+    for metric, floor_name in _CORE_POLICY_FLOORS.items():
+        floor = _required_quality_metric(
+            policy.get(floor_name), shot_id=shot_id, metric=floor_name
+        )
+        if metrics[metric] < floor:
+            raise AssemblyError(
+                f"connected benchmark shot {shot_id} accepted QC metric {metric} "
+                "is below its recorded policy floor"
+            )
+
+    for metric in required_challenge_metrics:
+        floor_name = _CHALLENGE_POLICY_FLOORS.get(metric)
+        if floor_name is None:
+            raise AssemblyError(
+                f"connected benchmark shot {shot_id} has unknown difficult-case QC metric {metric!r}"
+            )
+        floor = _required_quality_metric(
+            policy.get(floor_name), shot_id=shot_id, metric=floor_name
+        )
+        if metrics[metric] < floor:
+            raise AssemblyError(
+                f"connected benchmark shot {shot_id} accepted QC metric {metric} "
+                "is below its recorded policy floor"
+            )
+
+    overall_floor = _required_quality_metric(
+        policy.get("overall_floor"), shot_id=shot_id, metric="overall_floor"
+    )
+    declared_score = _required_quality_metric(
+        report.get("score"), shot_id=shot_id, metric="score"
+    )
+    recomputed_score = _recompute_quality_score(metrics)
+    if abs(declared_score - recomputed_score) > 1e-12:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} QC score does not match measured metrics"
+        )
+    if recomputed_score < overall_floor:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} accepted QC score is below its recorded policy floor"
+        )
+
+    failed_metrics = report.get("failed_metrics")
+    directives = report.get("directives")
+    if failed_metrics != [] or directives != []:
+        raise AssemblyError(
+            f"connected benchmark shot {shot_id} accepted QC report retains rejection evidence"
+        )
+
+
 def _validate_release_quality_report(
     report: Mapping[str, Any], *, shot_id: str, output_sha: str
 ) -> None:
@@ -76,9 +175,10 @@ def _validate_release_quality_report(
     ``production_quality_evidence`` deliberately remains a lightweight benchmark-tier
     property for backwards-compatible orchestration. Final-film assembly is stricter:
     it independently verifies the versioned report contract, the accept decision, core
-    measured metrics, every declared difficult-case metric, and the measurement/artifact
-    binding. This prevents a minimal or hand-manufactured mapping from being promoted to
-    release evidence merely by carrying ``accepted=True``.
+    measured metrics, every declared difficult-case metric, the recorded acceptance
+    policy, and the measurement/artifact binding. This prevents a minimal or
+    hand-manufactured mapping from being promoted to release evidence merely by carrying
+    ``accepted=True``.
     """
 
     if report.get("schema") != _SUPPORTED_QUALITY_REPORT_SCHEMA:
@@ -102,20 +202,29 @@ def _validate_release_quality_report(
             f"connected benchmark shot {shot_id} QC report is bound to another render"
         )
 
-    metrics = report.get("metrics")
-    if not isinstance(metrics, Mapping):
+    metrics_raw = report.get("metrics")
+    if not isinstance(metrics_raw, Mapping):
         raise AssemblyError(
             f"connected benchmark shot {shot_id} lacks measured QC metrics"
         )
+    metrics: dict[str, float] = {}
     for metric in _REQUIRED_RELEASE_METRICS:
-        _required_quality_metric(metrics.get(metric), shot_id=shot_id, metric=metric)
+        metrics[metric] = _required_quality_metric(
+            metrics_raw.get(metric), shot_id=shot_id, metric=metric
+        )
+    for metric in _OPTIONAL_SCORE_METRICS:
+        if metric in metrics_raw:
+            metrics[metric] = _required_quality_metric(
+                metrics_raw.get(metric), shot_id=shot_id, metric=metric
+            )
 
-    required_challenge_metrics = report.get("required_challenge_metrics")
-    if not isinstance(required_challenge_metrics, Mapping):
+    required_challenge_metrics_raw = report.get("required_challenge_metrics")
+    if not isinstance(required_challenge_metrics_raw, Mapping):
         raise AssemblyError(
             f"connected benchmark shot {shot_id} lacks difficult-case QC requirements"
         )
-    for metric, challenge in required_challenge_metrics.items():
+    required_challenge_metrics: dict[str, str] = {}
+    for metric, challenge in required_challenge_metrics_raw.items():
         if not isinstance(metric, str) or not metric.strip():
             raise AssemblyError(
                 f"connected benchmark shot {shot_id} has malformed difficult-case QC evidence"
@@ -124,7 +233,18 @@ def _validate_release_quality_report(
             raise AssemblyError(
                 f"connected benchmark shot {shot_id} has malformed difficult-case QC evidence"
             )
-        _required_quality_metric(metrics.get(metric), shot_id=shot_id, metric=metric)
+        normalized_metric = metric.strip()
+        required_challenge_metrics[normalized_metric] = challenge.strip()
+        metrics[normalized_metric] = _required_quality_metric(
+            metrics_raw.get(normalized_metric), shot_id=shot_id, metric=normalized_metric
+        )
+
+    _validate_release_policy_semantics(
+        report,
+        shot_id=shot_id,
+        metrics=metrics,
+        required_challenge_metrics=required_challenge_metrics,
+    )
 
     measurement = report.get("measurement")
     if not isinstance(measurement, Mapping):
