@@ -5,6 +5,7 @@ from .benchmark_film_assembly import (
     assemble_benchmark_production_film,
     build_production_shot_evidence,
 )
+from .benchmark_manifest_integrity import validate_persisted_benchmark_manifest
 from .build import BuildStatus, FilmBuild
 from .checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
@@ -34,4 +35,5 @@ __all__ = [
     "load_checkpoint_runtime_state",
     "save",
     "save_checkpoint",
+    "validate_persisted_benchmark_manifest",
 ]
