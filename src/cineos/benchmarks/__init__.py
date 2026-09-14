@@ -2,6 +2,7 @@
 
 from .baseline import Baseline, approve_baseline, create_baseline, load_baseline
 from .case import BenchmarkCase
+from .competitive_release import validate_seedance_competitive_release
 from .metrics import METRIC_NAMES, Metric, MetricStatus
 from .regression import Regression, Severity, compare_against_baseline
 from .report import BenchmarkReport, CaseResult
@@ -25,4 +26,5 @@ __all__ = [
     "compare_against_baseline",
     "create_baseline",
     "load_baseline",
+    "validate_seedance_competitive_release",
 ]

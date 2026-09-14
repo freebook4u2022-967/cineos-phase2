@@ -1,0 +1,1 @@
+{"fixture_version":"1.0","case_id":"competitive-lighting-transition","deterministic":true,"benchmark_challenges":["lighting_control","identity_lock"],"real_inference_required":true}

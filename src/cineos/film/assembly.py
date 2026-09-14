@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import math
 import shutil
 import subprocess
+from collections.abc import Mapping
+from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 from .exceptions import AssemblyError
+from .media_probe import MediaProbeError, probe_audio_signal, probe_media
 from .validator import file_hash
+
+MAX_APPROVED_AUDIO_SHORTFALL_SECONDS = 0.75
+MAX_ASSEMBLED_DURATION_DRIFT_SECONDS = 0.25
+MIN_ASSEMBLED_AUDIO_PEAK_DB = -110.0
+FINAL_VIDEO_CODEC = "h264"
+FINAL_AUDIO_CODEC = "aac"
+FINAL_AUDIO_SAMPLE_RATE_HZ = 48_000
 
 
 def _ffmpeg() -> str:
@@ -17,55 +29,501 @@ def _ffmpeg() -> str:
     return executable
 
 
+def _paths_alias(left: Path, right: Path) -> bool:
+    """Return true when two paths name the same filesystem object."""
+    if left == right:
+        return True
+    try:
+        return left.exists() and right.exists() and left.samefile(right)
+    except OSError:
+        return False
+
+
+def _reject_output_collision(
+    destination: Path,
+    *,
+    sources: list[Path],
+    audio_source: Path | None = None,
+) -> None:
+    """Protect evidence-bound inputs from destructive in-place assembly."""
+    protected_inputs = set(sources)
+    if audio_source is not None:
+        protected_inputs.add(audio_source)
+    if any(_paths_alias(destination, source) for source in protected_inputs):
+        raise AssemblyError(
+            "assembly output must be distinct from every source video and approved audio "
+            "artifact"
+        )
+
+
+def _preflight_audio(
+    source: Path,
+    *,
+    expected_duration: float | None,
+) -> dict[str, Any]:
+    """Verify the approved audio input before spending a production encode."""
+    try:
+        media = probe_media(source)
+    except MediaProbeError as exc:
+        raise AssemblyError(f"approved audio preflight failed: {exc}") from exc
+
+    try:
+        audio_stream_count = int(media.get("audio_stream_count") or 0)
+    except (TypeError, ValueError):
+        audio_stream_count = 0
+    streams = media.get("audio_streams") or []
+    if audio_stream_count != 1 or len(streams) != 1:
+        raise AssemblyError(
+            "approved audio artifact must contain exactly one audio stream"
+        )
+
+    stream = streams[0]
+    if not isinstance(stream, Mapping):
+        raise AssemblyError("approved audio artifact is missing valid stream evidence")
+
+    codec_name = str(stream.get("codec_name") or "").strip().lower()
+    if not codec_name:
+        raise AssemblyError("approved audio artifact is missing codec evidence")
+    try:
+        sample_rate = int(stream.get("sample_rate_hz") or 0)
+        channels = int(stream.get("channels") or 0)
+    except (TypeError, ValueError):
+        sample_rate = channels = 0
+    if sample_rate <= 0:
+        raise AssemblyError("approved audio artifact has no valid sample-rate evidence")
+    if channels <= 0:
+        raise AssemblyError(
+            "approved audio artifact has no valid channel-count evidence"
+        )
+
+    try:
+        duration = float(
+            stream.get("duration_seconds") or media.get("duration_seconds") or 0.0
+        )
+    except (TypeError, ValueError):
+        duration = 0.0
+    if not math.isfinite(duration) or duration <= 0:
+        raise AssemblyError("approved audio artifact has no finite positive duration")
+
+    duration_shortfall: float | None = None
+    if expected_duration is not None:
+        if not math.isfinite(expected_duration) or expected_duration <= 0:
+            raise AssemblyError(
+                "approved visual timeline has no finite positive duration"
+            )
+        duration_shortfall = expected_duration - duration
+        tolerance = max(
+            MAX_APPROVED_AUDIO_SHORTFALL_SECONDS,
+            expected_duration * 0.02,
+        )
+        if duration_shortfall > tolerance:
+            raise AssemblyError(
+                "approved audio artifact cannot cover the requested visual timeline "
+                f"({duration:.3f}s audio vs {expected_duration:.3f}s video; "
+                f"tolerance {tolerance:.3f}s)"
+            )
+
+    return {
+        "audio_stream_count": audio_stream_count,
+        "codec_name": codec_name,
+        "sample_rate_hz": sample_rate,
+        "channels": channels,
+        "duration_seconds": duration,
+        "duration_shortfall_seconds": duration_shortfall,
+    }
+
+
+def _visual_timeline_duration(
+    sources: list[Path],
+    durations: list[float] | None,
+    *,
+    crossfade: float = 0.0,
+) -> float:
+    """Resolve the visual timeline length independently of an optional soundtrack."""
+    if durations is not None:
+        total = sum(durations)
+    else:
+        total = 0.0
+        for source in sources:
+            try:
+                media = probe_media(source)
+            except MediaProbeError as exc:
+                raise AssemblyError(
+                    f"visual timeline preflight failed for {source}: {exc}"
+                ) from exc
+            try:
+                duration = float(media.get("duration_seconds") or 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            if not math.isfinite(duration) or duration <= 0:
+                raise AssemblyError(
+                    f"visual timeline source has no valid positive duration: {source}"
+                )
+            total += duration
+
+    total -= crossfade * max(0, len(sources) - 1)
+    if not math.isfinite(total) or total <= 0:
+        raise AssemblyError("visual timeline has no valid positive duration")
+    return total
+
+
+def _positive_frame_rate(value: Any) -> float | None:
+    raw = str(value or "").strip()
+    if not raw or raw.upper() == "N/A" or raw == "0/0":
+        return None
+    try:
+        parsed = float(Fraction(raw))
+    except (ValueError, ZeroDivisionError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
+
+
+def _validate_delivery_contract(
+    media: Mapping[str, Any], *, expect_audio: bool
+) -> None:
+    """Bind final-film acceptance to the codec and stream contract we actually encode.
+
+    A successful FFmpeg process is not proof that the requested delivery settings made it
+    into the artifact. Validate independent FFprobe evidence for H.264 picture, positive
+    dimensions/frame rate, and—when a soundtrack was requested—AAC at the explicit 48 kHz
+    film/video delivery rate. This gate applies only to the final assembled artifact, not
+    renderer source shots, so external foundations remain free to use other legal codecs.
+    """
+    codecs = media.get("video_codecs")
+    if not isinstance(codecs, list) or len(codecs) != 1:
+        raise AssemblyError("assembled output is missing video-codec evidence")
+    if str(codecs[0] or "").strip().lower() != FINAL_VIDEO_CODEC:
+        raise AssemblyError(
+            "assembled output video codec does not match the delivery contract"
+        )
+
+    dimensions = media.get("video_dimensions")
+    if not isinstance(dimensions, list) or len(dimensions) != 1:
+        raise AssemblyError("assembled output is missing video-dimension evidence")
+    dimension = dimensions[0]
+    if not isinstance(dimension, Mapping):
+        raise AssemblyError("assembled output has malformed video-dimension evidence")
+    try:
+        width = int(dimension.get("width") or 0)
+        height = int(dimension.get("height") or 0)
+    except (TypeError, ValueError):
+        width = height = 0
+    if width <= 0 or height <= 0:
+        raise AssemblyError("assembled output has invalid video dimensions")
+
+    frame_rates = media.get("video_frame_rates")
+    if not isinstance(frame_rates, list) or len(frame_rates) != 1:
+        raise AssemblyError("assembled output is missing frame-rate evidence")
+    if _positive_frame_rate(frame_rates[0]) is None:
+        raise AssemblyError("assembled output has invalid frame-rate evidence")
+
+    if not expect_audio:
+        return
+
+    streams = media.get("audio_streams")
+    if not isinstance(streams, list) or len(streams) != 1:
+        raise AssemblyError("assembled output is missing audio delivery evidence")
+    stream = streams[0]
+    if not isinstance(stream, Mapping):
+        raise AssemblyError("assembled output has malformed audio delivery evidence")
+    codec_name = str(stream.get("codec_name") or "").strip().lower()
+    try:
+        sample_rate = int(stream.get("sample_rate_hz") or 0)
+        channels = int(stream.get("channels") or 0)
+    except (TypeError, ValueError):
+        sample_rate = channels = 0
+    if codec_name != FINAL_AUDIO_CODEC:
+        raise AssemblyError(
+            "assembled output audio codec does not match the delivery contract"
+        )
+    if sample_rate != FINAL_AUDIO_SAMPLE_RATE_HZ:
+        raise AssemblyError(
+            "assembled output audio sample rate does not match the 48 kHz delivery contract"
+        )
+    if channels <= 0:
+        raise AssemblyError("assembled output has invalid audio channel evidence")
+
+
+def _postflight_output(
+    destination: Path,
+    *,
+    expected_duration: float,
+    expect_audio: bool,
+) -> dict[str, Any]:
+    """Verify the encoded film itself before returning it as production output.
+
+    FFmpeg process success is not sufficient evidence that the destination contains the
+    requested film. Independently decode/probe the resulting artifact and bind acceptance
+    to one video stream, positive decoded-frame evidence, the encoded delivery contract,
+    the expected audio topology, the authoritative visual timeline, and (when audio is
+    requested) measurable decoded soundtrack signal. This catches truncated, mis-muxed,
+    silent-audio, stream-selection, codec-contract, and zero-picture failures that can
+    otherwise leave a plausible non-empty container behind.
+    """
+    try:
+        media = probe_media(destination)
+    except MediaProbeError as exc:
+        raise AssemblyError(f"assembled output postflight failed: {exc}") from exc
+
+    try:
+        video_stream_count = int(media.get("video_stream_count") or 0)
+        audio_stream_count = int(media.get("audio_stream_count") or 0)
+        actual_duration = float(media.get("duration_seconds") or 0.0)
+    except (TypeError, ValueError):
+        raise AssemblyError("assembled output has malformed stream/timeline evidence")
+
+    if video_stream_count != 1:
+        raise AssemblyError("assembled output must contain exactly one video stream")
+
+    frame_counts = media.get("video_frame_counts")
+    if not isinstance(frame_counts, list) or len(frame_counts) != 1:
+        raise AssemblyError(
+            "assembled output is missing exactly one decoded-frame evidence value"
+        )
+    try:
+        decoded_frame_count = int(frame_counts[0])
+    except (TypeError, ValueError):
+        raise AssemblyError("assembled output has invalid decoded-frame evidence")
+    if decoded_frame_count <= 0:
+        raise AssemblyError("assembled output has invalid decoded-frame evidence")
+
+    expected_audio_streams = 1 if expect_audio else 0
+    if audio_stream_count != expected_audio_streams:
+        raise AssemblyError(
+            "assembled output audio topology does not match the approved assembly request"
+        )
+    _validate_delivery_contract(media, expect_audio=expect_audio)
+    if not math.isfinite(actual_duration) or actual_duration <= 0:
+        raise AssemblyError("assembled output has no finite positive duration")
+    tolerance = max(
+        MAX_ASSEMBLED_DURATION_DRIFT_SECONDS,
+        expected_duration * 0.02,
+    )
+    drift = abs(actual_duration - expected_duration)
+    if drift > tolerance:
+        raise AssemblyError(
+            "assembled output timeline drift exceeds tolerance "
+            f"({actual_duration:.3f}s encoded vs {expected_duration:.3f}s expected; "
+            f"tolerance {tolerance:.3f}s)"
+        )
+
+    if expect_audio:
+        try:
+            signal = probe_audio_signal(destination)
+        except MediaProbeError as exc:
+            raise AssemblyError(
+                f"assembled output audio-signal postflight failed: {exc}"
+            ) from exc
+        try:
+            mean_volume_db = float(signal.get("mean_volume_db"))
+            max_volume_db = float(signal.get("max_volume_db"))
+        except (TypeError, ValueError):
+            raise AssemblyError("assembled output has malformed audio-signal evidence")
+        if not math.isfinite(mean_volume_db) or not math.isfinite(max_volume_db):
+            raise AssemblyError("assembled output has non-finite audio-signal evidence")
+        if max_volume_db <= MIN_ASSEMBLED_AUDIO_PEAK_DB:
+            raise AssemblyError(
+                "assembled output soundtrack contains no measurable signal "
+                f"(peak {max_volume_db:.1f} dB; required > "
+                f"{MIN_ASSEMBLED_AUDIO_PEAK_DB:.1f} dB)"
+            )
+
+    return media
+
+
+def _explicit_trim_filter(durations: list[float], *, crossfade: float = 0.0) -> str:
+    """Build a decoded-frame trim graph for an explicit production timeline."""
+    chains: list[str] = []
+    labels: list[str] = []
+    for index, duration in enumerate(durations):
+        label = f"v{index}"
+        chains.append(
+            f"[{index}:v:0]trim=start=0:duration={duration:.6f},"
+            f"settb=AVTB,setpts=PTS-STARTPTS[{label}]"
+        )
+        labels.append(label)
+
+    if crossfade == 0.0:
+        inputs = "".join(f"[{label}]" for label in labels)
+        chains.append(inputs + f"concat=n={len(durations)}:v=1:a=0[filmv]")
+        return ";".join(chains)
+
+    previous = labels[0]
+    cumulative_duration = durations[0]
+    for index in range(1, len(durations)):
+        output = "filmv" if index == len(durations) - 1 else f"xf{index}"
+        offset = cumulative_duration - crossfade
+        chains.append(
+            f"[{previous}][{labels[index]}]xfade=transition=fade:"
+            f"duration={crossfade:.6f}:offset={offset:.6f}[{output}]"
+        )
+        previous = output
+        cumulative_duration += durations[index] - crossfade
+    return ";".join(chains)
+
+
 def assemble(
     shots: list[str | Path],
     output: str | Path,
     *,
     durations: list[float] | None = None,
     crossfade: float = 0.0,
+    audio_path: str | Path | None = None,
 ) -> Path:
-    """Concatenate ordered shots using a generated, safely passed concat manifest."""
+    """Concatenate ordered shots and optionally mux an approved audio mix.
+
+    The default remains video-only for backwards compatibility. When ``audio_path``
+    is supplied, the exact referenced audio artifact is preflighted and explicitly
+    mapped as the final audio stream. Source-shot audio can therefore never supersede
+    the approved mix through FFmpeg's automatic stream selection.
+
+    When explicit edit durations are supplied, every source becomes an independent
+    FFmpeg input and the decoded video is hard-trimmed with ``trim`` before concat.
+    A positive ``crossfade`` uses FFmpeg's decoded-frame ``xfade`` filter between
+    those approved edits; it is intentionally supported only with explicit durations
+    so transition offsets and the authoritative visual timeline are deterministic.
+    The visual timeline duration is resolved before encoding and remains authoritative
+    when audio is present: short approved audio is padded, long audio is trimmed, and
+    audio can never terminate the video timeline. Production audio is normalized to
+    the 48 kHz film/video delivery rate. The output path must never alias an input
+    video or approved audio artifact, protecting evidence-bound assets from FFmpeg's
+    destructive ``-y`` overwrite behavior. Filesystem aliases such as hard links are
+    treated as collisions even when their path strings differ. The encoded destination
+    is independently probed after FFmpeg completes; process success alone never certifies
+    a final film.
+    """
     if not shots:
         raise AssemblyError("cannot assemble an empty timeline")
     sources = [Path(item).resolve() for item in shots]
     for source in sources:
         file_hash(source)
+    destination = Path(output).resolve()
+    _reject_output_collision(destination, sources=sources)
+
     if durations is not None and len(durations) != len(sources):
         raise AssemblyError("duration count does not match shot count")
-    if crossfade < 0:
-        raise AssemblyError("crossfade must not be negative")
-    destination = Path(output)
+    normalized_durations: list[float] | None = None
+    if durations is not None:
+        normalized_durations = [float(value) for value in durations]
+        if any(
+            not math.isfinite(value) or value <= 0 for value in normalized_durations
+        ):
+            raise AssemblyError("shot durations must all be finite and positive")
+
+    crossfade = float(crossfade)
+    if not math.isfinite(crossfade) or crossfade < 0:
+        raise AssemblyError("crossfade must be finite and non-negative")
+    if crossfade > 0:
+        if normalized_durations is None:
+            raise AssemblyError("crossfade requires explicit shot durations")
+        if len(sources) < 2:
+            raise AssemblyError("crossfade requires at least two shots")
+        if any(crossfade >= duration for duration in normalized_durations):
+            raise AssemblyError("crossfade must be shorter than every shot duration")
+
+    expected_duration = _visual_timeline_duration(
+        sources,
+        normalized_durations,
+        crossfade=crossfade,
+    )
+
+    audio_source: Path | None = None
+    if audio_path is not None:
+        audio_source = Path(audio_path).resolve()
+        file_hash(audio_source)
+        _reject_output_collision(
+            destination,
+            sources=sources,
+            audio_source=audio_source,
+        )
+        _preflight_audio(audio_source, expected_duration=expected_duration)
+
     destination.parent.mkdir(parents=True, exist_ok=True)
-    manifest = destination.with_suffix(".concat.txt")
-    lines: list[str] = []
-    for index, source in enumerate(sources):
-        escaped = str(source).replace("'", "'\\''")
-        lines.append(f"file '{escaped}'")
-        if durations:
-            lines.append(f"duration {durations[index]:.6f}")
-    manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    # Concat demuxer is deterministic and preserves hard cuts. Inputs with unlike
-    # codecs are normalized to H.264/yuv420p rather than stream-copied.
-    command = [
-        _ffmpeg(),
-        "-nostdin",
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(manifest),
-        "-an",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        str(destination),
-    ]
+
+    command = [_ffmpeg(), "-nostdin", "-y"]
+    if normalized_durations is not None:
+        for source in sources:
+            command.extend(["-i", str(source)])
+        if audio_source is not None:
+            command.extend(["-i", str(audio_source)])
+        trim_filter = _explicit_trim_filter(
+            normalized_durations,
+            crossfade=crossfade,
+        )
+        command.extend(
+            [
+                "-filter_complex",
+                trim_filter,
+                "-map",
+                "[filmv]",
+            ]
+        )
+        if audio_source is not None:
+            command.extend(["-map", f"{len(sources)}:a:0"])
+        else:
+            command.append("-an")
+    else:
+        manifest = destination.with_suffix(".concat.txt")
+        lines: list[str] = []
+        for source in sources:
+            escaped = str(source).replace("'", "'\\''")
+            lines.append(f"file '{escaped}'")
+        manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        command.extend(
+            [
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(manifest),
+            ]
+        )
+        if audio_source is not None:
+            command.extend(
+                [
+                    "-i",
+                    str(audio_source),
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "1:a:0",
+                ]
+            )
+        else:
+            command.append("-an")
+
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+        ]
+    )
+    if audio_source is not None:
+        command.extend(
+            [
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-ar",
+                "48000",
+                "-af",
+                "apad",
+                "-t",
+                f"{expected_duration:.6f}",
+            ]
+        )
+    command.extend(["-movflags", "+faststart", str(destination)])
+
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode or not destination.is_file():
         raise AssemblyError(f"FFmpeg assembly failed: {result.stderr.strip()}")
+    _postflight_output(
+        destination,
+        expected_duration=expected_duration,
+        expect_audio=audio_source is not None,
+    )
     return destination

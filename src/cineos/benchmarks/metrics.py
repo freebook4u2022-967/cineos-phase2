@@ -24,6 +24,13 @@ METRIC_NAMES = (
     "prop_continuity_score",
     "environment_continuity_score",
     "temporal_stability",
+    # Direct difficult-case measurements. These intentionally complement broad
+    # temporal/continuity scores so competitive cases cannot pass on proxies alone.
+    "anatomy_integrity_score",
+    "contact_consistency_score",
+    "locomotion_coherence_score",
+    "camera_motion_coherence_score",
+    "physics_consistency_score",
     "lip_sync_timing_accuracy",
     "audio_alignment",
     "final_assembly_success",

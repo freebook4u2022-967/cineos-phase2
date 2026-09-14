@@ -59,11 +59,12 @@ class RendererCapabilities:
             raise ValueError("supported fps values must be non-empty and positive")
         if any(not feature for feature in features):
             raise ValueError("feature names must not be empty")
-        if (
-            self.maximum_character_count is not None
-            and self.maximum_character_count < 0
+        if self.maximum_character_count is not None and (
+            isinstance(self.maximum_character_count, bool)
+            or not isinstance(self.maximum_character_count, int)
+            or self.maximum_character_count < 0
         ):
-            raise ValueError("maximum character count cannot be negative")
+            raise ValueError("maximum character count must be a non-negative integer")
         object.__setattr__(self, "supported_resolution", resolutions)
         object.__setattr__(self, "supported_fps", fps_values)
         object.__setattr__(self, "supported_features", features)
@@ -75,8 +76,14 @@ class RendererCapabilities:
         duration: float,
         fps: float,
         features: Iterable[str] = (),
+        character_count: int | None = None,
     ) -> NegotiatedCapabilities:
-        """Validate a requested configuration and return its normalized form."""
+        """Validate a requested configuration and return its normalized form.
+
+        ``character_count`` is optional for backward compatibility. Production callers
+        that know the cast size should supply it so a renderer cannot silently accept
+        a shot whose multi-character conditioning exceeds its declared capacity.
+        """
 
         requested_resolution = (
             resolution
@@ -84,6 +91,13 @@ class RendererCapabilities:
             else Resolution(*resolution)
         )
         requested_features = frozenset(features)
+        if character_count is not None and (
+            isinstance(character_count, bool)
+            or not isinstance(character_count, int)
+            or character_count < 0
+        ):
+            raise ValueError("character_count must be a non-negative integer or None")
+
         problems: list[str] = []
         if requested_resolution not in self.supported_resolution:
             problems.append(
@@ -96,6 +110,15 @@ class RendererCapabilities:
         missing_features = requested_features - self.supported_features
         if missing_features:
             problems.append(f"features {', '.join(sorted(missing_features))}")
+        if (
+            character_count is not None
+            and self.maximum_character_count is not None
+            and character_count > self.maximum_character_count
+        ):
+            problems.append(
+                "character_count "
+                f"{character_count} exceeds maximum {self.maximum_character_count}"
+            )
         if problems:
             raise CapabilityError("unsupported " + "; ".join(problems))
         return NegotiatedCapabilities(
@@ -103,6 +126,7 @@ class RendererCapabilities:
             duration=duration,
             fps=fps,
             features=requested_features,
+            character_count=character_count,
         )
 
 
@@ -114,3 +138,4 @@ class NegotiatedCapabilities:
     duration: float
     fps: float
     features: frozenset[str]
+    character_count: int | None = None
