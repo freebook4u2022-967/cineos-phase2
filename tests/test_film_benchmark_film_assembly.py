@@ -47,9 +47,7 @@ def _benchmark(
                     else profile_id
                 ),
                 origin=(
-                    "substituted-origin"
-                    if tamper_origin and index == 3
-                    else origin
+                    "substituted-origin" if tamper_origin and index == 3 else origin
                 ),
                 output_sha256=output_sha,
                 output_bytes=1000 + index,
@@ -138,7 +136,9 @@ def test_build_production_shot_evidence_rejects_stale_aggregate_chain() -> None:
 
 
 def test_build_production_shot_evidence_rejects_stale_aggregate_byte_count() -> None:
-    with pytest.raises(AssemblyError, match="aggregate output byte count does not match"):
+    with pytest.raises(
+        AssemblyError, match="aggregate output byte count does not match"
+    ):
         build_production_shot_evidence(_benchmark(tamper_total_bytes=True))
 
 
