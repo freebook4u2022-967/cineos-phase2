@@ -8,10 +8,11 @@ from cineos.atlas.production_semantic_qc import (
 )
 
 
-def _shot(dialogue_timing):
+def _shot(dialogue_timing, *, characters=None):
     return SimpleNamespace(
         metadata={"benchmark_challenges": ["dialogue"]},
         performance={"dialogue_timing": dialogue_timing},
+        characters=[] if characters is None else characters,
     )
 
 
@@ -149,6 +150,48 @@ def test_dialogue_timing_rejects_missing_speaker_before_speaker_counting() -> No
     )
 
     with pytest.raises(ProductionSemanticQCError, match="speaker_id must be non-empty"):
+        validate_dialogue_speaker_bindings([shot])
+
+
+def test_multi_character_dialogue_requires_explicit_timing_before_render() -> None:
+    shot = _shot(None, characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}])
+
+    with pytest.raises(ProductionSemanticQCError, match="multi-character dialogue"):
+        validate_dialogue_speaker_bindings([shot])
+
+
+def test_multi_character_single_speaker_requires_face_track_binding() -> None:
+    shot = _shot(
+        [{"speaker_id": "alice"}],
+        characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}],
+    )
+
+    with pytest.raises(ProductionSemanticQCError, match="speaker_face_track_index"):
+        validate_dialogue_speaker_bindings([shot])
+
+
+def test_multi_character_single_speaker_accepts_stable_face_track_binding() -> None:
+    shot = _shot(
+        [
+            {"speaker_id": "alice", "speaker_face_track_index": 1},
+            {"speaker_id": "alice", "speaker_face_track_index": 1},
+        ],
+        characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}],
+    )
+
+    validate_dialogue_speaker_bindings([shot])
+
+
+def test_multi_character_single_speaker_rejects_face_track_drift() -> None:
+    shot = _shot(
+        [
+            {"speaker_id": "alice", "speaker_face_track_index": 0},
+            {"speaker_id": "alice", "speaker_face_track_index": 1},
+        ],
+        characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}],
+    )
+
+    with pytest.raises(ProductionSemanticQCError, match="stable speaker-to-face"):
         validate_dialogue_speaker_bindings([shot])
 
 
