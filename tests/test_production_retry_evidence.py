@@ -220,3 +220,47 @@ def test_allows_shot_quality_pass_followed_by_transition_rejection():
 
     assert evidence["rejected_attempts"] == 1
     assert evidence["recovered_shot_ids"] == ["shot-2"]
+
+
+def test_rejects_accepted_transition_substituted_after_transition_attempt():
+    gate, receipts = _valid_gate()
+    gate = deepcopy(gate)
+    substituted = {
+        "attempt_index": 1,
+        "accepted": True,
+        "continuity_score": 0.99,
+    }
+    gate["shots"][1]["accepted_transition"] = substituted
+    gate["accepted_transitions"] = [substituted]
+
+    with pytest.raises(
+        ProductionRetryEvidenceError,
+        match="accepted transition does not match final transition attempt evidence",
+    ):
+        validate_production_quality_retry_gate(gate, receipts)
+
+
+def test_rejects_substituted_aggregate_accepted_transition():
+    gate, receipts = _valid_gate()
+    gate = deepcopy(gate)
+    gate["accepted_transitions"] = [
+        {"attempt_index": 1, "accepted": True, "continuity_score": 0.99}
+    ]
+
+    with pytest.raises(
+        ProductionRetryEvidenceError,
+        match="does not match its connected shot evidence",
+    ):
+        validate_production_quality_retry_gate(gate, receipts)
+
+
+def test_rejects_non_mapping_aggregate_accepted_transition():
+    gate, receipts = _valid_gate()
+    gate = deepcopy(gate)
+    gate["accepted_transitions"] = [None]
+
+    with pytest.raises(
+        ProductionRetryEvidenceError,
+        match="accepted transition 1 must be a mapping",
+    ):
+        validate_production_quality_retry_gate(gate, receipts)
