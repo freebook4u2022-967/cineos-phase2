@@ -177,7 +177,7 @@ def test_multi_face_binding_rejects_out_of_range_track(
         scorer(None, artifact=artifact, shot=shot, attempt_index=0)
 
 
-def test_multi_face_alternating_speakers_fail_until_cue_window_evaluation_exists(
+def test_multi_face_alternating_speakers_without_cue_windows_fail_closed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     scorer, repo, artifact = _scorer(tmp_path)
@@ -283,8 +283,9 @@ def test_component_declares_only_dialogue_lip_sync(tmp_path: Path) -> None:
     assert provenance["checkpoint_license"] == "OpenRAIL++"
     assert provenance["score_semantics"] == "binary_pass_fail_not_probability"
     assert provenance["face_track_policy"] == (
-        "single_track_or_explicit_speaker_bound_track"
+        "single_track_or_explicit_speaker_bound_track_or_cue_windows"
     )
+    assert provenance["multi_speaker_policy"] == "speaker_bound_cue_window_evaluation"
     assert provenance["speaker_track_binding_key"] == "speaker_face_track_index"
     assert (
         "speaker face-track binding must be supplied by an auditable tracking stage"
