@@ -31,7 +31,7 @@ from .semantic_video_ensemble import (
 )
 from .sequence_quality import CHALLENGE_METRIC_REQUIREMENTS
 
-PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.4"
+PRODUCTION_SEMANTIC_QC_SCHEMA = "cineos-production-semantic-qc-capabilities/0.5"
 CORE_SEMANTIC_METRICS = ("identity_similarity", "motion_quality")
 _CHALLENGE_METADATA_KEYS = ("competitive_challenges", "benchmark_challenges")
 _DIALOGUE_CHALLENGES = frozenset(("dialogue", "dialogue_lip_sync"))
@@ -67,6 +67,34 @@ def _declared_challenges(shot: Any) -> frozenset[str]:
     return frozenset(declared)
 
 
+def _validated_dialogue_speakers(
+    timing: list[Any], *, shot_index: int
+) -> frozenset[str]:
+    """Validate cue ownership syntax before deciding whether a shot is multi-speaker.
+
+    A malformed second cue previously disappeared from ``valid_speakers`` and could
+    make an actually ambiguous dialogue shot look single-speaker at preflight. The
+    expensive renderer would then run before SyncNet rejected the cue. Validate the
+    ownership syntax of every supplied cue first, while intentionally leaving face
+    tracks and cue windows optional for well-formed single-speaker dialogue.
+    """
+
+    speakers: set[str] = set()
+    for cue_index, cue in enumerate(timing):
+        prefix = f"shot[{shot_index}] dialogue_timing[{cue_index}]"
+        if not isinstance(cue, dict):
+            raise ProductionSemanticQCError(
+                f"{prefix} must be a mapping when dialogue_timing is supplied"
+            )
+        speaker_id = cue.get("speaker_id")
+        if not isinstance(speaker_id, str) or not speaker_id.strip():
+            raise ProductionSemanticQCError(
+                f"{prefix}.speaker_id must be non-empty when dialogue_timing is supplied"
+            )
+        speakers.add(speaker_id.strip())
+    return frozenset(speakers)
+
+
 def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
     """Fail closed on ambiguous multi-speaker SyncNet cue ownership.
 
@@ -78,8 +106,10 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
     evidence; accepting the mixed soundtrack would risk scoring the wrong voice against
     a face and overstating dialogue quality.
 
-    Single-speaker dialogue is intentionally unchanged because the runtime can still
-    accept a single detected face without explicit track metadata.
+    Single-speaker dialogue remains compatible without explicit track/time metadata,
+    but if ``dialogue_timing`` is supplied, every cue must at least have unambiguous
+    speaker ownership. This prevents malformed multi-cue metadata from bypassing the
+    preflight and failing only after expensive GPU generation.
     """
 
     for shot_index, shot in enumerate(shots):
@@ -92,13 +122,7 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
         if not isinstance(timing, list) or not timing:
             continue
 
-        valid_speakers = {
-            cue.get("speaker_id").strip()
-            for cue in timing
-            if isinstance(cue, dict)
-            and isinstance(cue.get("speaker_id"), str)
-            and cue.get("speaker_id").strip()
-        }
+        valid_speakers = _validated_dialogue_speakers(timing, shot_index=shot_index)
         if len(valid_speakers) < 2:
             continue
 
@@ -107,16 +131,8 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
         windows: list[tuple[float, float, str]] = []
         for cue_index, cue in enumerate(timing):
             prefix = f"shot[{shot_index}] dialogue_timing[{cue_index}]"
-            if not isinstance(cue, dict):
-                raise ProductionSemanticQCError(
-                    f"{prefix} must be a mapping for multi-speaker lip-sync QC"
-                )
-            speaker_id = cue.get("speaker_id")
-            if not isinstance(speaker_id, str) or not speaker_id.strip():
-                raise ProductionSemanticQCError(
-                    f"{prefix}.speaker_id must be non-empty for multi-speaker lip-sync QC"
-                )
-            speaker_id = speaker_id.strip()
+            # _validated_dialogue_speakers established both mapping type and speaker_id.
+            speaker_id = cue["speaker_id"].strip()
             track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
             if (
                 isinstance(track_index, bool)
@@ -130,7 +146,7 @@ def validate_dialogue_speaker_bindings(shots: Sequence[Any]) -> None:
             previous_track = speaker_to_track.setdefault(speaker_id, track_index)
             if previous_track != track_index:
                 raise ProductionSemanticQCError(
-                    f"multi-speaker lip-sync requires stable speaker-to-face ownership; "
+                    "multi-speaker lip-sync requires stable speaker-to-face ownership; "
                     f"{speaker_id!r} maps to both track {previous_track} and {track_index}"
                 )
             previous_speaker = track_to_speaker.setdefault(track_index, speaker_id)
