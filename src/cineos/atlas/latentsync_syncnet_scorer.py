@@ -1,35 +1,32 @@
 """External LatentSync SyncNet adapter for measured dialogue lip-sync QC.
 
 CINEOS does not claim the SyncNet weights or LatentSync code as native capability.
-This adapter runs an explicitly pinned external checkout against the rendered artifact,
-verifies the configured checkpoint bytes, parses real audiovisual confidence/offset
-measurements, and exposes a conservative pass/fail score to the production semantic
-ensemble. It exists specifically so visual-only judges are never mislabeled as
-mouth-to-dialogue synchronization evidence.
+This adapter runs an explicitly pinned external checkout against rendered artifacts,
+verifies the configured checkpoint bytes, and exposes conservative audiovisual QC.
 
-The pinned upstream evaluator averages SyncNet measurements across every detected face
-track. That aggregate is not speaker-specific evidence when multiple faces are present.
-CINEOS therefore accepts the aggregate directly only for a single detected track. For
-a multi-face shot with one declared speaker, an explicit speaker-to-track binding may
-select one upstream face crop; CINEOS remuxes the original dialogue audio onto that
-crop and reruns the pinned evaluator so the accepted measurement is speaker-bound.
+The pinned upstream evaluator averages measurements across detected face tracks. CINEOS
+accepts that result directly only for a single detected track. Multi-face dialogue is
+speaker-bound: single-speaker shots are rerun on the declared face track; alternating
+speakers are evaluated cue-by-cue against their declared face tracks and timing windows.
 """
 
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .artifact_video_observer import RGBVideoSample
 from .semantic_video_ensemble import SemanticScorerComponent
 
-LATENTSYNC_SYNCNET_SCHEMA = "cineos-latentsync-syncnet-av-qc/0.4"
+LATENTSYNC_SYNCNET_SCHEMA = "cineos-latentsync-syncnet-av-qc/0.5"
 LATENTSYNC_REPOSITORY = "bytedance/LatentSync"
 LATENTSYNC_PINNED_REVISION = "a229c3948406bc2cf6eaf4873e662e70c6a04746"
 LATENTSYNC_CODE_LICENSE = "Apache-2.0"
@@ -46,6 +43,14 @@ class LatentSyncSyncNetError(RuntimeError):
     """Raised when real audiovisual lip-sync evidence cannot be established."""
 
 
+@dataclass(frozen=True, slots=True)
+class _DialogueCueBinding:
+    speaker_id: str
+    face_track_index: int
+    start_seconds: float
+    end_seconds: float
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     try:
@@ -58,8 +63,6 @@ def _sha256(path: Path) -> str:
 
 
 def _detected_face_tracks(temp_root: Path) -> tuple[Path, ...]:
-    """Return face-track artifacts emitted by the pinned upstream detector."""
-
     crop_dir = temp_root / "detect_results" / "crop"
     if not crop_dir.is_dir():
         return ()
@@ -72,15 +75,7 @@ def _detected_face_tracks(temp_root: Path) -> tuple[Path, ...]:
     )
 
 
-def _speaker_track_binding(shot: Any) -> tuple[str, int]:
-    """Resolve one explicitly declared speaker to one upstream face-track index.
-
-    Track indices are deliberately renderer/evaluator-local evidence and are therefore
-    read from dialogue timing rather than character conditioning. Every cue in the shot
-    must name the same speaker and the same track. Alternating-speaker shots require
-    future cue-window evaluation and fail closed instead of scoring the wrong mouth.
-    """
-
+def _dialogue_timing(shot: Any) -> list[dict[str, Any]]:
     performance = getattr(shot, "performance", None)
     if not isinstance(performance, dict):
         raise LatentSyncSyncNetError(
@@ -91,10 +86,15 @@ def _speaker_track_binding(shot: Any) -> tuple[str, int]:
         raise LatentSyncSyncNetError(
             "multi-face dialogue requires non-empty performance.dialogue_timing"
         )
+    return dialogue_timing
+
+
+def _speaker_track_binding(shot: Any) -> tuple[str, int]:
+    """Resolve a whole-shot binding when every dialogue cue has one speaker/track."""
 
     speakers: set[str] = set()
     track_indices: set[int] = set()
-    for index, cue in enumerate(dialogue_timing):
+    for index, cue in enumerate(_dialogue_timing(shot)):
         if not isinstance(cue, dict):
             raise LatentSyncSyncNetError(
                 f"performance.dialogue_timing[{index}] must be a mapping"
@@ -106,12 +106,7 @@ def _speaker_track_binding(shot: Any) -> tuple[str, int]:
             )
         speakers.add(speaker_id.strip())
         track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
-        if isinstance(track_index, bool) or not isinstance(track_index, int):
-            raise LatentSyncSyncNetError(
-                f"performance.dialogue_timing[{index}].{SPEAKER_FACE_TRACK_INDEX_KEY} "
-                "must be a non-negative integer for multi-face QC"
-            )
-        if track_index < 0:
+        if isinstance(track_index, bool) or not isinstance(track_index, int) or track_index < 0:
             raise LatentSyncSyncNetError(
                 f"performance.dialogue_timing[{index}].{SPEAKER_FACE_TRACK_INDEX_KEY} "
                 "must be a non-negative integer for multi-face QC"
@@ -120,8 +115,7 @@ def _speaker_track_binding(shot: Any) -> tuple[str, int]:
 
     if len(speakers) != 1:
         raise LatentSyncSyncNetError(
-            "multi-face dialogue with multiple speakers requires cue-window speaker-bound "
-            "evaluation; one whole-shot face track cannot prove every speaker"
+            "multi-face dialogue with multiple speakers requires cue-window speaker-bound evaluation"
         )
     if len(track_indices) != 1:
         raise LatentSyncSyncNetError(
@@ -130,20 +124,77 @@ def _speaker_track_binding(shot: Any) -> tuple[str, int]:
     return next(iter(speakers)), next(iter(track_indices))
 
 
+def _cue_window_bindings(shot: Any) -> tuple[_DialogueCueBinding, ...]:
+    """Validate exact speaker/track/time evidence for alternating-speaker dialogue."""
+
+    bindings: list[_DialogueCueBinding] = []
+    for index, cue in enumerate(_dialogue_timing(shot)):
+        if not isinstance(cue, dict):
+            raise LatentSyncSyncNetError(
+                f"performance.dialogue_timing[{index}] must be a mapping"
+            )
+        speaker_id = cue.get("speaker_id")
+        if not isinstance(speaker_id, str) or not speaker_id.strip():
+            raise LatentSyncSyncNetError(
+                f"performance.dialogue_timing[{index}] requires speaker_id for multi-face QC"
+            )
+        track_index = cue.get(SPEAKER_FACE_TRACK_INDEX_KEY)
+        if isinstance(track_index, bool) or not isinstance(track_index, int) or track_index < 0:
+            raise LatentSyncSyncNetError(
+                f"performance.dialogue_timing[{index}].{SPEAKER_FACE_TRACK_INDEX_KEY} "
+                "must be a non-negative integer for multi-face QC"
+            )
+        start = cue.get("start_seconds")
+        end = cue.get("end_seconds")
+        if (
+            isinstance(start, bool)
+            or isinstance(end, bool)
+            or not isinstance(start, (int, float))
+            or not isinstance(end, (int, float))
+        ):
+            raise LatentSyncSyncNetError(
+                "multi-face dialogue with multiple speakers requires finite "
+                "start_seconds/end_seconds for cue-window evaluation"
+            )
+        start_f = float(start)
+        end_f = float(end)
+        if (
+            not math.isfinite(start_f)
+            or not math.isfinite(end_f)
+            or start_f < 0.0
+            or end_f <= start_f
+        ):
+            raise LatentSyncSyncNetError(
+                "multi-face dialogue with multiple speakers requires valid positive cue windows"
+            )
+        bindings.append(
+            _DialogueCueBinding(
+                speaker_id=speaker_id.strip(),
+                face_track_index=track_index,
+                start_seconds=start_f,
+                end_seconds=end_f,
+            )
+        )
+    if len({binding.speaker_id for binding in bindings}) < 2:
+        raise LatentSyncSyncNetError(
+            "cue-window dialogue evaluation requires multiple speakers"
+        )
+    return tuple(bindings)
+
+
+def _parse_syncnet_output(completed: subprocess.CompletedProcess) -> tuple[float, int]:
+    output = f"{completed.stdout}\n{completed.stderr}"
+    confidence_match = _CONFIDENCE_RE.search(output)
+    offset_match = _OFFSET_RE.search(output)
+    if confidence_match is None or offset_match is None:
+        raise LatentSyncSyncNetError(
+            "LatentSync SyncNet output did not contain confidence and AV offset"
+        )
+    return float(confidence_match.group(1)), int(offset_match.group(1))
+
+
 class LatentSyncSyncNetScorer:
-    """Measure AV synchrony with a hash-bound, revision-pinned LatentSync SyncNet.
-
-    Upstream SyncNet confidence is not a calibrated probability, so CINEOS does not
-    pretend that it is one. The production quality metric is deliberately binary:
-    1.0 only when the measured confidence floor and absolute AV-offset bound pass,
-    otherwise 0.0. The raw measurements and thresholds remain in runtime provenance.
-
-    A single upstream face track may be scored directly. When several tracks are
-    detected, CINEOS requires a one-speaker shot whose dialogue cues explicitly bind
-    that speaker to one detected track. The selected crop is remuxed with the original
-    artifact audio and evaluated again; the rerun must itself produce exactly one face
-    track. No multi-face aggregate is ever accepted as speaker-specific evidence.
-    """
+    """Measure AV synchrony with a hash-bound, revision-pinned LatentSync SyncNet."""
 
     semantic_measurement_evidence = True
 
@@ -209,13 +260,11 @@ class LatentSyncSyncNetScorer:
             raise LatentSyncSyncNetError(
                 "cannot verify pinned LatentSync repository revision"
             ) from exc
-        observed_revision = completed.stdout.strip()
-        if observed_revision != self.revision:
+        if completed.stdout.strip() != self.revision:
             raise LatentSyncSyncNetError(
                 "LatentSync checkout revision does not match the pinned production revision"
             )
-        observed_hash = _sha256(self.checkpoint_path)
-        if observed_hash != self.checkpoint_sha256:
+        if _sha256(self.checkpoint_path) != self.checkpoint_sha256:
             raise LatentSyncSyncNetError(
                 "SyncNet checkpoint SHA-256 does not match approved production bytes"
             )
@@ -236,13 +285,13 @@ class LatentSyncSyncNetScorer:
             "minimum_confidence": self.minimum_confidence,
             "maximum_abs_offset_frames": self.maximum_abs_offset_frames,
             "score_semantics": "binary_pass_fail_not_probability",
-            "face_track_policy": "single_track_or_explicit_speaker_bound_track",
+            "face_track_policy": "single_track_or_explicit_speaker_bound_track_or_cue_windows",
             "speaker_track_binding_key": SPEAKER_FACE_TRACK_INDEX_KEY,
+            "multi_speaker_policy": "speaker_bound_cue_window_evaluation",
             "limitations": [
                 "not a CINEOS-native model",
                 "requires audible dialogue and a detectable speaking face",
                 "upstream SyncNet confidence is thresholded rather than treated as probability",
-                "multi-speaker dialogue in one shot requires future cue-window evaluation",
                 "speaker face-track binding must be supplied by an auditable tracking stage",
             ],
         }
@@ -308,6 +357,55 @@ class LatentSyncSyncNetScorer:
             "-shortest",
             str(output_path),
         ]
+        self._run_ffmpeg(command, output_path, "speaker-bound audiovisual artifact")
+
+    def _speaker_bound_cue_artifact(
+        self,
+        *,
+        face_track: Path,
+        original_artifact: Path,
+        output_path: Path,
+        start_seconds: float,
+        end_seconds: float,
+    ) -> None:
+        # Filter-domain trimming gives frame/sample-accurate cue boundaries instead of
+        # keyframe-limited input seeking. Re-encoding is intentional QC preprocessing;
+        # SyncNet evidence is still computed from the original rendered pixels/audio.
+        filter_graph = (
+            f"[0:v]trim=start={start_seconds:.6f}:end={end_seconds:.6f},"
+            "setpts=PTS-STARTPTS[v];"
+            f"[1:a]atrim=start={start_seconds:.6f}:end={end_seconds:.6f},"
+            "asetpts=PTS-STARTPTS[a]"
+        )
+        command = [
+            self.ffmpeg_executable,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(face_track),
+            "-i",
+            str(original_artifact),
+            "-filter_complex",
+            filter_graph,
+            "-map",
+            "[v]",
+            "-map",
+            "[a]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(output_path),
+        ]
+        self._run_ffmpeg(command, output_path, "speaker-bound dialogue cue artifact")
+
+    def _run_ffmpeg(self, command: list[str], output_path: Path, label: str) -> None:
         try:
             subprocess.run(
                 command,
@@ -317,13 +415,51 @@ class LatentSyncSyncNetScorer:
                 timeout=self.timeout_seconds,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            raise LatentSyncSyncNetError(
-                "could not remux original dialogue audio onto the speaker-bound face track"
-            ) from exc
+            raise LatentSyncSyncNetError(f"could not produce {label}") from exc
         if not output_path.is_file():
-            raise LatentSyncSyncNetError(
-                "speaker-bound audiovisual artifact was not produced by ffmpeg"
+            raise LatentSyncSyncNetError(f"{label} was not produced by ffmpeg")
+
+    def _evaluate_cue_windows(
+        self,
+        *,
+        shot: Any,
+        face_tracks: tuple[Path, ...],
+        original_artifact: Path,
+        temp_root: Path,
+    ) -> tuple[float, int, int, str]:
+        bindings = _cue_window_bindings(shot)
+        confidences: list[float] = []
+        offsets: list[int] = []
+        speakers: list[str] = []
+        for cue_index, binding in enumerate(bindings):
+            if binding.face_track_index >= len(face_tracks):
+                raise LatentSyncSyncNetError(
+                    f"speaker_face_track_index {binding.face_track_index} is out of range "
+                    f"for {len(face_tracks)} detected face tracks"
+                )
+            cue_artifact = temp_root / f"speaker-cue-{cue_index:03d}.mp4"
+            self._speaker_bound_cue_artifact(
+                face_track=face_tracks[binding.face_track_index],
+                original_artifact=original_artifact,
+                output_path=cue_artifact,
+                start_seconds=binding.start_seconds,
+                end_seconds=binding.end_seconds,
             )
+            cue_root = temp_root / f"speaker-cue-eval-{cue_index:03d}"
+            cue_root.mkdir()
+            completed = self._run_syncnet(cue_artifact, work_root=cue_root)
+            detected = len(_detected_face_tracks(cue_root))
+            if detected != 1:
+                raise LatentSyncSyncNetError(
+                    "speaker-bound dialogue cue rerun requires exactly one detected "
+                    f"face track; pinned LatentSync produced {detected} for cue {cue_index}"
+                )
+            confidence, offset = _parse_syncnet_output(completed)
+            confidences.append(confidence)
+            offsets.append(offset)
+            speakers.append(binding.speaker_id)
+        worst_offset = max(offsets, key=lambda value: abs(value))
+        return min(confidences), worst_offset, len(bindings), ",".join(sorted(set(speakers)))
 
     def __call__(
         self,
@@ -343,57 +479,68 @@ class LatentSyncSyncNetScorer:
 
         speaker_id: str | None = None
         speaker_face_track_index: int | None = None
-        original_face_track_count = 0
-        accepted_face_track_count = 0
+        evaluation_mode = "single_detected_track"
+        cue_count = 0
+        cue_speakers = ""
         with tempfile.TemporaryDirectory(prefix="cineos-latentsync-qc-") as temp:
             temp_root = Path(temp)
             initial = self._run_syncnet(artifact_path, work_root=temp_root)
             face_tracks = _detected_face_tracks(temp_root)
             original_face_track_count = len(face_tracks)
-            accepted = initial
-            accepted_face_track_count = original_face_track_count
-
             if original_face_track_count == 0:
                 raise LatentSyncSyncNetError(
                     "production dialogue lip-sync requires a detected face track; "
                     "pinned LatentSync produced 0"
                 )
+
+            accepted = initial
+            accepted_face_track_count = original_face_track_count
             if original_face_track_count > 1:
-                speaker_id, speaker_face_track_index = _speaker_track_binding(shot)
-                if speaker_face_track_index >= original_face_track_count:
-                    raise LatentSyncSyncNetError(
-                        f"speaker_face_track_index {speaker_face_track_index} is out of range "
-                        f"for {original_face_track_count} detected face tracks"
+                try:
+                    speaker_id, speaker_face_track_index = _speaker_track_binding(shot)
+                except LatentSyncSyncNetError as exc:
+                    if "multiple speakers" not in str(exc):
+                        raise
+                    confidence, offset_frames, cue_count, cue_speakers = (
+                        self._evaluate_cue_windows(
+                            shot=shot,
+                            face_tracks=face_tracks,
+                            original_artifact=artifact_path,
+                            temp_root=temp_root,
+                        )
                     )
-                bound_artifact = temp_root / "speaker-bound.mp4"
-                self._speaker_bound_artifact(
-                    face_track=face_tracks[speaker_face_track_index],
-                    original_artifact=artifact_path,
-                    output_path=bound_artifact,
-                )
-                bound_root = temp_root / "speaker-bound-eval"
-                bound_root.mkdir()
-                accepted = self._run_syncnet(bound_artifact, work_root=bound_root)
-                accepted_face_track_count = len(_detected_face_tracks(bound_root))
+                    accepted_face_track_count = 1
+                    evaluation_mode = "speaker_bound_cue_windows"
+                else:
+                    if speaker_face_track_index >= original_face_track_count:
+                        raise LatentSyncSyncNetError(
+                            f"speaker_face_track_index {speaker_face_track_index} is out of range "
+                            f"for {original_face_track_count} detected face tracks"
+                        )
+                    bound_artifact = temp_root / "speaker-bound.mp4"
+                    self._speaker_bound_artifact(
+                        face_track=face_tracks[speaker_face_track_index],
+                        original_artifact=artifact_path,
+                        output_path=bound_artifact,
+                    )
+                    bound_root = temp_root / "speaker-bound-eval"
+                    bound_root.mkdir()
+                    accepted = self._run_syncnet(bound_artifact, work_root=bound_root)
+                    accepted_face_track_count = len(_detected_face_tracks(bound_root))
+                    if accepted_face_track_count != 1:
+                        raise LatentSyncSyncNetError(
+                            "speaker-bound dialogue lip-sync rerun requires exactly one detected "
+                            f"face track; pinned LatentSync produced {accepted_face_track_count}"
+                        )
+                    evaluation_mode = "speaker_bound_whole_shot"
+
+            if evaluation_mode != "speaker_bound_cue_windows":
+                confidence, offset_frames = _parse_syncnet_output(accepted)
                 if accepted_face_track_count != 1:
                     raise LatentSyncSyncNetError(
-                        "speaker-bound dialogue lip-sync rerun requires exactly one detected "
-                        f"face track; pinned LatentSync produced {accepted_face_track_count}"
+                        "production dialogue lip-sync requires exactly one accepted face track"
                     )
 
-        output = f"{accepted.stdout}\n{accepted.stderr}"
-        confidence_match = _CONFIDENCE_RE.search(output)
-        offset_match = _OFFSET_RE.search(output)
-        if confidence_match is None or offset_match is None:
-            raise LatentSyncSyncNetError(
-                "LatentSync SyncNet output did not contain confidence and AV offset"
-            )
-        if accepted_face_track_count != 1:
-            raise LatentSyncSyncNetError(
-                "production dialogue lip-sync requires exactly one accepted face track"
-            )
-        confidence = float(confidence_match.group(1))
-        offset_frames = int(offset_match.group(1))
         measurement: dict[str, float | int | str] = {
             "syncnet_confidence": confidence,
             "av_offset_frames": offset_frames,
@@ -407,6 +554,17 @@ class LatentSyncSyncNetScorer:
                     "speaker_face_track_index": speaker_face_track_index,
                     "speaker_binding_source": (
                         "performance.dialogue_timing[*].speaker_face_track_index"
+                    ),
+                }
+            )
+        if evaluation_mode == "speaker_bound_cue_windows":
+            measurement.update(
+                {
+                    "speaker_evaluation_mode": evaluation_mode,
+                    "evaluated_dialogue_cues": cue_count,
+                    "evaluated_speakers": cue_speakers,
+                    "speaker_binding_source": (
+                        "performance.dialogue_timing[*].speaker_face_track_index+cue_window"
                     ),
                 }
             )
