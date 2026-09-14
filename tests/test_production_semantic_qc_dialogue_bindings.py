@@ -178,11 +178,15 @@ def test_multi_character_dialogue_rejects_duplicate_conditioned_identity() -> No
         characters=[{"character_uuid": "alice"}, {"character_uuid": "alice"}],
     )
 
-    with pytest.raises(ProductionSemanticQCError, match="distinct conditioned character_uuid"):
+    with pytest.raises(
+        ProductionSemanticQCError, match="distinct conditioned character_uuid"
+    ):
         validate_dialogue_speaker_bindings([shot])
 
 
-def test_multi_character_dialogue_accepts_speaker_bound_to_conditioned_identity() -> None:
+def test_multi_character_dialogue_accepts_speaker_bound_to_conditioned_identity() -> (
+    None
+):
     shot = _shot(
         [{"speaker_id": " alice ", "speaker_face_track_index": 0}],
         characters=[{"character_uuid": "alice"}, {"character_uuid": "bob"}],
